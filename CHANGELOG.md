@@ -30,6 +30,17 @@
 - `tests/unit/bridgeConsole.test.ts` — 2 новых теста для `pickFolder()`:
   `supported=false` на Linux и на macOS. Итого 86 тестов.
 
+## 2026-08-18 (Bridge Console shutdown route tests)
+
+### Тесты
+
+- `tests/unit/bridgeConsoleShutdown.test.ts` — 3 новых offline-теста:
+  1. `pickFolder` cancel: `cancelled=true` при пустом stdout PowerShell.
+  2. `/bridge/logout` при `ok:false` → HTTP 500, `gracefulStop` не вызывается,
+     `process.exit` не вызывается.
+  3. `/bridge/shutdown` → `stopLaunchedProcesses` вызывается, `gracefulStop`
+     вызывается перед `process.exit(0)`. Итого 89 тестов.
+
 ## 2026-08-18 (Bridge Console: folder picker, logout, shutdown)
 
 ### Исправления
