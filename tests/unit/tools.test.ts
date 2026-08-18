@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { parseToolInvocation, hasToolTag, createToolRetryPrompt, historicalToolInvocationText, toolResultText } from "../../src/tools/toolParser.js";
 import { buildToolPrompt } from "../../src/tools/toolPrompt.js";
 import { ToolRetryTracker } from "../../src/tools/toolRetry.js";
+import { shouldRetry } from "../../src/deepseek/client.js";
 
 const TOOLS = new Set(["Read", "Search", "get_weather", "calculate"]);
 
@@ -98,6 +99,27 @@ describe("toolPrompt", () => {
     expect(prompt).toContain("Read");
   });
 
+  it("allows plain text when no tool is needed", () => {
+    const prompt = buildToolPrompt([
+      { name: "Read", description: "Read a file", inputSchema: { type: "object" } },
+    ]);
+    expect(prompt).toMatch(/plain text/i);
+  });
+
+  it("requires JSON-only when tool is needed", () => {
+    const prompt = buildToolPrompt([
+      { name: "Read", description: "Read a file", inputSchema: { type: "object" } },
+    ]);
+    expect(prompt).toContain("exactly one JSON object");
+  });
+
+  it("does not contain the old contradictory line", () => {
+    const prompt = buildToolPrompt([
+      { name: "Read", description: "Read a file", inputSchema: { type: "object" } },
+    ]);
+    expect(prompt).not.toContain("Your entire response must be EXACTLY one JSON object");
+  });
+
   it("returns empty for no tools", () => {
     expect(buildToolPrompt([])).toBe("");
   });
@@ -142,5 +164,23 @@ describe("createToolRetryPrompt", () => {
     expect(prompt).toContain("Read");
     expect(prompt).toContain("Search");
     expect(prompt).toContain("tool_call");
+  });
+});
+
+describe("shouldRetry", () => {
+  it("no retry when tools present but model answered with text", () => {
+    expect(shouldRetry(true, null, "TypeScript — это язык...", "some reasoning")).toBe(false);
+  });
+
+  it("retry when tools present, content empty, reasoning exists", () => {
+    expect(shouldRetry(true, null, "", "Нужно прочитать файл...")).toBe(true);
+  });
+
+  it("no retry when tool call found", () => {
+    expect(shouldRetry(true, { name: "Read", arguments: {} }, "", "")).toBe(false);
+  });
+
+  it("no retry when no tools provided", () => {
+    expect(shouldRetry(false, null, "", "reasoning")).toBe(false);
   });
 });

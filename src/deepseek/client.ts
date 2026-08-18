@@ -99,8 +99,9 @@ export class DeepSeekClient {
     const inspection = inspectToolCallFromOutput(output, allowedNames);
     let toolCall = inspection.toolCall;
 
-    // Retry if tools were expected but not produced
-    if (shouldRetry(hasTools, toolCall)) {
+    // Retry only when tools were expected, no tool call found, content is empty
+    // but reasoning exists — model was thinking but didn't produce output.
+    if (shouldRetry(hasTools, toolCall, output.content, output.reasoning)) {
       const retryPrompt = createToolRetryPrompt(allowedNames);
       output = await this.runCompletion(retryPrompt, state);
       const retryInspection = inspectToolCallFromOutput(output, allowedNames);
@@ -375,8 +376,10 @@ export class DeepSeekClient {
   }
 }
 
-function shouldRetry(hasTools: boolean, toolCall: unknown): boolean {
-  return hasTools && !toolCall;
+export function shouldRetry(hasTools: boolean, toolCall: unknown, content: string, reasoning: string): boolean {
+  if (!hasTools || toolCall) return false;
+  if (content.trim() !== "") return false;
+  return reasoning.trim() !== "";
 }
 
 export function buildToolNames(tools: CanonicalTool[]): Set<string> {
