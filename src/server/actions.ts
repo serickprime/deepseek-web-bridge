@@ -42,13 +42,19 @@ export async function checkAuthStatus(): Promise<{ valid: boolean; message: stri
     const token = typeof raw.token === "string" ? raw.token : "";
     const cookie = typeof raw.cookie === "string" ? raw.cookie : "";
     if (!token && !cookie) return { valid: false, message: "No credentials in auth.json" };
-    // Quick upstream check
     const res = await fetch(`${config.baseUrl}/api/v0/auth/session`, {
       headers: { authorization: `Bearer ${token}`, cookie, ...CLIENT_HEADERS, ...BROWSER_HEADERS, "user-agent": UPSTREAM_USER_AGENT },
       signal: AbortSignal.timeout(8000),
     });
-    if (res.ok || res.status === 404) return { valid: true, message: `Auth OK (${token.slice(0, 12)}...)` };
-    return { valid: false, message: `Upstream returned HTTP ${res.status}` };
+    if (!res.ok) return { valid: false, message: `Upstream HTTP ${res.status}` };
+    const json = await res.json() as Record<string, unknown>;
+    const code = typeof json.code === "number" ? json.code : 0;
+    if (code === 40003) return { valid: false, message: `AUTH INVALID (code 40003)` };
+    if (code !== 0) {
+      const msg = typeof json.msg === "string" ? json.msg : `code ${code}`;
+      return { valid: false, message: `AUTH INVALID (${msg})` };
+    }
+    return { valid: true, message: `Auth OK (${token.slice(0, 12)}...)` };
   } catch (error) {
     return { valid: false, message: error instanceof Error ? error.message : String(error) };
   }
@@ -86,7 +92,7 @@ export async function runDiagnosticsSSE(send: (event: ActionEvent) => void): Pro
         headers: { authorization: `Bearer ${token}`, cookie, ...CLIENT_HEADERS, ...BROWSER_HEADERS, "user-agent": UPSTREAM_USER_AGENT },
         signal: AbortSignal.timeout(8000),
       });
-      send({ type: "progress", step: "upstream", ok: res.ok || res.status === 404, message: `HTTP ${res.status}` });
+      send({ type: "progress", step: "upstream", ok: res.ok, message: `HTTP ${res.status}` });
     } catch (error) {
       send({ type: "progress", step: "upstream", ok: false, message: error instanceof Error ? error.message : String(error) });
     }
@@ -187,6 +193,10 @@ export async function runAuthSSE(
     fs.rmSync(config.authFile, { force: true });
   }
 
+  if (fs.existsSync(config.chromeProfile)) {
+    fs.rmSync(config.chromeProfile, { recursive: true, force: true });
+  }
+
   const child = launchChrome({
     profileDir: config.chromeProfile,
     remoteDebugPort: CDP_PORT,
@@ -274,6 +284,32 @@ export async function runAuthSSE(
           hifLeim,
         };
 
+        send({ type: "progress", step: "auth", message: "Verifying credentials..." });
+        try {
+          const verifyRes = await fetch(`${config.baseUrl}${SESSION_CREATE_PATH}`, {
+            method: "POST",
+            headers: { "content-type": "application/json", ...CLIENT_HEADERS, ...BROWSER_HEADERS, "user-agent": UPSTREAM_USER_AGENT, authorization: `Bearer ${auth.token}`, cookie: auth.cookie, ...(auth.hifLeim ? { "x-hif-leim": auth.hifLeim } : {}), ...(auth.hifDliq ? { "x-hif-dliq": auth.hifDliq } : {}) },
+            body: JSON.stringify({}),
+            signal: AbortSignal.timeout(15000),
+          });
+          const verifyJson = await verifyRes.json() as Record<string, unknown>;
+          const verifyCode = typeof verifyJson.code === "number" ? verifyJson.code : 0;
+          const verifyData = isRecord(verifyJson.data) ? verifyJson.data : {};
+          const bizCode = typeof verifyData.biz_code === "number" ? verifyData.biz_code : 0;
+          if (verifyCode !== 0 || bizCode !== 0) {
+            const verifyMsg = typeof verifyJson.msg === "string" ? verifyJson.msg : `code ${verifyCode}`;
+            const bizMsg = typeof verifyData.biz_msg === "string" ? verifyData.biz_msg : bizCode !== 0 ? `biz_code ${bizCode}` : "";
+            const detail = bizMsg ? `${verifyMsg}: ${bizMsg}` : verifyMsg;
+            send({ type: "error", step: "auth", message: `Credentials invalid: ${detail}. auth.json NOT saved.` });
+            cleanup();
+            return null;
+          }
+        } catch (err) {
+          send({ type: "error", step: "auth", message: `Credential verification failed: ${err instanceof Error ? err.message : String(err)}. auth.json NOT saved.` });
+          cleanup();
+          return null;
+        }
+
         fs.mkdirSync(path.dirname(config.authFile), { recursive: true });
         await writeJsonAtomic(config.authFile, auth, 0o600);
 
@@ -353,6 +389,17 @@ export async function runDoctorSSE(
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const json = await res.json() as Record<string, unknown>;
+    const code = typeof json.code === "number" ? json.code : 0;
+    if (code !== 0) {
+      const msg = typeof json.msg === "string" ? json.msg : `code ${code}`;
+      throw new Error(`API error: ${msg}`);
+    }
+    const data = isRecord(json.data) ? json.data : {};
+    const bizCode = typeof data.biz_code === "number" ? data.biz_code : 0;
+    if (bizCode !== 0) {
+      const bizMsg = typeof data.biz_msg === "string" ? data.biz_msg : `biz_code ${bizCode}`;
+      throw new Error(`API biz error: ${bizMsg}`);
+    }
     challengePayload = parseChallengePayload(json);
     if (!challengePayload) throw new Error("challenge format not recognized");
   });

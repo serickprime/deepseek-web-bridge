@@ -3,6 +3,54 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-18 (DeepSeek re-authentication flow fix)
+
+### Исправления
+
+- `src/server/actions.ts` — `checkAuthStatus()`: HTTP 404 больше не считается
+  признаком валидной авторизации. Теперь парсится JSON-енвелоп ответа:
+  проверяется `code` (40003 → AUTH INVALID) и отображается реальное API-сообщение.
+- `src/server/actions.ts` — `runDiagnosticsSSE()`: upstream check теперь
+  требует HTTP 200 (ранее принимал 404).
+- `src/server/actions.ts` — `runDoctorSSE()` pow challenge: проверяется
+  `code`, `msg`, `data.biz_code`, `data.biz_msg` энвелопа. При ошибке
+  API отображается реальное сообщение вместо "challenge format not recognized".
+- `src/server/actions.ts` — `runAuthSSE()`: перед запуском Chrome очищается
+  dedicated chromeProfile (`rm -rf chrome-profile`), чтобы cookies/localStorage
+  старого аккаунта не смешивались с новым при re-auth.
+- `src/server/actions.ts` — `runAuthSSE()`: после захвата credentials
+  выполняется проверка через `POST /api/v0/chat_session/create` body `{}`.
+  Если `code != 0` или `biz_code != 0`, auth.json НЕ сохраняется,
+  отображается настоящая ошибка.
+- `scripts/auth.ts` — аналогично: очистка dedicated chromeProfile + проверка
+  credentials перед сохранением auth.json.
+- `scripts/doctor.ts` — `deepseek reachable`: парсится JSON-енвелоп ответа
+  (как в `checkAuthStatus`), HTTP 404 больше не считается OK.
+- `scripts/doctor.ts` — pow challenge: добавлена проверка `code`/`biz_code`
+  энвелопа перед `parseChallengePayload`.
+
+### Тесты
+
+- `tests/unit/authReliability.test.ts` — 18 новых тестов:
+  1. checkAuthStatus: code 0 → valid
+  2. checkAuthStatus: code 40003 → AUTH INVALID
+  3. checkAuthStatus: code 40001 → AUTH INVALID with message
+  4. checkAuthStatus: non-numeric code → valid
+  5. checkAuthStatus: missing code → valid
+  6. checkAuthStatus: code 500 with no msg → shows code number
+  7. HTTP 404 is NOT treated as valid
+  8. HTTP 403 returns invalid
+  9. HTTP 200 + code 40003 → invalid
+  10. pow: code 0, biz_code 0 → challenge parsed
+  11. pow: code 40003 → API error
+  12. pow: code 0, biz_code 10001 → biz error
+  13. pow: code 0, biz_code 0, bad challenge → null
+  14. session verify: code 0, biz_code 0 → ok
+  15. session verify: code 40003 → invalid with msg
+  16. session verify: code 0, biz_code 50001 → invalid with biz_msg
+  17. session verify: biz_code without biz_msg → shows biz_code
+  18. session verify: code -1 → shows code. Итого 123 теста.
+
 ## 2026-08-18 (Auth credential propagation fix)
 
 ### Исправления

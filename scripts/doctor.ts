@@ -62,8 +62,14 @@ export async function runDoctor(): Promise<void> {
   await check("deepseek reachable", async () => {
     if (!state.auth) throw new Error("skipped: no auth");
     const res = await fetch(`${state.auth.baseUrl}/api/v0/auth/session`);
-    if (res.status === 404 || res.status === 200) return;
-    if (res.status >= 400) throw new Error(`Unexpected HTTP ${res.status}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = (await res.json()) as Record<string, unknown>;
+    const code = typeof json.code === "number" ? json.code : 0;
+    if (code === 40003) throw new Error("AUTH INVALID (code 40003)");
+    if (code !== 0) {
+      const msg = typeof json.msg === "string" ? json.msg : `code ${code}`;
+      throw new Error(`AUTH INVALID (${msg})`);
+    }
   });
 
   let challengePayload: ReturnType<typeof parseChallengePayload> | null = null;
@@ -86,6 +92,17 @@ export async function runDoctor(): Promise<void> {
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const json = (await res.json()) as Record<string, unknown>;
+    const code = typeof json.code === "number" ? json.code : 0;
+    if (code !== 0) {
+      const msg = typeof json.msg === "string" ? json.msg : `code ${code}`;
+      throw new Error(`API error: ${msg}`);
+    }
+    const data = isRecord(json.data) ? json.data : {};
+    const bizCode = typeof data.biz_code === "number" ? data.biz_code : 0;
+    if (bizCode !== 0) {
+      const bizMsg = typeof data.biz_msg === "string" ? data.biz_msg : `biz_code ${bizCode}`;
+      throw new Error(`API biz error: ${bizMsg}`);
+    }
     challengePayload = parseChallengePayload(json);
     if (!challengePayload) throw new Error("challenge payload format not recognized");
   });

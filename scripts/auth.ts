@@ -3,7 +3,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildConfig } from "../src/config/env.js";
 import { writeJsonAtomic } from "../src/utils/atomicFile.js";
+import { isRecord } from "../src/utils/json.js";
 import { CdpConnection, createPage, launchChrome, waitForDebugger } from "./cdp.js";
+
+import { COMPLETION_PATH, SESSION_CREATE_PATH, CLIENT_HEADERS, BROWSER_HEADERS, UPSTREAM_USER_AGENT } from "../src/config/constants.js";
 
 const CDP_PORT = 9222;
 
@@ -168,6 +171,11 @@ export async function runAuth(): Promise<void> {
     fs.rmSync(config.authFile, { force: true });
   }
 
+  if (fs.existsSync(config.chromeProfile)) {
+    console.log(`Clearing dedicated profile ${config.chromeProfile} for fresh re-auth.`);
+    fs.rmSync(config.chromeProfile, { recursive: true, force: true });
+  }
+
   console.log(`Launching Chrome with profile ${config.chromeProfile}...`);
   const child = launchChrome({
     profileDir: config.chromeProfile,
@@ -201,6 +209,26 @@ export async function runAuth(): Promise<void> {
   try {
     const auth = await capture(conn, baseHost, 5 * 60 * 1000);
     printSummary(auth);
+
+    console.log("Verifying credentials against DeepSeek...");
+    const verifyRes = await fetch(`${config.baseUrl}${SESSION_CREATE_PATH}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...CLIENT_HEADERS, ...BROWSER_HEADERS, "user-agent": UPSTREAM_USER_AGENT, authorization: `Bearer ${auth.token}`, cookie: auth.cookie, ...(auth.hifLeim ? { "x-hif-leim": auth.hifLeim } : {}), ...(auth.hifDliq ? { "x-hif-dliq": auth.hifDliq } : {}) },
+      body: JSON.stringify({}),
+      signal: AbortSignal.timeout(15000),
+    });
+    const verifyJson = await verifyRes.json() as Record<string, unknown>;
+    const verifyCode = typeof verifyJson.code === "number" ? verifyJson.code : 0;
+    const verifyData = isRecord(verifyJson.data) ? verifyJson.data : {};
+    const bizCode = typeof verifyData.biz_code === "number" ? verifyData.biz_code : 0;
+    if (verifyCode !== 0 || bizCode !== 0) {
+      const verifyMsg = typeof verifyJson.msg === "string" ? verifyJson.msg : `code ${verifyCode}`;
+      const bizMsg = typeof verifyData.biz_msg === "string" ? verifyData.biz_msg : bizCode !== 0 ? `biz_code ${bizCode}` : "";
+      const detail = bizMsg ? `${verifyMsg}: ${bizMsg}` : verifyMsg;
+      throw new Error(`Credentials invalid: ${detail}. auth.json NOT saved.`);
+    }
+    console.log("Credentials verified OK.");
+
     fs.mkdirSync(path.dirname(config.authFile), { recursive: true });
     await writeJsonAtomic(config.authFile, auth, 0o600);
     console.log(`Saved to ${config.authFile} (mode 0600).`);
