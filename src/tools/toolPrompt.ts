@@ -9,11 +9,17 @@ export function buildToolPrompt(tools: CanonicalTool[]): string {
     parameters: t.inputSchema ?? {},
   }));
 
+  const toolList = safe.map(t => {
+    const desc = t.description || "No description";
+    const args = Object.keys((t.parameters as Record<string, unknown>)?.properties as Record<string, unknown> || {});
+    return `- ${t.name}\n  Purpose: ${desc}\n  Arguments: ${args.join(", ") || "none"}`;
+  }).join("\n");
+
   return [
     "",
     "--- TOOL REQUEST SYSTEM ---",
-    `Available tools: ${safe.map(t => t.name).join(", ")}`,
-    `Tool arguments: ${JSON.stringify(safe.map(t => ({ name: t.name, args: Object.keys((t.parameters as Record<string, unknown>)?.properties as Record<string, unknown> || {}) })))}`,
+    "Available tools:",
+    toolList,
     "",
     "First decide: does the task require one of the available tools?",
     "",
@@ -24,6 +30,8 @@ export function buildToolPrompt(tools: CanonicalTool[]): string {
     '{"tool_call":{"name":"tool_name","arguments":{}}}',
     "No Markdown. No explanations. No text before or after the JSON.",
     "Use only the tool names listed above.",
+    "Prefer the most specific available tool for the task.",
+    "Do not use a general shell/command tool when a dedicated available tool can perform the operation directly.",
     "Do not simulate or describe the tool result — wait for the real tool result.",
     "--- END TOOL REQUEST SYSTEM ---",
   ].join("\n");

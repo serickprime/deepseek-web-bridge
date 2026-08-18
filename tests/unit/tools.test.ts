@@ -90,33 +90,50 @@ describe("toolParser", () => {
 });
 
 describe("toolPrompt", () => {
-  it("builds prompt with TOOL REQUEST SYSTEM", () => {
-    const prompt = buildToolPrompt([
-      { name: "Read", description: "Read a file", inputSchema: { type: "object" } },
-    ]);
-    expect(prompt).toContain("TOOL REQUEST SYSTEM");
-    expect(prompt).toContain("tool_call");
-    expect(prompt).toContain("Read");
+  const tools = [
+    { name: "Read", description: "Read a file from the filesystem", inputSchema: { type: "object", properties: { file_path: { type: "string" } } } },
+    { name: "Grep", description: "Search in file contents with regex", inputSchema: { type: "object", properties: { pattern: { type: "string" } } } },
+  ];
+
+  it("contains tool description", () => {
+    const prompt = buildToolPrompt(tools);
+    expect(prompt).toContain("Read a file from the filesystem");
+  });
+
+  it("contains tool name", () => {
+    const prompt = buildToolPrompt(tools);
+    expect(prompt).toContain("- Read");
+    expect(prompt).toContain("- Grep");
+  });
+
+  it("contains argument names", () => {
+    const prompt = buildToolPrompt(tools);
+    expect(prompt).toContain("file_path");
+    expect(prompt).toContain("pattern");
+  });
+
+  it("contains most specific tool rule", () => {
+    const prompt = buildToolPrompt(tools);
+    expect(prompt).toMatch(/most specific/i);
+  });
+
+  it("contains do not use general shell tool rule", () => {
+    const prompt = buildToolPrompt(tools);
+    expect(prompt).toMatch(/Do not use a general shell\/command tool/i);
   });
 
   it("allows plain text when no tool is needed", () => {
-    const prompt = buildToolPrompt([
-      { name: "Read", description: "Read a file", inputSchema: { type: "object" } },
-    ]);
+    const prompt = buildToolPrompt(tools);
     expect(prompt).toMatch(/plain text/i);
   });
 
   it("requires JSON-only when tool is needed", () => {
-    const prompt = buildToolPrompt([
-      { name: "Read", description: "Read a file", inputSchema: { type: "object" } },
-    ]);
+    const prompt = buildToolPrompt(tools);
     expect(prompt).toContain("exactly one JSON object");
   });
 
-  it("does not contain the old contradictory line", () => {
-    const prompt = buildToolPrompt([
-      { name: "Read", description: "Read a file", inputSchema: { type: "object" } },
-    ]);
+  it("does not contain old contradictory line", () => {
+    const prompt = buildToolPrompt(tools);
     expect(prompt).not.toContain("Your entire response must be EXACTLY one JSON object");
   });
 
