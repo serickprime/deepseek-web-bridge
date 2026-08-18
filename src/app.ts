@@ -105,6 +105,8 @@ export function buildApp(): AppHandle {
     routeContext,
   });
 
+  routeContext.gracefulStop = () => server.stop();
+
   return {
     server,
     sessionManager,

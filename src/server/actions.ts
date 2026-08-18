@@ -512,8 +512,14 @@ export async function stopLaunchedProcesses(): Promise<void> {
 
 /* ── FOLDER PICKER ── */
 
-export async function pickFolder(): Promise<string | null> {
-  if (process.platform !== "win32") return null;
+export interface PickFolderResult {
+  path: string | null;
+  cancelled: boolean;
+  supported: boolean;
+}
+
+export async function pickFolder(): Promise<PickFolderResult> {
+  if (process.platform !== "win32") return { path: null, cancelled: false, supported: false };
 
   const ps = [
     "Add-Type -AssemblyName System.Windows.Forms",
@@ -523,7 +529,7 @@ export async function pickFolder(): Promise<string | null> {
     "if ($f.ShowDialog() -eq 'OK') { Write-Output $f.SelectedPath }",
   ].join("; ");
 
-  return new Promise<string | null>((resolve) => {
+  return new Promise<PickFolderResult>((resolve) => {
     const child = spawn("powershell", ["-NoProfile", "-Command", ps], {
       stdio: ["ignore", "pipe", "ignore"],
       shell: false,
@@ -532,9 +538,13 @@ export async function pickFolder(): Promise<string | null> {
     child.stdout?.on("data", (chunk: Buffer) => { stdout += chunk.toString(); });
     child.on("close", () => {
       const trimmed = stdout.trim();
-      resolve(trimmed || null);
+      if (trimmed) {
+        resolve({ path: trimmed, cancelled: false, supported: true });
+      } else {
+        resolve({ path: null, cancelled: true, supported: true });
+      }
     });
-    child.on("error", () => { resolve(null); });
+    child.on("error", () => { resolve({ path: null, cancelled: false, supported: true }); });
   });
 }
 

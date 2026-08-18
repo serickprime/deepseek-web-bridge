@@ -25,6 +25,7 @@ export interface RouteContext {
   redactor: Redactor;
   models: Array<{ id: string; object: string; owned_by: string }>;
   ready: () => boolean;
+  gracefulStop?: () => Promise<void>;
 }
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
@@ -342,11 +343,13 @@ export function routes(ctx: RouteContext): Array<{
       method: "POST",
       path: "/bridge/pick-folder",
       handler: async (_req, res) => {
-        const folder = await pickFolder();
-        if (folder === null) {
+        const result = await pickFolder();
+        if (!result.supported) {
           sendJson(res, 200, { path: null, message: "Folder picker not supported on this OS. Enter the path manually." });
+        } else if (result.cancelled) {
+          sendJson(res, 200, { path: null, cancelled: true });
         } else {
-          sendJson(res, 200, { path: folder });
+          sendJson(res, 200, { path: result.path });
         }
       },
     },
@@ -356,8 +359,15 @@ export function routes(ctx: RouteContext): Array<{
       handler: async (_req, res) => {
         await stopLaunchedProcesses();
         const result = await performLogout();
+        if (!result.ok) {
+          sendJson(res, 500, result);
+          return;
+        }
         sendJson(res, 200, result);
-        setTimeout(() => { process.exit(0); }, 500);
+        setTimeout(async () => {
+          await ctx.gracefulStop?.();
+          process.exit(0);
+        }, 500);
       },
     },
     {
@@ -366,7 +376,10 @@ export function routes(ctx: RouteContext): Array<{
       handler: async (_req, res) => {
         sendJson(res, 200, { ok: true, message: "Bridge stopped." });
         await stopLaunchedProcesses();
-        setTimeout(() => { process.exit(0); }, 500);
+        setTimeout(async () => {
+          await ctx.gracefulStop?.();
+          process.exit(0);
+        }, 500);
       },
     },
     {

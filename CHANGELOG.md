@@ -3,6 +3,33 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-18 (Graceful shutdown, folder picker 3-state)
+
+### Исправления
+
+- `src/server/routes.ts` — `/bridge/logout`: при ошибке `performLogout`
+  сервер продолжает работать (отдаёт 500, не вызывает `process.exit`).
+  При успехе вызывается `gracefulStop()` (остановка HTTP-сервера) перед
+  `process.exit(0)`.
+- `src/server/routes.ts` — `/bridge/shutdown`: вызывает `gracefulStop()`
+  перед `process.exit(0)`.
+- `src/server/routes.ts` — `RouteContext`: добавлен опциональный
+  `gracefulStop?: () => Promise<void>`.
+- `src/app.ts` — `buildApp()` прокидывает `server.stop()` как
+  `routeContext.gracefulStop` после создания сервера.
+- `src/server/actions.ts` — `pickFolder()` возвращает 3-состоятельный
+  результат `{ path, cancelled, supported }` вместо `string | null`.
+  На не-Windows: `{ path: null, cancelled: false, supported: false }`.
+  При отмене: `{ path: null, cancelled: true, supported: true }`.
+- `src/server/landingPage.ts` — `pickFolder()` UI: при отмене пользователя
+  (cancel) тост не показывается; при unsupported OS — тост "Enter path
+  manually".
+
+### Тесты
+
+- `tests/unit/bridgeConsole.test.ts` — 2 новых теста для `pickFolder()`:
+  `supported=false` на Linux и на macOS. Итого 86 тестов.
+
 ## 2026-08-18 (Bridge Console: folder picker, logout, shutdown)
 
 ### Исправления

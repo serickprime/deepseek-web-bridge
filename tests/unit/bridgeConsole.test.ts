@@ -3,7 +3,7 @@ import { join, resolve } from "node:path";
 import { mkdtemp, rm, mkdir, writeFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { spawn, type ChildProcess } from "node:child_process";
-import { performLogout, stopLaunchedProcesses, trackProcess } from "../../src/server/actions.js";
+import { performLogout, stopLaunchedProcesses, trackProcess, pickFolder } from "../../src/server/actions.js";
 
 const PUBLIC_ASSETS_DIR = resolve(process.cwd(), "public");
 
@@ -110,5 +110,33 @@ describe("stopLaunchedProcesses", () => {
     try { process.kill(victim.pid!, 0); } catch { alive = false; }
     expect(alive).toBe(true);
     try { victim.kill("SIGTERM"); } catch {}
+  });
+});
+
+describe("pickFolder", () => {
+  it("returns supported=false on non-Windows", async () => {
+    const origPlatform = process.platform;
+    Object.defineProperty(process, "platform", { value: "linux", configurable: true });
+    try {
+      const result = await pickFolder();
+      expect(result.supported).toBe(false);
+      expect(result.path).toBeNull();
+      expect(result.cancelled).toBe(false);
+    } finally {
+      Object.defineProperty(process, "platform", { value: origPlatform, configurable: true });
+    }
+  });
+
+  it("returns supported=false on darwin", async () => {
+    const origPlatform = process.platform;
+    Object.defineProperty(process, "platform", { value: "darwin", configurable: true });
+    try {
+      const result = await pickFolder();
+      expect(result.supported).toBe(false);
+      expect(result.path).toBeNull();
+      expect(result.cancelled).toBe(false);
+    } finally {
+      Object.defineProperty(process, "platform", { value: origPlatform, configurable: true });
+    }
   });
 });

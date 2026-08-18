@@ -344,7 +344,8 @@ select.f-inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xml
     fetch("/bridge/pick-folder",{method:"POST",headers:{"content-type":"application/json"},body:"{}"})
       .then(function(r){return r.json();}).then(function(d){
         if(d.path){var inp=$("workdir");if(inp)inp.value=d.path;showToast("Folder selected","success");}
-        else{showToast(d.message||"Enter path manually","success");}
+        else if(d.cancelled){}
+        else{showToast(d.message||"Enter path manually","info");}
       }).catch(function(){showToast("Folder picker failed","error");});
   };
 
