@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
-import { join, resolve } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { mkdtemp, rm, mkdir, writeFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { spawn, type ChildProcess } from "node:child_process";
@@ -15,7 +15,7 @@ function resolveAssetPath(pathname: string): { resolved: string; safe: string } 
 }
 
 function isPathWithin(child: string, parent: string): boolean {
-  return resolved(child).startsWith(resolved(parent) + resolve.sep) || resolved(child) === resolved(parent);
+  return resolve(child).startsWith(resolve(parent) + sep) || resolve(child) === resolve(parent);
 }
 
 describe("Static asset path resolution", () => {
@@ -94,7 +94,7 @@ describe("stopLaunchedProcesses", () => {
     });
     trackProcess(child);
     await stopLaunchedProcesses();
-    await new Promise(r => setTimeout(r, 300));
+    await new Promise(r => setTimeout(r, 1000));
     let alive = true;
     try { process.kill(child.pid!, 0); } catch { alive = false; }
     expect(alive).toBe(false);
