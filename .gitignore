@@ -1,0 +1,25 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+
+# runtime data with private content
+data/
+deepseek-auth.json
+.chrome-profile-deepseek/
+.chrome-profile-*/
+
+# local env
+.env
+.env.local
+
+# logs
+logs/
+*.log
+
+# editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
