@@ -148,3 +148,108 @@ describe("DeepSeekClient.ensureSession with limiter", () => {
     }
   });
 });
+
+describe("DeepSeekClient.ensureSession body and envelope", () => {
+  it("sends {} instead of { character_id: null }", async () => {
+    let capturedBody: string | undefined;
+    const mock = mockFetch(async (_url, init) => {
+      capturedBody = init?.body as string | undefined;
+      return new Response(JSON.stringify({ data: { biz_data: { chat_session: { id: "sess_1" } } } }), { status: 200 });
+    });
+
+    try {
+      const client = new DeepSeekClient(fakeOptions());
+      const state: UpstreamSessionState = { chatSessionId: null, parentMessageId: null, history: [], updatedAt: 0 };
+      await client.ensureSession(state);
+      expect(capturedBody).toBe("{}");
+      expect(state.chatSessionId).toBe("sess_1");
+    } finally {
+      mock.restore();
+    }
+  });
+
+  it("reads id from data.biz_data.chat_session.id", async () => {
+    const mock = mockFetch(async () => {
+      return new Response(JSON.stringify({
+        code: 0,
+        data: { biz_code: 0, biz_data: { chat_session: { id: "deep_chat_abc" } } },
+      }), { status: 200 });
+    });
+
+    try {
+      const client = new DeepSeekClient(fakeOptions());
+      const state: UpstreamSessionState = { chatSessionId: null, parentMessageId: null, history: [], updatedAt: 0 };
+      await client.ensureSession(state);
+      expect(state.chatSessionId).toBe("deep_chat_abc");
+    } finally {
+      mock.restore();
+    }
+  });
+
+  it("falls back to data.biz_data.id when chat_session absent", async () => {
+    const mock = mockFetch(async () => {
+      return new Response(JSON.stringify({
+        code: 0,
+        data: { biz_code: 0, biz_data: { id: "fallback_id" } },
+      }), { status: 200 });
+    });
+
+    try {
+      const client = new DeepSeekClient(fakeOptions());
+      const state: UpstreamSessionState = { chatSessionId: null, parentMessageId: null, history: [], updatedAt: 0 };
+      await client.ensureSession(state);
+      expect(state.chatSessionId).toBe("fallback_id");
+    } finally {
+      mock.restore();
+    }
+  });
+
+  it("HTTP error throws descriptive error, not generic 400", async () => {
+    const mock = mockFetch(async () => {
+      return new Response("Bad Request", { status: 400 });
+    });
+
+    try {
+      const client = new DeepSeekClient(fakeOptions());
+      const state: UpstreamSessionState = { chatSessionId: null, parentMessageId: null, history: [], updatedAt: 0 };
+      await expect(client.ensureSession(state)).rejects.toThrow("DeepSeek session creation HTTP 400");
+      await expect(client.ensureSession(state)).rejects.not.toThrow("Session creation failed.");
+    } finally {
+      mock.restore();
+    }
+  });
+
+  it("biz_code != 0 shows upstream business error", async () => {
+    const mock = mockFetch(async () => {
+      return new Response(JSON.stringify({
+        code: 0,
+        data: { biz_code: 40001, biz_msg: "rate limit exceeded" },
+      }), { status: 200 });
+    });
+
+    try {
+      const client = new DeepSeekClient(fakeOptions());
+      const state: UpstreamSessionState = { chatSessionId: null, parentMessageId: null, history: [], updatedAt: 0 };
+      await expect(client.ensureSession(state)).rejects.toThrow("DeepSeek business error: 40001 rate limit exceeded");
+    } finally {
+      mock.restore();
+    }
+  });
+
+  it("code != 0 shows API error with msg", async () => {
+    const mock = mockFetch(async () => {
+      return new Response(JSON.stringify({
+        code: 1001,
+        msg: "invalid request",
+      }), { status: 200 });
+    });
+
+    try {
+      const client = new DeepSeekClient(fakeOptions());
+      const state: UpstreamSessionState = { chatSessionId: null, parentMessageId: null, history: [], updatedAt: 0 };
+      await expect(client.ensureSession(state)).rejects.toThrow("DeepSeek API error: 1001 invalid request");
+    } finally {
+      mock.restore();
+    }
+  });
+});

@@ -3,6 +3,30 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-18 (DeepSeek session creation fix)
+
+### Исправления
+
+- `src/deepseek/client.ts` — `ensureSession()`: тело запроса изменено
+  `{ character_id: null }` → `{ }`. Добавлена полноценная проверка
+  HTTP-статуса, `json.code`, `json.data.biz_code` перед чтением session id.
+  При ошибке — информативное сообщение вида `DeepSeek session creation HTTP 400`,
+  `DeepSeek API error: <code> <msg>`, `DeepSeek business error: <code> <msg>`.
+  Приоритет чтения id: `data.biz_data.chat_session.id` → fallback `data.biz_data.id`.
+- `src/server/actions.ts` — `runDoctorSSE()`: тело запроса `{ }` вместо
+  `{ character_id: null }`.
+- `scripts/doctor.ts`: тело запроса `{ }` вместо `{ character_id: null }`.
+
+### Тесты
+
+- `tests/unit/sessionCreateLimiter.test.ts` — 6 новых тестов:
+  1. body = `{}` (не `{ character_id: null }`)
+  2. чтение `data.biz_data.chat_session.id`
+  3. fallback на `data.biz_data.id`
+  4. HTTP error → descriptive message (не generic 400)
+  5. `biz_code != 0` → upstream business error
+  6. `code != 0` → API error с msg. Итого 95 тестов.
+
 ## 2026-08-18 (Graceful shutdown, folder picker 3-state)
 
 ### Исправления

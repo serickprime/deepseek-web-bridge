@@ -68,21 +68,31 @@ export class DeepSeekClient {
     if (state.chatSessionId) return;
     await this.sessionLimiter.acquire();
     if (state.chatSessionId) return;
-    const body = JSON.stringify({ character_id: null });
+    const body = JSON.stringify({});
     const res = await this.fetch(SESSION_CREATE_PATH, { method: "POST", body }, null);
+    if (!res.ok) {
+      throw new BridgeError(`DeepSeek session creation HTTP ${res.status}`, { code: "UPSTREAM_ERROR", status: res.status });
+    }
     const json = (await res.json()) as Record<string, unknown>;
+    if (typeof json.code === "number" && json.code !== 0) {
+      throw new BridgeError(`DeepSeek API error: ${json.code} ${json.msg ?? ""}`, { code: "UPSTREAM_ERROR" });
+    }
     const data = json.data;
     if (!data || typeof data !== "object") {
-      throw new BridgeError("Session creation failed.", { code: "UPSTREAM_ERROR" });
+      throw new BridgeError("Session creation failed: missing data", { code: "UPSTREAM_ERROR" });
     }
     const dataRecord = data as Record<string, unknown>;
+    if (typeof dataRecord.biz_code === "number" && dataRecord.biz_code !== 0) {
+      throw new BridgeError(`DeepSeek business error: ${dataRecord.biz_code} ${dataRecord.biz_msg ?? ""}`, { code: "UPSTREAM_ERROR" });
+    }
     const bizData = (dataRecord.biz_data && typeof dataRecord.biz_data === "object")
       ? dataRecord.biz_data as Record<string, unknown>
       : dataRecord;
-    let id: unknown = bizData.id;
-    if (!id && bizData.chat_session && typeof bizData.chat_session === "object") {
+    let id: unknown;
+    if (bizData.chat_session && typeof bizData.chat_session === "object") {
       id = (bizData.chat_session as Record<string, unknown>).id;
     }
+    if (!id) id = bizData.id;
     if (typeof id !== "string" || !id) {
       throw new BridgeError("Session creation returned no id.", { code: "UPSTREAM_ERROR" });
     }

@@ -369,7 +369,7 @@ export async function runDoctorSSE(
     const sessionRes = await fetch(`${auth.baseUrl}${SESSION_CREATE_PATH}`, {
       method: "POST",
       headers: { "content-type": "application/json", ...CLIENT_HEADERS, ...BROWSER_HEADERS, "user-agent": UPSTREAM_USER_AGENT, authorization: `Bearer ${auth.token}`, cookie: auth.cookie },
-      body: JSON.stringify({ character_id: null }),
+      body: JSON.stringify({}),
     });
     if (!sessionRes.ok) throw new Error(`session HTTP ${sessionRes.status}`);
     const sessionJson = await sessionRes.json() as Record<string, unknown>;

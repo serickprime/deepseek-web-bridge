@@ -111,7 +111,7 @@ export async function runDoctor(): Promise<void> {
         authorization: `Bearer ${state.auth.token}`,
         cookie: state.auth.cookie,
       },
-      body: JSON.stringify({ character_id: null }),
+      body: JSON.stringify({}),
     });
     if (!sessionRes.ok) throw new Error(`session create HTTP ${sessionRes.status}`);
     const sessionJson = (await sessionRes.json()) as Record<string, unknown>;
