@@ -113,6 +113,8 @@ select.f-inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xml
     <div class="hdr-r">
       <div class="hdr-st"><span class="dot" id="hdr-led"></span><span id="hdr-stxt">CHECKING</span></div>
       <div class="hdr-ep">127.0.0.1:9655</div>
+      <button class="btn btn-s btn-sm" onclick="doLogout()" style="margin-left:8px">LOGOUT</button>
+      <button class="btn btn-s btn-sm" onclick="doShutdown()">SHUTDOWN</button>
     </div>
   </header>
 
@@ -338,7 +340,29 @@ select.f-inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xml
   }
   window.launchClaude=function(){launch("claude");};
   window.launchOpen=function(){launch("opencode");};
-  window.pickFolder=function(){showToast("Type the full path in the field above","success");};
+  window.pickFolder=function(){
+    fetch("/bridge/pick-folder",{method:"POST",headers:{"content-type":"application/json"},body:"{}"})
+      .then(function(r){return r.json();}).then(function(d){
+        if(d.path){var inp=$("workdir");if(inp)inp.value=d.path;showToast("Folder selected","success");}
+        else{showToast(d.message||"Enter path manually","success");}
+      }).catch(function(){showToast("Folder picker failed","error");});
+  };
+
+  window.doLogout=function(){
+    if(!confirm("Logout from DeepSeek and stop the Bridge?"))return;
+    fetch("/bridge/logout",{method:"POST",headers:{"content-type":"application/json"},body:"{}"})
+      .then(function(r){return r.json();}).then(function(d){
+        document.body.innerHTML='<div style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:var(--m);color:var(--txt)"><div style="text-align:center"><div style="font-size:18px;margin-bottom:12px">'+(d.message||"Logged out. Bridge stopped.")+'</div><div style="color:var(--txt-m);font-size:13px">You can close this tab.</div></div></div>';
+      }).catch(function(){showToast("Logout failed","error");});
+  };
+
+  window.doShutdown=function(){
+    fetch("/bridge/shutdown",{method:"POST",headers:{"content-type":"application/json"},body:"{}"})
+      .then(function(r){return r.json();}).then(function(){
+        document.body.innerHTML='<div style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:var(--m);color:var(--txt)"><div style="text-align:center"><div style="font-size:18px;margin-bottom:12px">Bridge stopped.</div><div style="color:var(--txt-m);font-size:13px">You can close this tab.</div></div></div>';
+        try{window.close();}catch(ex){}
+      }).catch(function(){showToast("Shutdown failed","error");});
+  };
 
   /* ── POLLING ── */
   function updateAuthLed(){

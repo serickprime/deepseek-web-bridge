@@ -15,7 +15,7 @@ import { ProtocolStream } from "./protocolStream.js";
 import type { SessionManager } from "../auth/sessionManager.js";
 import type { Redactor } from "../utils/redaction.js";
 import { LANDING_PAGE_HTML } from "./landingPage.js";
-import { runAuthSSE, runDoctorSSE, runDiagnosticsSSE, checkAuthStatus, launchClaudeCode, launchOpenCode, writeSSE, endSSE, type ActionEvent } from "./actions.js";
+import { runAuthSSE, runDoctorSSE, runDiagnosticsSSE, checkAuthStatus, launchClaudeCode, launchOpenCode, writeSSE, endSSE, pickFolder, performLogout, stopLaunchedProcesses, type ActionEvent } from "./actions.js";
 
 export interface RouteContext {
   security: SecurityOptions;
@@ -131,7 +131,7 @@ const PUBLIC_ASSETS_DIR = resolve(process.cwd(), "public");
 
 async function serveStaticAsset(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const pathname = (req.url ?? "/").split("?")[0] ?? "/";
-  const safePath = join(PUBLIC_ASSETS_DIR, pathname.replace(/^\/assets\//, ""));
+  const safePath = join(PUBLIC_ASSETS_DIR, pathname.replace(/^\//, ""));
   const resolved = resolve(safePath);
   if (!resolved.startsWith(PUBLIC_ASSETS_DIR)) {
     sendJson(res, 403, { error: { type: "FORBIDDEN", message: "Access denied" } });
@@ -336,6 +336,37 @@ export function routes(ctx: RouteContext): Array<{
         } catch (error) {
           sendJson(res, 500, { error: { type: "LAUNCH_ERROR", message: error instanceof Error ? error.message : String(error) } });
         }
+      },
+    },
+    {
+      method: "POST",
+      path: "/bridge/pick-folder",
+      handler: async (_req, res) => {
+        const folder = await pickFolder();
+        if (folder === null) {
+          sendJson(res, 200, { path: null, message: "Folder picker not supported on this OS. Enter the path manually." });
+        } else {
+          sendJson(res, 200, { path: folder });
+        }
+      },
+    },
+    {
+      method: "POST",
+      path: "/bridge/logout",
+      handler: async (_req, res) => {
+        await stopLaunchedProcesses();
+        const result = await performLogout();
+        sendJson(res, 200, result);
+        setTimeout(() => { process.exit(0); }, 500);
+      },
+    },
+    {
+      method: "POST",
+      path: "/bridge/shutdown",
+      handler: async (_req, res) => {
+        sendJson(res, 200, { ok: true, message: "Bridge stopped." });
+        await stopLaunchedProcesses();
+        setTimeout(() => { process.exit(0); }, 500);
       },
     },
     {

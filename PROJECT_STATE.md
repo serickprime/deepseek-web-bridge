@@ -70,14 +70,14 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
 | 7. DeepSeek | pow (WASM), sseParser, updateParser, client | ✅ готово |
 | 8. Server | middleware, output-адаптеры, protocolStream, routes, server | ✅ готово |
 | 9. Entrypoint | app.ts, index.ts, start.ts | ✅ готово |
-| 10. Тесты | 8 файлов, 74 offline-теста | ✅ готово |
+| 10. Тесты | 9 файлов, 84 offline-теста | ✅ готово |
 | 11. Скрипты | cdp, auth, doctor, launcher, live | ✅ live-часть работает |
 | 12. Веб-интерфейс | Bridge Console на `GET /` (Mileo dark theme, two-panel, diagnostics, model picker) | ✅ готово |
 
 **Проверки сейчас:**
 - `npm run typecheck` — ✅ без ошибок.
 - `npm run build` — ✅ собирается.
-- `npm test` — ✅ 74/74.
+- `npm test` — ✅ 84/84.
 - `npm run auth` — ✅ окно Chrome открывается, захват работает (сеть + localStorage
   fallback).
 - `npm run doctor` — ✅ все 6/6 проверок проходят (auth, reachable, challenge,
@@ -111,14 +111,17 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
   SSE-вывод для трёх протоколов, JSON-вывод для non-streaming (no-op
   ProtocolStream вместо null), `/health`, `/readyz`, `/v1/models`,
   `/v1/sessions` (CRUD), `/v1/chat/completions`, `/v1/responses`,
-  `/v1/messages`.
+  `/v1/messages`, `/bridge/pick-folder`, `/bridge/logout`, `/bridge/shutdown`.
 - Веб-интерфейс: Bridge Console на `GET /` в стиле Mileo (dark theme) — почти
   чёрный фон (#020101), красные акценты (#FD1000), two-panel layout
   (Connection + Session), статусные LED-точки, model picker из `/v1/models`,
-  Working Directory input, кнопки запуска Claude Code / OpenCode, toggleable
-  diagnostics terminal с имитацией проверок, toast notifications.
-  Статические файлы `GET /assets/*` (PNG, CSS, JS) с path-traversal
-  protection. Публичные пути: `/`, `/health`, `/readyz`, `/assets/*` (GET).
+  Working Directory input с реальным folder picker (PowerShell FolderBrowserDialog),
+  кнопки запуска Claude Code / OpenCode, кнопки LOGOUT (удаляет auth + profile
+  и останавливает Bridge) и SHUTDOWN (останавливает только tracked процессы
+  и Bridge), toggleable diagnostics terminal с имитацией проверок,
+  toast notifications. Статические файлы `GET /assets/*` (PNG, CSS, JS) с
+  path-traversal protection. Публичные пути: `/`, `/health`, `/readyz`,
+  `/assets/*` (GET).
 - Безопасность: redaction секретов в логах, 0600 для auth/sessions файлов,
   loopback-проверка + PROXY_API_KEY для не-loopback, CORS по умолчанию только
   loopback, ограничение глубины/размера tool аргументов, защита от

@@ -474,9 +474,83 @@ export function launchProcess(
 export function launchClaudeCode(workDir: string, model: string, send: (event: ActionEvent) => void): ChildProcess | null {
   const args: string[] = [];
   if (model) args.push("--model", model);
-  return launchProcess("claude", args, workDir, send, getBridgeEnv());
+  const child = launchProcess("claude", args, workDir, send, getBridgeEnv());
+  trackProcess(child);
+  return child;
 }
 
 export function launchOpenCode(workDir: string, model: string, send: (event: ActionEvent) => void): ChildProcess | null {
-  return launchProcess("opencode", [], workDir, send, getBridgeEnv());
+  const child = launchProcess("opencode", [], workDir, send, getBridgeEnv());
+  trackProcess(child);
+  return child;
+}
+
+/* ── PROCESS TRACKING ── */
+
+const launchedProcesses: Set<ChildProcess> = new Set();
+
+export function trackProcess(child: ChildProcess | null): void {
+  if (child) {
+    launchedProcesses.add(child);
+    child.on("close", () => { launchedProcesses.delete(child); });
+  }
+}
+
+export async function stopLaunchedProcesses(): Promise<void> {
+  for (const child of launchedProcesses) {
+    try {
+      const pid = child.pid;
+      if (pid && process.platform === "win32") {
+        spawn("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore" });
+      } else {
+        child.kill("SIGTERM");
+      }
+    } catch { /* best effort */ }
+  }
+  launchedProcesses.clear();
+}
+
+/* ── FOLDER PICKER ── */
+
+export async function pickFolder(): Promise<string | null> {
+  if (process.platform !== "win32") return null;
+
+  const ps = [
+    "Add-Type -AssemblyName System.Windows.Forms",
+    "$f = New-Object System.Windows.Forms.FolderBrowserDialog",
+    "$f.Description = 'Select working directory'",
+    "$f.ShowNewFolderButton = $true",
+    "if ($f.ShowDialog() -eq 'OK') { Write-Output $f.SelectedPath }",
+  ].join("; ");
+
+  return new Promise<string | null>((resolve) => {
+    const child = spawn("powershell", ["-NoProfile", "-Command", ps], {
+      stdio: ["ignore", "pipe", "ignore"],
+      shell: false,
+    });
+    let stdout = "";
+    child.stdout?.on("data", (chunk: Buffer) => { stdout += chunk.toString(); });
+    child.on("close", () => {
+      const trimmed = stdout.trim();
+      resolve(trimmed || null);
+    });
+    child.on("error", () => { resolve(null); });
+  });
+}
+
+/* ── LOGOUT ── */
+
+export async function performLogout(): Promise<{ ok: boolean; message: string }> {
+  const config = buildConfig();
+  try {
+    if (fs.existsSync(config.authFile)) {
+      fs.rmSync(config.authFile, { force: true });
+    }
+    if (fs.existsSync(config.chromeProfile)) {
+      fs.rmSync(config.chromeProfile, { recursive: true, force: true });
+    }
+    return { ok: true, message: "Logged out. Bridge stopped." };
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error) };
+  }
 }

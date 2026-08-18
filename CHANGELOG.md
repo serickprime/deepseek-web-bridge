@@ -3,6 +3,53 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-18 (Bridge Console: folder picker, logout, shutdown)
+
+### Исправления
+
+- `src/server/routes.ts` — `serveStaticAsset`: путь `/assets/x.png` теперь
+  корректно резолвится в `public/assets/x.png` (ранее stripping `/assets/`
+  давал `public/x.png`). Path-traversal protection сохранена.
+
+### Новые endpoints
+
+- `POST /bridge/pick-folder` — вызывает стандартный Windows FolderBrowserDialog
+  через PowerShell, возвращает `{ "path": "D:\\Projects\\my-project" }`.
+  На не-Windows — `{ "path": null, "message": "..." }`.
+- `POST /bridge/logout` — удаляет `auth.json` и `chrome-profile/` (dedicated
+  DeepSeek profile), останавливает launched процессы, затем завершает процесс.
+  Не удаляет пользовательский Chrome profile.
+- `POST /bridge/shutdown` — останавливает только tracked launched процессы
+  (Claude Code / OpenCode, запущенные через панель), затем завершает сервер.
+  Не убивает посторонние node/claude процессы.
+
+### UI (Bridge Console)
+
+- Кнопки LOGOUT и SHUTDOWN в header.
+- `pickFolder()` — вызывает `/bridge/pick-folder`, вставляет путь в поле.
+- `doLogout()` — confirm, вызов `/bridge/logout`, показ "Logged out. Bridge stopped."
+- `doShutdown()` — вызов `/bridge/shutdown`, показ "Bridge stopped. You can close this tab.", `window.close()`.
+
+### Процесс-трекинг
+
+- `src/server/actions.ts` — `trackProcess()`, `stopLaunchedProcesses()`.
+  Каждый `launchClaudeCode` / `launchOpenCode` автоматически трекается.
+  Shutdown использует `taskkill /PID <pid> /T /F` на Windows.
+
+### Тесты
+
+- `tests/unit/bridgeConsole.test.ts` — 10 новых тестов:
+  1. static asset path resolution (3 теста)
+  2. path traversal detection
+  3. encoded path traversal blocked
+  4. performLogout удаляет auth.json
+  5. performLogout удаляет chrome-profile
+  6. performLogout ok если ничего нет
+  7. stopLaunchedProcesses убивает tracked
+  8. stopLaunchedProcesses не трогает untracked
+
+**Итог**: `npm run typecheck` ✅, `npm test` ✅ (84/84), `npm run build` ✅.
+
 ## 2026-08-18 (rate-limit на создание DeepSeek chat sessions)
 
 ### Проблема
