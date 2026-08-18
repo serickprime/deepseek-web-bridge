@@ -17,6 +17,7 @@ import { PowSolver, parseChallengePayload } from "./pow.js";
 import { parseSseBlock, SseAccumulator } from "./sseParser.js";
 import { parseUpdateChunk } from "./updateParser.js";
 import { buildToolPrompt } from "../tools/toolPrompt.js";
+import { SessionCreateLimiter } from "../utils/sessionCreateLimiter.js";
 import {
   inspectToolCallFromOutput,
   createToolRetryPrompt,
@@ -59,9 +60,13 @@ export interface CompletionResult {
 const MAX_COMPLETIONS = 2;
 
 export class DeepSeekClient {
+  private readonly sessionLimiter = new SessionCreateLimiter();
+
   constructor(private readonly options: DeepSeekClientOptions) {}
 
   async ensureSession(state: UpstreamSessionState): Promise<void> {
+    if (state.chatSessionId) return;
+    await this.sessionLimiter.acquire();
     if (state.chatSessionId) return;
     const body = JSON.stringify({ character_id: null });
     const res = await this.fetch(SESSION_CREATE_PATH, { method: "POST", body }, null);
@@ -191,7 +196,7 @@ export class DeepSeekClient {
             if (parsed.code !== 0 || (typeof bizCode === "number" && bizCode !== 0)) {
               const msg = parsed.msg || parsed.data?.biz_msg || "unknown";
               throw new BridgeError(`Upstream API error: ${msg}`, {
-                code: "UPSTREAM_ERROR", status: 200, retryable: true,
+                code: "UPSTREAM_ERROR", retryable: true,
               });
             }
           }

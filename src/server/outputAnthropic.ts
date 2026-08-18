@@ -69,10 +69,10 @@ export function anthropicSseContentDelta(delta: string): string {
   })}\n\n`;
 }
 
-export function anthropicSseMessageDone(): string {
+export function anthropicSseMessageDone(stopReason: "end_turn" | "tool_use" = "end_turn"): string {
   return `event: message_delta\ndata: ${JSON.stringify({
     type: "message_delta",
-    delta: { stop_reason: "end_turn", stop_sequence: null },
+    delta: { stop_reason: stopReason, stop_sequence: null },
     usage: { output_tokens: 0 },
   })}\n\n`;
 }

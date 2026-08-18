@@ -57,3 +57,4 @@ export const SESSION_TTL_MS = 30 * 60 * 1000;
 export const SESSION_MAX_HISTORY = 24;
 export const SESSION_MAX_CHARS = 60_000;
 export const SESSION_MAX_ENTRIES = 512;
+export const SESSION_CREATE_INTERVAL_MS = 2_000;

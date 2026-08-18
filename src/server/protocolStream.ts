@@ -7,6 +7,7 @@ import { responsesSseDone, responsesSseOutputText } from "./outputResponses.js";
 export class ProtocolStream {
   private readonly model: string;
   private blockIndex = 0;
+  private hadToolUse = false;
 
   constructor(
     private readonly protocol: Protocol,
@@ -54,6 +55,7 @@ export class ProtocolStream {
     if (chunk.type === "tool_use") {
       const call = chunk.toolCall as CanonicalToolCall | undefined;
       if (!call) return;
+      this.hadToolUse = true;
       if (this.protocol === "openai") {
         this.write(openaiSseChunk(0, JSON.stringify({
           tool_calls: [{
@@ -87,7 +89,7 @@ export class ProtocolStream {
   finish(): void {
     if (this.protocol === "openai") this.write(openaiSseDone(0));
     if (this.protocol === "anthropic") {
-      this.write(anthropicSseMessageDone());
+      this.write(anthropicSseMessageDone(this.hadToolUse ? "tool_use" : "end_turn"));
       this.write(anthropicSseStop());
     }
     if (this.protocol === "responses") this.write(responsesSseDone());

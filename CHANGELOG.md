@@ -3,6 +3,44 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-18 (rate-limit на создание DeepSeek chat sessions)
+
+### Проблема
+
+Claude Code отправляет много служебных/повторных запросов, каждый из которых
+генерировал новый `upstreamKey` и вызывал `DeepSeekClient.ensureSession()` →
+новый `chat_session` на DeepSeek. Слишком много чатов подряд.
+
+### Решение
+
+- `src/config/constants.ts` — добавлена `SESSION_CREATE_INTERVAL_MS = 2_000`.
+- `src/utils/sessionCreateLimiter.ts` — **`SessionCreateLimiter`**: promise-chain
+  сериализует конкурентные вызовы, `Date.now()` лимитирует интервал между
+  созданиями. Не блокирует продолжения (existing `chatSessionId` обходится
+  до лимитера).
+- `src/deepseek/client.ts` — `ensureSession()`:
+  1. `if (state.chatSessionId) return` — continuation без лимитера.
+  2. `await sessionLimiter.acquire()` — ждёт свою очередь + интервал.
+  3. Повторная проверка `chatSessionId` — если другой поток уже создал
+     сессию пока ждали, пропускаем.
+  4. `POST /api/v0/chat_session/create`.
+- **Не затронуто**: tool parser, tool prompt, lineage, reasoning parser,
+  Anthropic protocol, KeyedMutex.
+
+### Тесты
+
+- `tests/unit/sessionCreateLimiter.test.ts` — 7 новых тестов (линет
+  минимум + DeepSeekClient.ensureSession через mock `globalThis.fetch`):
+  1. сериализация конкурентных `acquire()`
+  2. интервал между `acquire()`
+  3. первый `acquire()` без задержки
+  4. `ensureSession` с существующим `chatSessionId` — без запроса
+  5. два быстрых `ensureSession` — последовательное создание
+  6. интервал между `ensureSession` соблюдается
+  7. `chatSessionId` существует — `fetch` не вызывается
+
+**Итог**: `npm run typecheck` ✅, `npm test` ✅ (74/74), `npm run build` ✅.
+
 ## 2026-08-17 (tool calling — prompt-based emulation)
 
 ### Tool calling через промпт-эмуляцию

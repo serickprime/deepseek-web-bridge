@@ -1,6 +1,6 @@
 # Состояние проекта
 
-> **Актуально на:** 2026-08-17.
+> **Актуально на:** 2026-08-18.
 > Этот файл — главный источник правды о стадии проекта. Любой агент обязан
 > прочитать его перед началом работы и обновить после внесения изменений.
 > Обязательный порядок чтения перед задачей: `AGENTS.md` → `PROJECT_STATE.md`
@@ -47,7 +47,7 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
 
 Каталоги:
 - `src/config/` — константы и загрузка конфига из env / `.env`.
-- `src/utils/` — errors, crypto, json, redaction, atomicFile, logger, tokenEstimate.
+- `src/utils/` — errors, crypto, json, redaction, atomicFile, logger, tokenEstimate, sessionCreateLimiter.
 - `src/auth/` — менеджер сессий-«ключей» (sid cookies), файловое хранилище.
 - `src/sessions/` — upstream-состояние, mutex, identity-resolver, lineage.
 - `src/api/` — canonical, нормализация трёх протоколов, handler.
@@ -70,14 +70,14 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
 | 7. DeepSeek | pow (WASM), sseParser, updateParser, client | ✅ готово |
 | 8. Server | middleware, output-адаптеры, protocolStream, routes, server | ✅ готово |
 | 9. Entrypoint | app.ts, index.ts, start.ts | ✅ готово |
-| 10. Тесты | 7 файлов, 45 offline-тестов | ✅ готово |
+| 10. Тесты | 8 файлов, 74 offline-теста | ✅ готово |
 | 11. Скрипты | cdp, auth, doctor, launcher, live | ✅ live-часть работает |
 | 12. Веб-интерфейс | Bridge Console на `GET /` (Mileo dark theme, two-panel, diagnostics, model picker) | ✅ готово |
 
 **Проверки сейчас:**
 - `npm run typecheck` — ✅ без ошибок.
 - `npm run build` — ✅ собирается.
-- `npm test` — ✅ 49/49.
+- `npm test` — ✅ 74/74.
 - `npm run auth` — ✅ окно Chrome открывается, захват работает (сеть + localStorage
   fallback).
 - `npm run doctor` — ✅ все 6/6 проверок проходят (auth, reachable, challenge,
@@ -101,6 +101,9 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
   (backoff), 401/403 → отдельные ошибки, AbortController по таймауту.
   `prompt` заполняется из системного промпта или последнего user-сообщения;
   `messages` содержат `id` + `content_type`. Детекция JSON-ошибок от upstream.
+  **Session create limiter**: не более 1 нового chat_session раз в 2 секунды
+  (`SESSION_CREATE_INTERVAL_MS`), конкурентные вызовы сериализуются через
+  promise-chain. Continuation (existing `chatSessionId`) проходит без лимитера.
 - Сессии: `SessionStore` (история с лимитами), `KeyedMutex` (последовательность
   для одной upstream-сессии), `SessionResolver` (client identity vs upstream
   identity), `LineageStore` (связь call-id → upstream-сессия в sessions.json).

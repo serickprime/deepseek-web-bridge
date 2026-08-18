@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { parseUpdateChunk, isTerminalUpdate } from "../../src/deepseek/updateParser.js";
 import { SseAccumulator, parseSseBlock } from "../../src/deepseek/sseParser.js";
+import { anthropicSseMessageDone } from "../../src/server/outputAnthropic.js";
+import { ProtocolStream } from "../../src/server/protocolStream.js";
 
 describe("updateParser", () => {
   it("parses a streaming content chunk", () => {
@@ -52,6 +54,26 @@ describe("updateParser", () => {
   it("isTerminalUpdate detects done", () => {
     expect(isTerminalUpdate({ data: { type: "response_message_done" } })).toBe(true);
     expect(isTerminalUpdate({ data: { type: "response_message" } })).toBe(false);
+  });
+});
+
+describe("anthropic stop_reason", () => {
+  it("text response → end_turn", () => {
+    const chunks: string[] = [];
+    const stream = new ProtocolStream("anthropic", "test", c => chunks.push(c));
+    stream.push({ type: "content", text: "hello" });
+    stream.finish();
+    const msgDelta = chunks.find(c => c.includes("message_delta"));
+    expect(msgDelta).toContain('"stop_reason":"end_turn"');
+  });
+
+  it("tool_use response → tool_use", () => {
+    const chunks: string[] = [];
+    const stream = new ProtocolStream("anthropic", "test", c => chunks.push(c));
+    stream.push({ type: "tool_use", toolCall: { id: "call_1", type: "function", name: "Grep", arguments: {} } });
+    stream.finish();
+    const msgDelta = chunks.find(c => c.includes("message_delta"));
+    expect(msgDelta).toContain('"stop_reason":"tool_use"');
   });
 });
 
