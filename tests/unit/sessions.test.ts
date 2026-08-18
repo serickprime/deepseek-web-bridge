@@ -4,6 +4,9 @@ import type { SessionMap } from "../../src/auth/session.js";
 import type { SessionStorage } from "../../src/auth/storage.js";
 import { SessionStore } from "../../src/sessions/sessionStore.js";
 import { KeyedMutex } from "../../src/sessions/mutex.js";
+import { LineageStore } from "../../src/sessions/lineage.js";
+import { extractToolUseIdFromMessages } from "../../src/api/handler.js";
+import type { CanonicalRequest } from "../../src/api/canonical.js";
 
 class MemoryStorage implements SessionStorage {
   private map: SessionMap = {};
@@ -86,5 +89,59 @@ describe("KeyedMutex", () => {
     );
     await Promise.all(tasks);
     expect(done).toBe(2);
+  });
+});
+
+describe("LineageStore", () => {
+  it("records and retrieves call_id to upstream mapping", async () => {
+    const lineage = new LineageStore(":memory:");
+    await lineage.record("call_ABC", "upstream:123");
+    expect(lineage.getUpstreamKey("call_ABC")).toBe("upstream:123");
+  });
+
+  it("returns undefined for unknown call_id", async () => {
+    const lineage = new LineageStore(":memory:");
+    expect(lineage.getUpstreamKey("unknown")).toBeUndefined();
+  });
+});
+
+describe("extractToolUseIdFromMessages", () => {
+  it("extracts tool_use_id from tool_result block", () => {
+    const request: CanonicalRequest = {
+      model: "test",
+      stream: false,
+      system: "",
+      messages: [{
+        role: "user",
+        parts: [{
+          type: "tool_result",
+          toolResult: { toolUseId: "call_ABC", content: "file contents" },
+        }],
+      }],
+      tools: [],
+    };
+    expect(extractToolUseIdFromMessages(request)).toBe("call_ABC");
+  });
+
+  it("returns undefined when no tool_result present", () => {
+    const request: CanonicalRequest = {
+      model: "test",
+      stream: false,
+      system: "",
+      messages: [{ role: "user", parts: [{ type: "text", text: "hello" }] }],
+      tools: [],
+    };
+    expect(extractToolUseIdFromMessages(request)).toBeUndefined();
+  });
+
+  it("returns undefined for empty messages", () => {
+    const request: CanonicalRequest = {
+      model: "test",
+      stream: false,
+      system: "",
+      messages: [],
+      tools: [],
+    };
+    expect(extractToolUseIdFromMessages(request)).toBeUndefined();
   });
 });

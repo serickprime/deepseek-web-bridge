@@ -13,6 +13,17 @@ import { buildToolNames } from "../deepseek/client.js";
 import type { ProtocolStream } from "../server/protocolStream.js";
 import type { CanonicalToolCall } from "./canonical.js";
 
+export function extractToolUseIdFromMessages(request: CanonicalRequest): string | undefined {
+  for (const msg of request.messages) {
+    for (const part of msg.parts) {
+      if (part.type === "tool_result" && part.toolResult?.toolUseId) {
+        return part.toolResult.toolUseId;
+      }
+    }
+  }
+  return undefined;
+}
+
 export interface HandlerOptions {
   deepseek: DeepSeekClient;
   sessionStore: SessionStore;
@@ -46,7 +57,9 @@ export class CompletionHandler {
     const clientIdentity = resolveClientIdentity(headers);
     const explicitUpstream = resolveUpstreamIdentity(body);
     const callId = typeof headers["x-call-id"] === "string" ? headers["x-call-id"] : undefined;
-    const linkedUpstream = callId ? lineage.getUpstreamKey(callId) : undefined;
+    const toolResultUseId = extractToolUseIdFromMessages(request);
+    const linkedUpstream = (callId ? lineage.getUpstreamKey(callId) : undefined)
+      ?? (toolResultUseId ? lineage.getUpstreamKey(toolResultUseId) : undefined);
     const upstreamKey = explicitUpstream ?? linkedUpstream ?? `${clientIdentity}:${Date.now()}`;
 
     const state = sessionStore.getOrCreate(upstreamKey);
@@ -98,7 +111,8 @@ export class CompletionHandler {
           arguments: result.toolCall.args,
         };
         stream.push({ type: "tool_use", toolCall: call });
-        if (callId) {
+        await lineage.record(id, upstreamKey);
+        if (callId && callId !== id) {
           await lineage.record(callId, upstreamKey);
         }
         stream.finish();
