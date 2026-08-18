@@ -23,6 +23,8 @@ export interface AppHandle {
 interface AuthFileShape {
   token?: unknown;
   cookie?: unknown;
+  hifDliq?: unknown;
+  hifLeim?: unknown;
   hif_dliq?: unknown;
   hif_leim?: unknown;
 }
@@ -44,8 +46,10 @@ export function buildApp(): AppHandle {
   const authData = loadAuthFile(config.authFile);
   const token = typeof authData.token === "string" ? authData.token : "";
   const cookie = typeof authData.cookie === "string" ? authData.cookie : "";
-  const hifDliq = typeof authData.hif_dliq === "string" ? authData.hif_dliq : undefined;
-  const hifLeim = typeof authData.hif_leim === "string" ? authData.hif_leim : undefined;
+  const hifDliq = typeof authData.hifDliq === "string" ? authData.hifDliq
+    : typeof authData.hif_dliq === "string" ? authData.hif_dliq : undefined;
+  const hifLeim = typeof authData.hifLeim === "string" ? authData.hifLeim
+    : typeof authData.hif_leim === "string" ? authData.hif_leim : undefined;
 
   if (!token && !cookie) {
     throw new Error(

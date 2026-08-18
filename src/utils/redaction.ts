@@ -52,7 +52,7 @@ export class Redactor {
 
 export function collectAuthSecrets(auth: Record<string, unknown>): string[] {
   const secrets: string[] = [];
-  for (const key of ["token", "cookie", "authorization", "hif_dliq", "hif_leim"]) {
+  for (const key of ["token", "cookie", "authorization", "hif_dliq", "hif_leim", "hifDliq", "hifLeim"]) {
     const value = auth[key];
     if (typeof value === "string" && value.length >= 6) secrets.push(value);
   }

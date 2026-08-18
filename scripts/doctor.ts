@@ -31,7 +31,7 @@ function check(name: string, fn: () => Promise<void> | void): Promise<void> {
     });
 }
 
-async function requireAuthFile(): Promise<{ token: string; cookie: string; baseUrl: string }> {
+async function requireAuthFile(): Promise<{ token: string; cookie: string; hifLeim?: string; hifDliq?: string; baseUrl: string }> {
   const config = buildConfig();
   const raw = await readJsonIfExists(config.authFile);
   if (!isRecord(raw)) {
@@ -42,14 +42,18 @@ async function requireAuthFile(): Promise<{ token: string; cookie: string; baseU
   if (!token && !cookie) {
     throw new Error(`No token/cookie in ${config.authFile}. Run \`npm run auth\` again.`);
   }
-  return { token, cookie, baseUrl: config.baseUrl };
+  const hifLeim = typeof raw.hifLeim === "string" ? raw.hifLeim
+    : typeof raw.hif_leim === "string" ? raw.hif_leim : undefined;
+  const hifDliq = typeof raw.hifDliq === "string" ? raw.hifDliq
+    : typeof raw.hif_dliq === "string" ? raw.hif_dliq : undefined;
+  return { token, cookie, hifLeim, hifDliq, baseUrl: config.baseUrl };
 }
 
 export async function runDoctor(): Promise<void> {
   console.log("DeepSeek Web Bridge doctor");
   console.log("--------------------------");
 
-  const state: { auth: { token: string; cookie: string; baseUrl: string } | null } = { auth: null };
+  const state: { auth: { token: string; cookie: string; hifLeim?: string; hifDliq?: string; baseUrl: string } | null } = { auth: null };
 
   await check("auth file present with credentials", async () => {
     state.auth = await requireAuthFile();
@@ -75,6 +79,8 @@ export async function runDoctor(): Promise<void> {
         "user-agent": UPSTREAM_USER_AGENT,
         authorization: `Bearer ${state.auth.token}`,
         cookie: state.auth.cookie,
+        ...(state.auth.hifLeim ? { "x-hif-leim": state.auth.hifLeim } : {}),
+        ...(state.auth.hifDliq ? { "x-hif-dliq": state.auth.hifDliq } : {}),
       },
       body,
     });
@@ -84,7 +90,7 @@ export async function runDoctor(): Promise<void> {
     if (!challengePayload) throw new Error("challenge payload format not recognized");
   });
 
-  const redactor = new Redactor({ secrets: [state.auth?.token ?? "", state.auth?.cookie ?? ""] });
+  const redactor = new Redactor({ secrets: [state.auth?.token ?? "", state.auth?.cookie ?? "", state.auth?.hifLeim ?? "", state.auth?.hifDliq ?? ""] });
   const logger = new Logger({ level: "warn", redactor });
   const solver = new PowSolver({ wasmCacheDir: path.join(buildConfig().dataDir), logger });
 
@@ -110,6 +116,8 @@ export async function runDoctor(): Promise<void> {
         "user-agent": UPSTREAM_USER_AGENT,
         authorization: `Bearer ${state.auth.token}`,
         cookie: state.auth.cookie,
+        ...(state.auth.hifLeim ? { "x-hif-leim": state.auth.hifLeim } : {}),
+        ...(state.auth.hifDliq ? { "x-hif-dliq": state.auth.hifDliq } : {}),
       },
       body: JSON.stringify({}),
     });
@@ -151,6 +159,8 @@ export async function runDoctor(): Promise<void> {
         "user-agent": UPSTREAM_USER_AGENT,
         authorization: `Bearer ${state.auth.token}`,
         cookie: state.auth.cookie,
+        ...(state.auth.hifLeim ? { "x-hif-leim": state.auth.hifLeim } : {}),
+        ...(state.auth.hifDliq ? { "x-hif-dliq": state.auth.hifDliq } : {}),
         ...(solution ? { "x-ds-pow-response": Buffer.from(JSON.stringify({
           algorithm: solution.algorithm,
           challenge: solution.challenge,

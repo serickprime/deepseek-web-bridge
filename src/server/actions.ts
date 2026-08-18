@@ -320,7 +320,7 @@ export async function runDoctorSSE(
   }
 
   const config = buildConfig();
-  let authState: { token: string; cookie: string; baseUrl: string } | null = null;
+  let authState: { token: string; cookie: string; hifLeim?: string; hifDliq?: string; baseUrl: string } | null = null;
 
   await check("auth file present", async () => {
     const raw = await readJsonIfExists(config.authFile);
@@ -328,7 +328,11 @@ export async function runDoctorSSE(
     const token = typeof raw.token === "string" ? raw.token : "";
     const cookie = typeof raw.cookie === "string" ? raw.cookie : "";
     if (!token && !cookie) throw new Error("No token/cookie in auth.json");
-    authState = { token, cookie, baseUrl: config.baseUrl };
+    const hifLeim = typeof raw.hifLeim === "string" ? raw.hifLeim
+      : typeof raw.hif_leim === "string" ? raw.hif_leim : undefined;
+    const hifDliq = typeof raw.hifDliq === "string" ? raw.hifDliq
+      : typeof raw.hif_dliq === "string" ? raw.hif_dliq : undefined;
+    authState = { token, cookie, hifLeim, hifDliq, baseUrl: config.baseUrl };
   });
 
   const auth = authState!;
@@ -344,7 +348,7 @@ export async function runDoctorSSE(
     if (!authState) throw new Error("skipped");
     const res = await fetch(`${auth.baseUrl}/api/v0/chat/create_pow_challenge`, {
       method: "POST",
-      headers: { "content-type": "application/json", ...CLIENT_HEADERS, ...BROWSER_HEADERS, "user-agent": UPSTREAM_USER_AGENT, authorization: `Bearer ${auth.token}`, cookie: auth.cookie },
+      headers: { "content-type": "application/json", ...CLIENT_HEADERS, ...BROWSER_HEADERS, "user-agent": UPSTREAM_USER_AGENT, authorization: `Bearer ${auth.token}`, cookie: auth.cookie, ...(auth.hifLeim ? { "x-hif-leim": auth.hifLeim } : {}), ...(auth.hifDliq ? { "x-hif-dliq": auth.hifDliq } : {}) },
       body: JSON.stringify({ target_path: COMPLETION_PATH }),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -368,7 +372,7 @@ export async function runDoctorSSE(
     if (!authState || !challengePayload || !solution) throw new Error("skipped");
     const sessionRes = await fetch(`${auth.baseUrl}${SESSION_CREATE_PATH}`, {
       method: "POST",
-      headers: { "content-type": "application/json", ...CLIENT_HEADERS, ...BROWSER_HEADERS, "user-agent": UPSTREAM_USER_AGENT, authorization: `Bearer ${auth.token}`, cookie: auth.cookie },
+      headers: { "content-type": "application/json", ...CLIENT_HEADERS, ...BROWSER_HEADERS, "user-agent": UPSTREAM_USER_AGENT, authorization: `Bearer ${auth.token}`, cookie: auth.cookie, ...(auth.hifLeim ? { "x-hif-leim": auth.hifLeim } : {}), ...(auth.hifDliq ? { "x-hif-dliq": auth.hifDliq } : {}) },
       body: JSON.stringify({}),
     });
     if (!sessionRes.ok) throw new Error(`session HTTP ${sessionRes.status}`);
@@ -384,6 +388,8 @@ export async function runDoctorSSE(
       headers: {
         "content-type": "application/json", ...CLIENT_HEADERS, ...BROWSER_HEADERS,
         "user-agent": UPSTREAM_USER_AGENT, authorization: `Bearer ${auth.token}`, cookie: auth.cookie,
+        ...(auth.hifLeim ? { "x-hif-leim": auth.hifLeim } : {}),
+        ...(auth.hifDliq ? { "x-hif-dliq": auth.hifDliq } : {}),
         "x-ds-pow-response": Buffer.from(JSON.stringify({ algorithm: solution!.algorithm, challenge: solution!.challenge, salt: solution!.salt, answer: solution!.answer, signature: solution!.signature, target_path: COMPLETION_PATH })).toString("base64"),
       },
       body: JSON.stringify({

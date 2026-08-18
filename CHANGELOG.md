@@ -3,6 +3,36 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-18 (Auth credential propagation fix)
+
+### Исправления
+
+- `src/app.ts` — `AuthFileShape` и `loadAuthFile`: читает `hifLeim`/`hifDliq`
+  (camelCase, приоритет) с fallback на `hif_leim`/`hif_dliq` (legacy).
+  Ранее читал только snake_case, теряя camelCase из `auth.json`.
+- `src/utils/redaction.ts` — `collectAuthSecrets`: добавлены ключи
+  `hifDliq`/`hifLeim` для redaction.
+- `src/server/actions.ts` — `runDoctorSSE()`: читает `hifLeim`/`hifDliq`
+  из auth.json (camelCase + legacy fallback) и передаёт `x-hif-leim`/`x-hif-dliq`
+  во все запросы (pow challenge, session create, completion).
+- `scripts/doctor.ts` — `requireAuthFile()`: читает `hifLeim`/`hifDliq`
+  и передаёт `x-hif-leim`/`x-hif-dliq` во все запросы (pow challenge,
+  session create, completion).
+
+### Тесты
+
+- `tests/unit/authCredentialPropagation.test.ts` — 10 новых тестов:
+  1. collectAuthSecrets: camelCase hif ключи
+  2. collectAuthSecrets: legacy snake_case hif ключи
+  3. collectAuthSecrets: оба формата одновременно
+  4. collectAuthSecrets: короткие значения не собираются
+  5. DeepSeekClient: camelCase hifLeim → fetch headers
+  6. DeepSeekClient: legacy hif_leim → fetch headers
+  7. loadAuthFile: camelCase приоритет
+  8. loadAuthFile: legacy fallback
+  9. loadAuthFile: camelCase приоритет над legacy
+  10. loadAuthFile: undefined когда нет hif ключей. Итого 105 тестов.
+
 ## 2026-08-18 (DeepSeek session creation fix)
 
 ### Исправления
