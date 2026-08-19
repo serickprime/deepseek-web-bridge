@@ -3,12 +3,12 @@ import { SESSION_MAX_CHARS, SESSION_MAX_ENTRIES } from "../config/constants.js";
 export interface ChatEntry {
   role: "user" | "assistant";
   content: string;
-  messageId?: string;
+  messageId?: number;
 }
 
 export interface UpstreamSessionState {
   chatSessionId: string | null;
-  parentMessageId: string | null;
+  parentMessageId: number | null;
   history: ChatEntry[];
   updatedAt: number;
 }

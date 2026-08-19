@@ -53,6 +53,7 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
 - `src/api/` — canonical, нормализация трёх протоколов, handler.
 - `src/tools/` — tool prompt, безопасный парсер tool_call, retry.
 - `src/deepseek/` — PoW (WASM), SSE/update парсеры, upstream-клиент.
+  `parentMessageId` — number (uint32), парсится через `parseMessageId()`.
 - `src/server/` — HTTP-сервер, middleware, адаптеры вывода, SSE-обрамление.
 - `scripts/` — auth (CDP), doctor, launcher, start, live-тест.
 - `tests/unit/` — vitest, offline (без обращения к DeepSeek).
@@ -70,14 +71,14 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
 | 7. DeepSeek | pow (WASM), sseParser, updateParser, client | ✅ готово |
 | 8. Server | middleware, output-адаптеры, protocolStream, routes, server | ✅ готово |
 | 9. Entrypoint | app.ts, index.ts, start.ts | ✅ готово |
-| 10. Тесты | 14 файлов, 174 offline-тест | ✅ готово |
+| 10. Тесты | 14 файлов, 181 offline-тест | ✅ готово |
 | 11. Скрипты | cdp, auth, doctor, launcher, live | ✅ live-часть работает |
 | 12. Веб-интерфейс | Bridge Console на `GET /` (Mileo dark theme, two-panel, diagnostics, model picker) | ✅ готово |
 
 **Проверки сейчас:**
 - `npm run typecheck` — ✅ без ошибок.
 - `npm run build` — ✅ собирается.
-- `npm test` — ✅ 174/174.
+- `npm test` — ✅ 181/181.
 - `npm run auth` — ✅ окно Chrome открывается, захват работает (сеть + localStorage
   fallback).
 - `npm run doctor` — ✅ все 6/6 проверок проходят (auth, reachable, challenge,

@@ -12,12 +12,13 @@ describe("updateParser", () => {
         type: "response_message",
         index: 0,
         message: { content: "Hello", new_parent_message_id: "parent-1" },
-        message_id: "msg-1",
+        message_id: 1,
       },
     });
     expect(chunk).not.toBeNull();
     expect(chunk?.delta).toBe("Hello");
-    expect(chunk?.messageId).toBe("msg-1");
+    expect(chunk?.messageId).toBe(1);
+    expect(typeof chunk?.messageId).toBe("number");
     expect(chunk?.done).toBe(false);
   });
 
@@ -41,7 +42,7 @@ describe("updateParser", () => {
       data: {
         type: "response_message_done",
         index: 0,
-        message_id: "msg-3",
+        message_id: 3,
         usage: {
           prompt_tokens: 10,
           completion_tokens: 5,
@@ -535,6 +536,78 @@ describe("Anthropic SSE: reasoning does not appear in visible text", () => {
     const blockStarts = text.match(/event: content_block_start/g);
     expect(blockStarts).toHaveLength(2);
     expect(text).toContain('"stop_reason":"end_turn"');
+  });
+});
+
+describe("parent_message_id is numeric", () => {
+  it("message_id: 2 from initial snapshot → messageId === 2", () => {
+    const p = new DeepSeekPatchParser();
+    const chunk = p.apply({
+      v: { response: { fragments: [], message_id: 2 } },
+    });
+    expect(chunk?.messageId).toBe(2);
+    expect(typeof chunk?.messageId).toBe("number");
+  });
+
+  it("legacy numeric string \"2\" → messageId === 2", () => {
+    const p = new DeepSeekPatchParser();
+    const chunk = p.apply({
+      data: {
+        type: "response_message",
+        index: 0,
+        message: { content: "hi" },
+        message_id: "2",
+      },
+    });
+    expect(chunk?.messageId).toBe(2);
+  });
+
+  it("invalid numeric string is rejected", () => {
+    const p = new DeepSeekPatchParser();
+    const chunk = p.apply({
+      v: { response: { fragments: [], message_id: "not_a_number" } },
+    });
+    expect(chunk?.messageId).toBeUndefined();
+  });
+
+  it("negative number is rejected", () => {
+    const p = new DeepSeekPatchParser();
+    const chunk = p.apply({
+      v: { response: { fragments: [], message_id: -1 } },
+    });
+    expect(chunk?.messageId).toBeUndefined();
+  });
+
+  it("fractional number is rejected", () => {
+    const p = new DeepSeekPatchParser();
+    const chunk = p.apply({
+      v: { response: { fragments: [], message_id: 2.5 } },
+    });
+    expect(chunk?.messageId).toBeUndefined();
+  });
+
+  it("new_parent_message_id: numeric string → parentMessageId === 2", () => {
+    const p = new DeepSeekPatchParser();
+    const chunk = p.apply({
+      data: {
+        type: "response_message_done",
+        index: 0,
+        message: { content: "ok", new_parent_message_id: "2" },
+      },
+    });
+    expect(chunk?.parentMessageId).toBe(2);
+  });
+
+  it("new_parent_message_id: number → parentMessageId === 2", () => {
+    const p = new DeepSeekPatchParser();
+    const chunk = p.apply({
+      data: {
+        type: "response_message_done",
+        index: 0,
+        message: { content: "ok", new_parent_message_id: 2 },
+      },
+    });
+    expect(chunk?.parentMessageId).toBe(2);
   });
 });
 

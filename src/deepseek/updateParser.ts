@@ -1,12 +1,27 @@
 import { isRecord } from "../utils/json.js";
 
+const UINT32_MAX = 4_294_967_295;
+
+function parseMessageId(value: unknown): number | undefined {
+  if (typeof value === "number") {
+    if (Number.isInteger(value) && value >= 0 && value <= UINT32_MAX) return value;
+    return undefined;
+  }
+  if (typeof value === "string") {
+    const n = Number(value);
+    if (Number.isInteger(n) && n >= 0 && n <= UINT32_MAX) return n;
+    return undefined;
+  }
+  return undefined;
+}
+
 export interface UpdateChunk {
   index: number;
   delta: string;
   reasoningDelta?: string;
-  messageId?: string;
+  messageId?: number;
   done: boolean;
-  parentMessageId?: string | null;
+  parentMessageId?: number | null;
   usage?: {
     promptTokens?: number;
     completionTokens?: number;
@@ -108,7 +123,7 @@ export class DeepSeekPatchParser {
         if (frag.type === "THINK") reasoningDelta += frag.content;
         else delta += frag.content;
       }
-      const messageId = typeof response.message_id === "number" ? String(response.message_id) : undefined;
+      const messageId = parseMessageId(response.message_id);
       const done = this.status === "FINISHED" || this.status === "INCOMPLETE";
       return {
         index: 0,
@@ -127,7 +142,7 @@ export class DeepSeekPatchParser {
     let delta = "";
     let reasoningDelta = "";
     let done = false;
-    let messageId: string | undefined;
+    let messageId: number | undefined;
 
     const savedPath = this.currentPath;
     const savedOp = this.currentOp;
@@ -214,11 +229,11 @@ export class DeepSeekPatchParser {
     const message = isRecord(data.message) ? data.message : null;
     const index = typeof data.index === "number" ? data.index : 0;
     const done = type === "response_message_done";
-    const messageId = typeof data.message_id === "string" ? data.message_id : undefined;
+    const messageId = parseMessageId(data.message_id);
     const reasoningDelta = typeof data.reasoning_content === "string" ? data.reasoning_content : undefined;
 
     let delta = "";
-    let parentMessageId: string | null = null;
+    let parentMessageId: number | null = null;
     if (message) {
       if (typeof message.content === "string") {
         delta = message.content;
@@ -231,8 +246,8 @@ export class DeepSeekPatchParser {
           })
           .join("");
       }
-      const parent = message.new_parent_message_id;
-      if (typeof parent === "string") parentMessageId = parent;
+      const parent = parseMessageId(message.new_parent_message_id);
+      if (parent !== undefined) parentMessageId = parent;
     }
 
     let usage: UpdateChunk["usage"];

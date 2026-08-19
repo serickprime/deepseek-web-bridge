@@ -3,6 +3,36 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-19 (DeepSeek parent message id type fix)
+
+### Исправления
+
+- `src/deepseek/updateParser.ts` — `UpdateChunk.messageId` и
+  `UpdateChunk.parentMessageId` теперь `number` вместо `string`.
+  Добавлена `parseMessageId()`: безопасное преобразование number/string
+  в uint32 (0..4294967295), отбрасывание NaN/отрицательных/дробных.
+  `applyInitialSnapshot` теперь сохраняет `response.message_id` как number
+  (ранее `String()` превращал в строку). `applyOldData` парсит
+  `message_id` и `new_parent_message_id` через `parseMessageId`.
+- `src/sessions/sessionStore.ts` — `UpstreamSessionState.parentMessageId`:
+  `string | null` → `number | null`. `ChatEntry.messageId`:
+  `string | undefined` → `number | undefined`.
+- `src/deepseek/client.ts` — `CompletionResult.parentMessageId`:
+  `string | null` → `number | null`. Payload теперь отправляет
+  `"parent_message_id": 2` (number) вместо `"parent_message_id": "2"`.
+
+### Тесты
+
+- `tests/unit/sse.test.ts` — 7 новых regression tests:
+  1. message_id: 2 из initial snapshot → messageId === 2
+  2. legacy numeric string "2" → messageId === 2
+  3. invalid numeric string отбрасывается
+  4. отрицательное число отбрасывается
+  5. дробное число отбрасывается
+  6. new_parent_message_id: numeric string → parentMessageId === 2
+  7. new_parent_message_id: number → parentMessageId === 2
+  Итого 181 тест (14 файлов), все проходят.
+
 ## 2026-08-19 (DeepSeek patch continuation fix)
 
 ### Исправления

@@ -51,7 +51,7 @@ export interface CompletionCallbacks {
 }
 
 export interface CompletionResult {
-  parentMessageId: string | null;
+  parentMessageId: number | null;
   content: string;
   toolCall?: { name: string; args: Record<string, unknown> };
   usage?: { promptTokens?: number; completionTokens?: number; totalTokens?: number };
@@ -142,7 +142,7 @@ export class DeepSeekClient {
   private async runCompletion(
     prompt: string,
     state: UpstreamSessionState,
-  ): Promise<{ content: string; reasoning: string; parentMessageId: string | null; usage?: CompletionResult["usage"] }> {
+  ): Promise<{ content: string; reasoning: string; parentMessageId: number | null; usage?: CompletionResult["usage"] }> {
     const payload = {
       chat_session_id: state.chatSessionId,
       parent_message_id: state.parentMessageId,
@@ -190,7 +190,7 @@ export class DeepSeekClient {
     const decoder = new TextDecoder();
     const accumulator = new SseAccumulator();
     const parser = new DeepSeekPatchParser();
-    let parentMessageId: string | null = null;
+    let parentMessageId: number | null = null;
     let content = "";
     let reasoning = "";
     let usage: CompletionResult["usage"];
