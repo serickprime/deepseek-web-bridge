@@ -71,14 +71,14 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
 | 7. DeepSeek | pow (WASM), sseParser, updateParser, client | ✅ готово |
 | 8. Server | middleware, output-адаптеры, protocolStream, routes, server | ✅ готово |
 | 9. Entrypoint | app.ts, index.ts, start.ts | ✅ готово |
-| 10. Тесты | 16 файлов, 254 offline-теста | ✅ готово |
+| 10. Тесты | 16 файлов, 272 offline-теста | ✅ готово |
 | 11. Скрипты | cdp, auth, doctor, launcher, live | ✅ live-часть работает |
 | 12. Веб-интерфейс | Bridge Console на `GET /` (Mileo dark theme, two-panel, diagnostics, model picker) | ✅ готово |
 
 **Проверки сейчас:**
 - `npm run typecheck` — ✅ без ошибок.
 - `npm run build` — ✅ собирается.
-- `npm test` — ✅ 254/254.
+- `npm test` — ✅ 272/272.
 - `npm run auth` — ✅ окно Chrome открывается, захват работает (сеть + localStorage
   fallback).
 - `npm run doctor` — ✅ все 6/6 проверок проходят (auth, reachable, challenge,
@@ -215,7 +215,8 @@ Web API (`chat.deepseek.com`) ненадёжно для tool calling.
   PowerShell подтвердил: `compact-simple.txt` → `compact simple ok`.
   **Оговорка**: на сложной multi-step задаче после compaction модель
   заявила о создании файла, который реально отсутствовал
-  (premature final answer).
+  (premature final answer). **Prompt fix implemented**: COMPLETION GUARD
+  + FINAL ANSWER RULES в tool prompt. Требуется post-/compact live-test.
 - Большие `tool_result` (>10 000 символов): `large-result.txt`
   18 500 байт прочитан через Read, цепочка продолжилась,
   создан `large-result-ok.txt`. PowerShell подтвердил.
@@ -290,9 +291,11 @@ _(все проверены)_
       `path-test-A.txt`=AAA, session-B cwd=`D:\test 2` создал
       `path-test-B.txt`=BBB. Файлы изолированы: `Test-Path` подтвердил
       отсутствие смешивания. PowerShell-команды подтвердили пути.
-- [ ] После compaction на сложной multi-step задаче модель может
+- [~] После compaction на сложной multi-step задаче модель может
       заявить о выполнении (premature final answer) без фактического
-      вызова всех нужных tools. Простые post-compact workflows работают.
+      вызова всех нужных tools. **Completion guard implemented**: добавлены
+      COMPLETION GUARD (rule 9) и FINAL ANSWER RULES (rule 10) в tool prompt.
+      15 offline-тестов (`tools.test.ts`). Требуется post-/compact live-test.
 
 ### Cross-platform Web UI (архитектурный план)
 

@@ -227,6 +227,107 @@ describe("toolPrompt", () => {
   });
 });
 
+describe("toolPrompt — completion guard rules", () => {
+  const tools = [
+    { name: "Read", description: "Read a file", inputSchema: { type: "object", properties: { file_path: { type: "string" } } } },
+    { name: "Bash", description: "Run a command", inputSchema: { type: "object", properties: { command: { type: "string" } } } },
+  ];
+
+  it("contains COMPLETION GUARD section", () => {
+    const prompt = buildToolPrompt(tools);
+    expect(prompt).toContain("COMPLETION GUARD (mandatory)");
+  });
+
+  it("contains FINAL ANSWER RULES section", () => {
+    const prompt = buildToolPrompt(tools);
+    expect(prompt).toContain("FINAL ANSWER RULES (mandatory)");
+  });
+
+  it("requires all actions executed before final answer", () => {
+    const prompt = buildToolPrompt(tools);
+    expect(prompt).toMatch(/final answer is allowed ONLY when ALL actions/i);
+  });
+
+  it("requires real tool_result confirmation", () => {
+    const prompt = buildToolPrompt(tools);
+    expect(prompt).toMatch(/confirmed by a real[\s\S]*?tool_result/i);
+  });
+
+  it("prohibits counting actions from text/reasoning/history/compact", () => {
+    const prompt = buildToolPrompt(tools);
+    expect(prompt).toMatch(/Do NOT count an action as done because it was/i);
+    expect(prompt).toMatch(/mentioned in text, reasoning, history, or compact summary/i);
+  });
+
+  it("requires check after each tool_result", () => {
+    const prompt = buildToolPrompt(tools);
+    expect(prompt).toMatch(/After every tool_result, check/i);
+  });
+
+  it("forbids claiming success without tool_result", () => {
+    const prompt = buildToolPrompt(tools);
+    expect(prompt).toMatch(/NEVER write.*created.*read.*verified.*done.*written/i);
+    expect(prompt).toMatch(/unless the corresponding tool_result exists/i);
+  });
+
+  it("compact summaries are context only", () => {
+    const prompt = buildToolPrompt(tools);
+    expect(prompt).toMatch(/Compact summaries are context only/i);
+    expect(prompt).toMatch(/they do NOT prove[\s\S]*?specific tool was executed/i);
+  });
+
+  it("requires mental enumeration of actions before final answer", () => {
+    const prompt = buildToolPrompt(tools);
+    expect(prompt).toMatch(/enumerate every concrete[\s\S]*?action/i);
+  });
+
+  it("requires tool_result with success indicator", () => {
+    const prompt = buildToolPrompt(tools);
+    expect(prompt).toMatch(/tool_result with a success[\s\S]*?indicator exists/i);
+  });
+
+  it("requires calling tool if action missing", () => {
+    const prompt = buildToolPrompt(tools);
+    expect(prompt).toMatch(/action is missing its tool_result.*call the tool first/i);
+  });
+
+  it("requires honest error reporting", () => {
+    const prompt = buildToolPrompt(tools);
+    expect(prompt).toMatch(/tool_result shows an error.*report the error honestly/i);
+  });
+
+  it("requires extra verification when in doubt", () => {
+    const prompt = buildToolPrompt(tools);
+    expect(prompt).toMatch(/perform an extra verification tool call/i);
+  });
+
+  it("rule 10a enumerates actions", () => {
+    const prompt = buildToolPrompt(tools);
+    expect(prompt).toContain("10. FINAL ANSWER RULES");
+    expect(prompt).toContain("A) Before giving a final answer");
+  });
+
+  it("rule 10b confirms success indicator", () => {
+    const prompt = buildToolPrompt(tools);
+    expect(prompt).toContain("B) For each action, confirm that a tool_result");
+  });
+
+  it("rule 10c calls tool when missing", () => {
+    const prompt = buildToolPrompt(tools);
+    expect(prompt).toContain("C) If any action is missing its tool_result");
+  });
+
+  it("rule 10d reports error honestly", () => {
+    const prompt = buildToolPrompt(tools);
+    expect(prompt).toContain("D) If a tool_result shows an error");
+  });
+
+  it("rule 10e extra verification", () => {
+    const prompt = buildToolPrompt(tools);
+    expect(prompt).toContain("E) When in doubt, perform an extra verification");
+  });
+});
+
 describe("historical format", () => {
   it("builds historical invocation text", () => {
     const text = historicalToolInvocationText("Read", "call_123", { file_path: "a.txt" });
