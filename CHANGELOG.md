@@ -3,6 +3,39 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-19 (Anthropic tool streaming fix)
+
+### Исправления
+
+- `src/server/protocolStream.ts` — добавлен флаг `started` в `ProtocolStream`.
+  `start()` теперь отправляет `message_start` SSE event для Anthropic и
+  игнорирует повторные вызовы (dedup guard). Ранее `start()` никогда не
+  вызывался → Claude Code не мог распарсить tool_use блок.
+- `src/api/handler.ts` — `CompletionHandler.run()` теперь вызывает
+  `stream.start()` перед любыми `stream.push()`. Гарантирует что
+  `message_start` — первый SSE event в Anthropic streaming response.
+- `src/deepseek/client.ts` — `complete()` теперь возвращает `content: ""`
+  когда tool call обнаружен. Ранее возвращался raw tool_call JSON как текст,
+  что приводило к дублированию: text block + tool_use block в non-streaming
+  Anthropic response.
+- `src/deepseek/updateParser.ts` — `DeepSeekPatchParser` теперь отслеживает
+  `hasPathContext`: bare values `{v: "FINISHED"}` без собственных `p`/`o`
+  полей больше не наследуют stale `currentPath` от предыдущего fragment APPEND.
+  Также сбрасывает `currentPath`/`currentOp` после обработки status events.
+  Предотвращает утечку "FINISHED" в fragment content.
+
+### Тесты
+
+- `tests/unit/sse.test.ts` — 7 новых тестов:
+  1. message_start идёт раньше content_block_start для tool_use
+  2. double start() не отправляет message_start дважды
+  3. bare {v:"FINISHED"} после APPEND не засоряет delta
+  4. bare {v:"FINISHED"} после THINK APPEND не засоряет reasoningDelta
+  5. proper status event работает после reset
+  6. toAnthropicMessage: tool_call → tool_use block, без text block
+  7. toAnthropicMessage: text-only → text block, без tool_use block
+  Итого 160 тестов (14 файлов), все проходят.
+
 ## 2026-08-19 (Local auth status + DeepSeek patch state machine)
 
 ### Исправления

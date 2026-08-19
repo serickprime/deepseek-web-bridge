@@ -70,14 +70,14 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
 | 7. DeepSeek | pow (WASM), sseParser, updateParser, client | ✅ готово |
 | 8. Server | middleware, output-адаптеры, protocolStream, routes, server | ✅ готово |
 | 9. Entrypoint | app.ts, index.ts, start.ts | ✅ готово |
-| 10. Тесты | 14 файлов, 153 offline-тест | ✅ готово |
+| 10. Тесты | 14 файлов, 160 offline-тест | ✅ готово |
 | 11. Скрипты | cdp, auth, doctor, launcher, live | ✅ live-часть работает |
 | 12. Веб-интерфейс | Bridge Console на `GET /` (Mileo dark theme, two-panel, diagnostics, model picker) | ✅ готово |
 
 **Проверки сейчас:**
 - `npm run typecheck` — ✅ без ошибок.
 - `npm run build` — ✅ собирается.
-- `npm test` — ✅ 153/153.
+- `npm test` — ✅ 160/160.
 - `npm run auth` — ✅ окно Chrome открывается, захват работает (сеть + localStorage
   fallback).
 - `npm run doctor` — ✅ все 6/6 проверок проходят (auth, reachable, challenge,
@@ -100,8 +100,10 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
   `{ p: "response/status", o: "SET", v: "FINISHED" }` (терминальное).
   Старый формат `{ data: { type: "...", message: { content: "..." } } }`
   сохранён как fallback. **Класс `DeepSeekPatchParser`** с инстансным
-  состоянием (currentPath, currentOp, fragments[], status) — каждый
-  `runCompletion()` создаёт свой экземпляр, нет модульного глобального state.
+  состоянием (currentPath, currentOp, fragments[], status, hasPathContext)
+  — каждый `runCompletion()` создаёт свой экземпляр, нет модульного
+  глобального state. `hasPathContext` предотвращает утечку stale paths
+  в bare values.
 - Upstream-клиент: создание `chat_session_id`, completion с ретраями на 429/5xx
   (backoff), 401/403 → отдельные ошибки, AbortController по таймауту.
   `prompt` заполняется из системного промпта или последнего user-сообщения;
@@ -120,6 +122,9 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
   `/bridge/logout` при ошибке удаления файлов отдаёт 500 и не завершает процесс;
   при успехе вызывает `gracefulStop()` → `process.exit(0)`.
   `RouteContext.gracefulStop` прокидывается из `AppHandle.stop`.
+  **ProtocolStream.start()** — вызывается из CompletionHandler перед
+  `stream.push()`, отправляет `message_start` для Anthropic streaming;
+  dedup guard предотвращает повторные вызовы.
 - Веб-интерфейс: Bridge Console на `GET /` в стиле Mileo (dark theme) — почти
   чёрный фон (#020101), красные акценты (#FD1000), two-panel layout
   (Connection + Session), статусные LED-точки, model picker из `/v1/models`,
@@ -173,15 +178,15 @@ Web API (`chat.deepseek.com`) ненадёжно для tool calling.
 - [x] **`npm run doctor` с реальным аккаунтом** — ✅ все 6/6 проверок проходят.
 - [x] **`npm run test:live`** — ✅ все проверки проходят (health, models,
   chat/completions, messages).
-- [ ] **Tool calling работает** — Промпт-эмуляция (FreeDeepseekAPI format:
-  `{"tool_call":{"name":"X","arguments":{}}}` с delimiters
-  `--- TOOL REQUEST SYSTEM ---`) + текстовый извлечение JSON из ответа
-  модели + retry. **Результат**: 5/5 live-тестов проходят (2 модели ×
-  2 протокола + thinking). Claude Code может использовать инструменты
-  через бридж.
+- [x] **Tool calling работает** — Промпт-эмуляция (FreeDeepseekAPI format)
+  + текстовый извлечение JSON + retry. **Live-тест 2026-08-17**: 5/5.
+  Claude Code может использовать инструменты через бридж.
+  **2026-08-19**: исправлен Anthropic streaming — добавлен `stream.start()`
+  (message_start), raw tool JSON больше не попадает в text block,
+  FINISHED не утекает в fragment content. Claude Code tool calls теперь
+  маршрутизируются через `tool_use` blocks.
   **Ограничение**: модель не всегда генерирует чистый JSON — парсер
   извлекает JSON из текста, retry помогает при неверном формате.
-  **Live-тест 2026-08-17**: 5/5 комбинаций успешно вернули tool call.
 
 ### Приоритет 2 (расхождения README с кодом)
 - [ ] README обещает setup-панель `http://127.0.0.1:9655/setup` — маршрута нет;

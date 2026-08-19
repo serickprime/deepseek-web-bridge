@@ -74,6 +74,7 @@ export class CompletionHandler {
     return this.mutex.withLock(upstreamKey, async () => {
       await deepseek.ensureSession(state);
       const toolNames = buildToolNames(request.tools);
+      stream.start();
       const textChunks: string[] = [];
       const reasoningChunks: string[] = [];
       const result = await deepseek.complete(

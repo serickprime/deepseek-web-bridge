@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DeepSeekPatchParser } from "../../src/deepseek/updateParser.js";
 import { SseAccumulator, parseSseBlock } from "../../src/deepseek/sseParser.js";
-import { anthropicSseMessageDone } from "../../src/server/outputAnthropic.js";
+import { anthropicSseMessageDone, toAnthropicMessage } from "../../src/server/outputAnthropic.js";
 import { ProtocolStream } from "../../src/server/protocolStream.js";
 
 describe("updateParser", () => {
@@ -208,6 +208,107 @@ describe("anthropic stop_reason", () => {
     stream.finish();
     const msgDelta = chunks.find(c => c.includes("message_delta"));
     expect(msgDelta).toContain('"stop_reason":"tool_use"');
+  });
+});
+
+describe("FIX1: message_start before content_block_start for tool_use", () => {
+  it("message_start is emitted before tool_use block", () => {
+    const chunks: string[] = [];
+    const stream = new ProtocolStream("anthropic", "test-model", c => chunks.push(c));
+    stream.start();
+    stream.push({ type: "tool_use", toolCall: { id: "call_1", type: "function", name: "Bash", arguments: { command: "ls" } } });
+    stream.finish();
+
+    const text = chunks.join("");
+    const msgStartIdx = text.indexOf("message_start");
+    const blockStartIdx = text.indexOf("content_block_start");
+    expect(msgStartIdx).toBeGreaterThanOrEqual(0);
+    expect(blockStartIdx).toBeGreaterThan(msgStartIdx);
+  });
+
+  it("double start() does not emit message_start twice", () => {
+    const chunks: string[] = [];
+    const stream = new ProtocolStream("anthropic", "test-model", c => chunks.push(c));
+    stream.start();
+    stream.start();
+    stream.push({ type: "content", text: "hi" });
+    stream.finish();
+
+    const text = chunks.join("");
+    const matches = text.match(/event: message_start/g);
+    expect(matches).toHaveLength(1);
+  });
+});
+
+describe("FIX3: FINISHED does not leak into fragment content", () => {
+  it("bare {v:\"FINISHED\"} after APPEND does not pollute delta", () => {
+    const p = new DeepSeekPatchParser();
+    const c1 = p.apply({
+      v: { response: { fragments: [{ type: "RESPONSE", content: "hello" }] } },
+    });
+    expect(c1?.delta).toBe("hello");
+
+    const c2 = p.apply({
+      v: { p: "response/fragments/-1/content", o: "APPEND", v: " world" },
+    });
+    expect(c2?.delta).toBe(" world");
+
+    const c3 = p.apply({ v: "FINISHED" });
+    expect(c3).toBeNull();
+  });
+
+  it("bare {v:\"FINISHED\"} after THINK APPEND does not pollute reasoningDelta", () => {
+    const p = new DeepSeekPatchParser();
+    p.apply({
+      v: { response: { fragments: [{ type: "THINK", content: "reasoning" }] } },
+    });
+    const c2 = p.apply({
+      v: { p: "response/fragments/-1/content", o: "APPEND", v: " more" },
+    });
+    expect(c2?.reasoningDelta).toBe(" more");
+
+    const c3 = p.apply({ v: "FINISHED" });
+    expect(c3).toBeNull();
+  });
+
+  it("proper status event still works after reset", () => {
+    const p = new DeepSeekPatchParser();
+    p.apply({
+      v: { response: { fragments: [{ type: "RESPONSE", content: "data" }] } },
+    });
+    const status = p.apply({
+      v: { p: "response/status", o: "SET", v: "FINISHED" },
+    });
+    expect(status?.done).toBe(true);
+    expect(status?.delta).toBe("");
+    expect(p.getStatus()).toBe("FINISHED");
+  });
+});
+
+describe("FIX2: toAnthropicMessage does not include raw JSON text when tool_call present", () => {
+  it("tool_use result has tool_use block and no text block", () => {
+    const result = {
+      content: "",
+      toolCalls: [{ id: "call_1", type: "function" as const, name: "Bash", arguments: { command: "ls" } }],
+    };
+    const msg = toAnthropicMessage(result, "test-model");
+    const textBlocks = msg.content.filter(b => b.type === "text");
+    const toolBlocks = msg.content.filter(b => b.type === "tool_use");
+    expect(textBlocks).toHaveLength(0);
+    expect(toolBlocks).toHaveLength(1);
+    expect(toolBlocks[0]!.name).toBe("Bash");
+    expect(msg.stop_reason).toBe("tool_use");
+  });
+
+  it("text-only result has text block and no tool_use block", () => {
+    const result = { content: "hello world", toolCalls: [] };
+    const msg = toAnthropicMessage(result, "test-model");
+    const textBlocks = msg.content.filter(b => b.type === "text");
+    const toolBlocks = msg.content.filter(b => b.type === "tool_use");
+    expect(textBlocks).toHaveLength(1);
+    expect(textBlocks[0]!.text).toBe("hello world");
+    expect(toolBlocks).toHaveLength(0);
+    expect(msg.stop_reason).toBe("end_turn");
   });
 });
 

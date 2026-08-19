@@ -133,7 +133,7 @@ export class DeepSeekClient {
 
     return {
       parentMessageId: state.parentMessageId,
-      content: output.content,
+      content: toolCall ? "" : output.content,
       toolCall: toolCall ? { name: toolCall.name, args: toolCall.arguments as Record<string, unknown> } : undefined,
       usage: output.usage,
     };

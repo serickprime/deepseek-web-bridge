@@ -8,6 +8,7 @@ export class ProtocolStream {
   private readonly model: string;
   private blockIndex = 0;
   private hadToolUse = false;
+  private started = false;
 
   constructor(
     private readonly protocol: Protocol,
@@ -18,6 +19,8 @@ export class ProtocolStream {
   }
 
   start(): void {
+    if (this.started) return;
+    this.started = true;
     if (this.protocol === "anthropic") {
       this.write(anthropicSseMessageStart(this.model, 0));
     }
