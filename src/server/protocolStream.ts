@@ -1,6 +1,6 @@
 import type { CanonicalChunk, CanonicalToolCall } from "../api/canonical.js";
 import type { Protocol } from "../api/normalizeByProtocol.js";
-import { anthropicSseContentDelta, anthropicSseMessageDone, anthropicSseMessageStart, anthropicSseStop } from "./outputAnthropic.js";
+import { anthropicSseMessageDone, anthropicSseMessageStart, anthropicSseStop } from "./outputAnthropic.js";
 import { openaiSseChunk, openaiSseDone } from "./outputOpenAI.js";
 import { responsesSseDone, responsesSseOutputText } from "./outputResponses.js";
 
@@ -9,6 +9,7 @@ export class ProtocolStream {
   private blockIndex = 0;
   private hadToolUse = false;
   private started = false;
+  private textBlockOpen = false;
 
   constructor(
     private readonly protocol: Protocol,
@@ -26,17 +27,45 @@ export class ProtocolStream {
     }
   }
 
+  private closeTextBlock(): void {
+    if (!this.textBlockOpen) return;
+    this.write(`event: content_block_stop\ndata: ${JSON.stringify({
+      type: "content_block_stop",
+      index: this.blockIndex,
+    })}\n\n`);
+    this.blockIndex++;
+    this.textBlockOpen = false;
+  }
+
   push(chunk: CanonicalChunk): void {
     if (chunk.type === "content") {
-      if (chunk.text) {
-        if (this.protocol === "openai") this.write(openaiSseChunk(0, chunk.text));
-        if (this.protocol === "anthropic") this.write(anthropicSseContentDelta(chunk.text));
-        if (this.protocol === "responses") this.write(responsesSseOutputText(chunk.text));
+      if (!chunk.text) return;
+      if (this.protocol === "openai") {
+        this.write(openaiSseChunk(0, chunk.text));
+      }
+      if (this.protocol === "anthropic") {
+        if (!this.textBlockOpen) {
+          this.write(`event: content_block_start\ndata: ${JSON.stringify({
+            type: "content_block_start",
+            index: this.blockIndex,
+            content_block: { type: "text", text: "" },
+          })}\n\n`);
+          this.textBlockOpen = true;
+        }
+        this.write(`event: content_block_delta\ndata: ${JSON.stringify({
+          type: "content_block_delta",
+          index: this.blockIndex,
+          delta: { type: "text_delta", text: chunk.text },
+        })}\n\n`);
+      }
+      if (this.protocol === "responses") {
+        this.write(responsesSseOutputText(chunk.text));
       }
       return;
     }
     if (chunk.type === "thinking") {
       if (this.protocol === "anthropic" && chunk.text) {
+        this.closeTextBlock();
         const idx = this.blockIndex++;
         this.write(`event: content_block_start\ndata: ${JSON.stringify({
           type: "content_block_start",
@@ -58,6 +87,7 @@ export class ProtocolStream {
     if (chunk.type === "tool_use") {
       const call = chunk.toolCall as CanonicalToolCall | undefined;
       if (!call) return;
+      this.closeTextBlock();
       this.hadToolUse = true;
       if (this.protocol === "openai") {
         this.write(openaiSseChunk(0, JSON.stringify({
@@ -69,11 +99,11 @@ export class ProtocolStream {
         })));
       }
       if (this.protocol === "anthropic") {
-        const idx = this.blockIndex;
+        const idx = this.blockIndex++;
         this.write(`event: content_block_start\ndata: ${JSON.stringify({
           type: "content_block_start",
           index: idx,
-          content_block: { type: "tool_use", id: call.id, name: call.name },
+          content_block: { type: "tool_use", id: call.id, name: call.name, input: {} },
         })}\n\n`);
         this.write(`event: content_block_delta\ndata: ${JSON.stringify({
           type: "content_block_delta",
@@ -84,12 +114,14 @@ export class ProtocolStream {
           type: "content_block_stop",
           index: idx,
         })}\n\n`);
-        this.blockIndex++;
       }
     }
   }
 
   finish(): void {
+    if (this.protocol === "anthropic") {
+      this.closeTextBlock();
+    }
     if (this.protocol === "openai") this.write(openaiSseDone(0));
     if (this.protocol === "anthropic") {
       this.write(anthropicSseMessageDone(this.hadToolUse ? "tool_use" : "end_turn"));

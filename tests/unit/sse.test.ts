@@ -312,6 +312,180 @@ describe("FIX2: toAnthropicMessage does not include raw JSON text when tool_call
   });
 });
 
+describe("Anthropic SSE lifecycle: text", () => {
+  it("full start/delta/stop lifecycle for plain text", () => {
+    const chunks: string[] = [];
+    const stream = new ProtocolStream("anthropic", "test-model", c => chunks.push(c));
+    stream.start();
+    stream.push({ type: "content", text: "hello" });
+    stream.finish();
+
+    const text = chunks.join("");
+    expect(text).toContain("event: message_start");
+    expect(text).toContain("event: content_block_start");
+    expect(text).toContain('"type":"text"');
+    expect(text).toContain("event: content_block_delta");
+    expect(text).toContain('"type":"text_delta"');
+    expect(text).toContain('"text":"hello"');
+    expect(text).toContain("event: content_block_stop");
+    expect(text).toContain("event: message_delta");
+    expect(text).toContain('"stop_reason":"end_turn"');
+    expect(text).toContain("event: message_stop");
+  });
+
+  it("result.content appears in SSE as text_delta", () => {
+    const chunks: string[] = [];
+    const stream = new ProtocolStream("anthropic", "m", c => chunks.push(c));
+    stream.start();
+    stream.push({ type: "content", text: "The answer is 42." });
+    stream.finish();
+
+    const text = chunks.join("");
+    expect(text).toContain('"text":"The answer is 42."');
+    expect(text).toContain('"type":"text_delta"');
+  });
+
+  it("multiple content pushes share one text block", () => {
+    const chunks: string[] = [];
+    const stream = new ProtocolStream("anthropic", "m", c => chunks.push(c));
+    stream.start();
+    stream.push({ type: "content", text: "aa" });
+    stream.push({ type: "content", text: "bb" });
+    stream.finish();
+
+    const text = chunks.join("");
+    const blockStarts = text.match(/event: content_block_start/g);
+    const blockStops = text.match(/event: content_block_stop/g);
+    expect(blockStarts).toHaveLength(1);
+    expect(blockStops).toHaveLength(1);
+    expect(text).toContain('"text":"aa"');
+    expect(text).toContain('"text":"bb"');
+  });
+
+  it("text block index is 0", () => {
+    const chunks: string[] = [];
+    const stream = new ProtocolStream("anthropic", "m", c => chunks.push(c));
+    stream.start();
+    stream.push({ type: "content", text: "x" });
+    stream.finish();
+
+    const text = chunks.join("");
+    const blockStart = text.match(/event: content_block_start\ndata: ({.*?})\n\n/);
+    expect(blockStart).not.toBeNull();
+    const parsed = JSON.parse(blockStart![1]!);
+    expect(parsed.index).toBe(0);
+  });
+});
+
+describe("Anthropic SSE lifecycle: tool_use", () => {
+  it("tool_use content_block_start contains input:{}", () => {
+    const chunks: string[] = [];
+    const stream = new ProtocolStream("anthropic", "m", c => chunks.push(c));
+    stream.start();
+    stream.push({
+      type: "tool_use",
+      toolCall: { id: "call_1", type: "function", name: "Bash", arguments: { command: "ls" } },
+    });
+    stream.finish();
+
+    const text = chunks.join("");
+    expect(text).toContain('"input":{}');
+    expect(text).toContain('"type":"tool_use"');
+    expect(text).toContain('"name":"Bash"');
+    expect(text).toContain('"id":"call_1"');
+  });
+
+  it("tool SSE has correct event order", () => {
+    const chunks: string[] = [];
+    const stream = new ProtocolStream("anthropic", "m", c => chunks.push(c));
+    stream.start();
+    stream.push({
+      type: "tool_use",
+      toolCall: { id: "c1", type: "function", name: "Grep", arguments: { pattern: "foo" } },
+    });
+    stream.finish();
+
+    const text = chunks.join("");
+    const events = [
+      "message_start",
+      "content_block_start",
+      "content_block_delta",
+      "content_block_stop",
+      "message_delta",
+      "message_stop",
+    ];
+    let pos = -1;
+    for (const ev of events) {
+      const idx = text.indexOf(`event: ${ev}`, pos + 1);
+      expect(idx).toBeGreaterThan(pos);
+      pos = idx;
+    }
+  });
+
+  it("tool_use stop_reason is tool_use", () => {
+    const chunks: string[] = [];
+    const stream = new ProtocolStream("anthropic", "m", c => chunks.push(c));
+    stream.start();
+    stream.push({
+      type: "tool_use",
+      toolCall: { id: "c1", type: "function", name: "Bash", arguments: {} },
+    });
+    stream.finish();
+
+    const text = chunks.join("");
+    expect(text).toContain('"stop_reason":"tool_use"');
+  });
+});
+
+describe("Anthropic SSE: raw tool JSON does not appear as text", () => {
+  it("tool_use response has no text_delta", () => {
+    const chunks: string[] = [];
+    const stream = new ProtocolStream("anthropic", "m", c => chunks.push(c));
+    stream.start();
+    stream.push({
+      type: "tool_use",
+      toolCall: { id: "c1", type: "function", name: "Bash", arguments: { command: "ls" } },
+    });
+    stream.finish();
+
+    const text = chunks.join("");
+    expect(text).not.toContain('"type":"text_delta"');
+    expect(text).not.toContain('"type":"text"');
+  });
+});
+
+describe("Anthropic SSE: reasoning does not appear in visible text", () => {
+  it("thinking block is separate from text block", () => {
+    const chunks: string[] = [];
+    const stream = new ProtocolStream("anthropic", "m", c => chunks.push(c));
+    stream.start();
+    stream.push({ type: "thinking", text: "internal reasoning" });
+    stream.push({ type: "content", text: "visible answer" });
+    stream.finish();
+
+    const text = chunks.join("");
+    expect(text).toContain('"type":"thinking"');
+    expect(text).toContain('"thinking":"internal reasoning"');
+    expect(text).toContain('"type":"text_delta"');
+    expect(text).toContain('"text":"visible answer"');
+    expect(text).toContain('"stop_reason":"end_turn"');
+  });
+
+  it("thinking block index increments past text block", () => {
+    const chunks: string[] = [];
+    const stream = new ProtocolStream("anthropic", "m", c => chunks.push(c));
+    stream.start();
+    stream.push({ type: "content", text: "answer" });
+    stream.push({ type: "thinking", text: "reasoning" });
+    stream.finish();
+
+    const text = chunks.join("");
+    const blockStarts = text.match(/event: content_block_start/g);
+    expect(blockStarts).toHaveLength(2);
+    expect(text).toContain('"stop_reason":"end_turn"');
+  });
+});
+
 describe("sseParser", () => {
   it("parses a single SSE block", () => {
     const event = parseSseBlock('event: update\ndata: {"data":{"type":"response_message"}}');

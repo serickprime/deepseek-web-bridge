@@ -70,14 +70,14 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
 | 7. DeepSeek | pow (WASM), sseParser, updateParser, client | ✅ готово |
 | 8. Server | middleware, output-адаптеры, protocolStream, routes, server | ✅ готово |
 | 9. Entrypoint | app.ts, index.ts, start.ts | ✅ готово |
-| 10. Тесты | 14 файлов, 160 offline-тест | ✅ готово |
+| 10. Тесты | 14 файлов, 170 offline-тест | ✅ готово |
 | 11. Скрипты | cdp, auth, doctor, launcher, live | ✅ live-часть работает |
 | 12. Веб-интерфейс | Bridge Console на `GET /` (Mileo dark theme, two-panel, diagnostics, model picker) | ✅ готово |
 
 **Проверки сейчас:**
 - `npm run typecheck` — ✅ без ошибок.
 - `npm run build` — ✅ собирается.
-- `npm test` — ✅ 160/160.
+- `npm test` — ✅ 170/170.
 - `npm run auth` — ✅ окно Chrome открывается, захват работает (сеть + localStorage
   fallback).
 - `npm run doctor` — ✅ все 6/6 проверок проходят (auth, reachable, challenge,
@@ -125,6 +125,11 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
   **ProtocolStream.start()** — вызывается из CompletionHandler перед
   `stream.push()`, отправляет `message_start` для Anthropic streaming;
   dedup guard предотвращает повторные вызовы.
+  **Anthropic content_block lifecycle** — текст отправляется как
+  `content_block_start(text) → content_block_delta(text_delta) → content_block_stop`.
+  Tool use включает `input: {}`. `textBlockOpen` флаг предотвращает
+  дублирование. `closeTextBlock()` вызывается перед любым другим блоком
+  или при `finish()`.
 - Веб-интерфейс: Bridge Console на `GET /` в стиле Mileo (dark theme) — почти
   чёрный фон (#020101), красные акценты (#FD1000), two-panel layout
   (Connection + Session), статусные LED-точки, model picker из `/v1/models`,

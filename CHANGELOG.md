@@ -3,6 +3,38 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-19 (Anthropic SSE content blocks fix)
+
+### Исправления
+
+- `src/api/handler.ts` — `CompletionHandler.run()` теперь использует
+  `result.content` напрямую вместо пустых callback-массивов `textChunks`/
+  `reasoningChunks`. Ранее `callbacks.onText`/`onReasoning` никогда не
+  вызывались → textChunks всегда пуст → Claude Code получал пустой ответ.
+- `src/server/protocolStream.ts` — полная переработка Anthropic lifecycle:
+  - Текст: `content_block_start` (`{type:"text", text:""}`) →
+    `content_block_delta` (`{type:"text_delta"}`) → `content_block_stop`.
+    Флаг `textBlockOpen` предотвращает дублирование start/stop.
+  - Tool use: `content_block_start` теперь включает `input: {}`.
+  - `closeTextBlock()` вызывается перед thinking/tool_use/finish для
+    корректного закрытия текстового блока.
+  - Индексы корректно инкрементируются для каждого блока.
+
+### Тесты
+
+- `tests/unit/sse.test.ts` — 10 новых regression tests:
+  1. text: полный start/delta/stop lifecycle
+  2. text: result.content появляется в SSE как text_delta
+  3. text: несколько content push делят один text block
+  4. text: индекс блока = 0
+  5. tool_use: content_block_start содержит input:{}
+  6. tool_use: правильный порядок событий
+  7. tool_use: stop_reason = tool_use
+  8. tool_use: нет text_delta в tool response
+  9. reasoning: thinking блок отделён от text блока
+  10. reasoning: индекс thinking инкрементируется за text блоком
+  Итого 170 тестов (14 файлов), все проходят.
+
 ## 2026-08-19 (Anthropic tool streaming fix)
 
 ### Исправления

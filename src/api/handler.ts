@@ -75,28 +75,9 @@ export class CompletionHandler {
       await deepseek.ensureSession(state);
       const toolNames = buildToolNames(request.tools);
       stream.start();
-      const textChunks: string[] = [];
-      const reasoningChunks: string[] = [];
-      const result = await deepseek.complete(
-        request,
-        state,
-        {
-          onText: delta => textChunks.push(delta),
-          onReasoning: delta => reasoningChunks.push(delta),
-        },
-      );
-      // If tool call found, discard all accumulated text (reasoning noise)
-      if (result.toolCall) {
-        textChunks.length = 0;
-        reasoningChunks.length = 0;
-      }
-      if (!result.toolCall) {
-        for (const chunk of reasoningChunks) {
-          stream.push({ type: "thinking", text: chunk });
-        }
-        for (const chunk of textChunks) {
-          stream.push({ type: "content", text: chunk });
-        }
+      const result = await deepseek.complete(request, state);
+      if (!result.toolCall && result.content) {
+        stream.push({ type: "content", text: result.content });
       }
       sessionStore.appendHistory(state, {
         role: "assistant",
