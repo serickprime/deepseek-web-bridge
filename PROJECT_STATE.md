@@ -190,6 +190,10 @@ Web API (`chat.deepseek.com`) ненадёжно для tool calling.
 - `npm test` запускается и возвращает корректный результат.
 - `tool_result` возвращается в DeepSeek через tool_result continuation.
 - DeepSeek автоматически продолжает после `tool_result`.
+- Tool execution error (Read несуществующего файла) → `is_error: true`
+  корректно передаётся и DeepSeek получает ошибку.
+- Error recovery: после tool error DeepSeek выполняет альтернативные
+  инструменты (Bash → Write) и успешно завершает задачу.
 - Multi-step coding workflow успешно выполнен и затем отдельно
   VERIFIED чтением файлов и повторным `npm test`.
 - Anthropic SSE lifecycle корректен: `message_start` → `content_block_start`
@@ -204,10 +208,11 @@ Web API (`chat.deepseek.com`) ненадёжно для tool calling.
 Не являются багами — просто не проверялись:
 
 - Длинные цепочки 5+ последовательных tool-вызовов.
-- Обработка ошибок tool execution (tool_result с `is_error: true`).
 - Несколько параллельных Claude Code сессий к одному бриджу.
 - Большие `tool_result` (>10 000 символов).
 - Длинная сессия / compaction (10+ exchanges).
+- DeepSeek отвечает текстом вместо tool_call при наличии обязательных
+  инструментов (intent text problem) — retry не срабатывает.
 
 ## Известные пробелы и TODO
 

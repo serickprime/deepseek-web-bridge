@@ -5,6 +5,34 @@
 
 ## 2026-08-19 (Tool result name correlation fix)
 
+### Live-тест после fix (b848a9d) — подтверждено
+
+Read несуществующего файла → tool error → Bash(pwd) → Write recovery-ok.txt
+→ Read recovery-ok.txt → финальный ответ. PowerShell подтвердил:
+`Get-Content "D:\test CC NODE\recovery-ok.txt"` → `recovery successful`.
+
+### Известная проблема: intent text вместо tool_call
+
+На первый запрос DeepSeek ответил текстом:
+"Я попробую прочитать несуществующий файл через Read."
+После "давай" — повторил текст. Только после "действуй" начал tool-вызовы.
+
+**Root cause**: `shouldRetry` в `client.ts:398` требует `content.trim() === ""`
+для запуска retry. DeepSeek генерирует текст ("Я попробую..."), content
+не пустой → retry не запускается. Модель описывает действие вместо
+его выполнения, и текущий retry механизм это не ловит.
+
+**Почему текущий retry пропускает**: retry срабатывает только когда
+модель "замолчала" (пустой content, но reasoning есть). Когда модель
+пишет intent-текст — content не пустой, retry пропускается.
+
+**Возможный minimal fix** (пока НЕ реализован):
+- детектировать intent-паттерны в content ("я попробую", "let me",
+  "я выполню", "я прочитаю", "я запущу") когда tools доступны;
+- запускать retry с `createToolRetryPrompt` в этом случае;
+- или усилить tool prompt правилом: "intent-текст = нарушение;
+  текстовый ответ допустим ТОЛЬКО если tool НЕ нужен".
+
 ### Исправления
 
 - `src/deepseek/client.ts` — `canonicalToRaw` передавал `toolUseId` как
