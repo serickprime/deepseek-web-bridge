@@ -3,6 +3,32 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-19 (Tool result name correlation fix)
+
+### Исправления
+
+- `src/deepseek/client.ts` — `canonicalToRaw` передавал `toolUseId` как
+  имя tool в `toolResultText`, из-за чего DeepSeek получал вместо
+  `name: Read` / `name: Bash` / `name: Write` строку вида
+  `name: call_abc123`. Исправлено: добавлена функция
+  `buildToolUseIdMap()`, которая сканирует все `tool_use` части
+  в messages и строит `Map<toolUseId, toolName>`.
+  При обработке `tool_result` реальное имя tool извлекается из map.
+  Неизвестный id → fallback `"unknown"`.
+
+### Тесты
+
+- `tests/unit/tools.test.ts` — 8 новых tests для `buildToolUseIdMap`:
+  1. Read id=abc → name Read
+  2. Bash id=xyz → name Bash
+  3. Multiple different tool_uses
+  4. Unknown id → fallback
+  5. Error tool_result carries name correctly
+  6. Chain: failed Read → Bash → Write
+  7. Empty messages → empty map
+  8. Ignores text and tool_result parts
+  Итого 198 тестов (14 файлов), все проходят.
+
 ## 2026-08-19 — Стабильная live-точка (полный coding workflow)
 
 Подтверждено live-тестами Claude Code — полный workflow «кодирование через бридж»:

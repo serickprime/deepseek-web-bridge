@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { parseToolInvocation, hasToolTag, createToolRetryPrompt, historicalToolInvocationText, toolResultText } from "../../src/tools/toolParser.js";
 import { buildToolPrompt } from "../../src/tools/toolPrompt.js";
 import { ToolRetryTracker } from "../../src/tools/toolRetry.js";
-import { shouldRetry } from "../../src/deepseek/client.js";
+import { shouldRetry, buildToolUseIdMap } from "../../src/deepseek/client.js";
+import type { CanonicalMessage } from "../../src/api/canonical.js";
 
 const TOOLS = new Set(["Read", "Search", "get_weather", "calculate"]);
 
@@ -251,5 +252,138 @@ describe("shouldRetry", () => {
 
   it("no retry when no tools provided", () => {
     expect(shouldRetry(false, null, "", "reasoning")).toBe(false);
+  });
+});
+
+describe("tool_result name correlation (buildToolUseIdMap)", () => {
+  function msgs(...parts: CanonicalMessage["parts"][]): CanonicalMessage[] {
+    return parts.map(p => ({ role: "assistant" as const, parts: p }));
+  }
+
+  it("maps Read tool_use id=abc to name Read", () => {
+    const messages: CanonicalMessage[] = [
+      { role: "assistant", parts: [
+        { type: "tool_use", toolCall: { id: "abc", type: "function", name: "Read", arguments: {} } },
+      ] },
+      { role: "user", parts: [
+        { type: "tool_result", toolResult: { toolUseId: "abc", content: "file not found" } },
+      ] },
+    ];
+    const map = buildToolUseIdMap(messages);
+    expect(map.get("abc")).toBe("Read");
+    const toolName = map.get("abc") ?? "unknown";
+    const text = toolResultText(toolName, "abc", "file not found");
+    expect(text).toContain("name: Read");
+    expect(text).toContain("call_id: abc");
+    expect(text).toContain("file not found");
+  });
+
+  it("maps Bash tool_use id=xyz to name Bash", () => {
+    const messages: CanonicalMessage[] = [
+      { role: "assistant", parts: [
+        { type: "tool_use", toolCall: { id: "xyz", type: "function", name: "Bash", arguments: { command: "pwd" } } },
+      ] },
+      { role: "user", parts: [
+        { type: "tool_result", toolResult: { toolUseId: "xyz", content: "D:\\Photo" } },
+      ] },
+    ];
+    const map = buildToolUseIdMap(messages);
+    const toolName = map.get("xyz") ?? "unknown";
+    const text = toolResultText(toolName, "xyz", "D:\\Photo");
+    expect(text).toContain("name: Bash");
+    expect(text).toContain("D:\\Photo");
+  });
+
+  it("handles multiple different tool_uses", () => {
+    const messages: CanonicalMessage[] = [
+      { role: "assistant", parts: [
+        { type: "tool_use", toolCall: { id: "id1", type: "function", name: "Read", arguments: {} } },
+        { type: "tool_use", toolCall: { id: "id2", type: "function", name: "Bash", arguments: {} } },
+        { type: "tool_use", toolCall: { id: "id3", type: "function", name: "Write", arguments: {} } },
+      ] },
+    ];
+    const map = buildToolUseIdMap(messages);
+    expect(map.size).toBe(3);
+    expect(map.get("id1")).toBe("Read");
+    expect(map.get("id2")).toBe("Bash");
+    expect(map.get("id3")).toBe("Write");
+  });
+
+  it("unknown id returns fallback", () => {
+    const messages: CanonicalMessage[] = [
+      { role: "assistant", parts: [
+        { type: "tool_use", toolCall: { id: "abc", type: "function", name: "Read", arguments: {} } },
+      ] },
+    ];
+    const map = buildToolUseIdMap(messages);
+    expect(map.has("nonexistent")).toBe(false);
+    const toolName = map.get("nonexistent") ?? "unknown";
+    expect(toolName).toBe("unknown");
+  });
+
+  it("error tool_result carries name correctly", () => {
+    const messages: CanonicalMessage[] = [
+      { role: "assistant", parts: [
+        { type: "tool_use", toolCall: { id: "err1", type: "function", name: "Read", arguments: {} } },
+      ] },
+      { role: "user", parts: [
+        { type: "tool_result", toolResult: { toolUseId: "err1", content: "ENOENT: no such file", isError: true } },
+      ] },
+    ];
+    const map = buildToolUseIdMap(messages);
+    const toolName = map.get("err1") ?? "unknown";
+    const text = toolResultText(toolName, "err1", "ENOENT: no such file");
+    expect(text).toContain("name: Read");
+    expect(text).toContain("ENOENT: no such file");
+  });
+
+  it("chain: failed Read → Bash → Write correlates correctly", () => {
+    const messages: CanonicalMessage[] = [
+      { role: "assistant", parts: [
+        { type: "tool_use", toolCall: { id: "r1", type: "function", name: "Read", arguments: {} } },
+      ] },
+      { role: "user", parts: [
+        { type: "tool_result", toolResult: { toolUseId: "r1", content: "ENOENT", isError: true } },
+      ] },
+      { role: "assistant", parts: [
+        { type: "tool_use", toolCall: { id: "b1", type: "function", name: "Bash", arguments: {} } },
+      ] },
+      { role: "user", parts: [
+        { type: "tool_result", toolResult: { toolUseId: "b1", content: "ok" } },
+      ] },
+      { role: "assistant", parts: [
+        { type: "tool_use", toolCall: { id: "w1", type: "function", name: "Write", arguments: {} } },
+      ] },
+      { role: "user", parts: [
+        { type: "tool_result", toolResult: { toolUseId: "w1", content: "written" } },
+      ] },
+    ];
+    const map = buildToolUseIdMap(messages);
+    expect(map.get("r1")).toBe("Read");
+    expect(map.get("b1")).toBe("Bash");
+    expect(map.get("w1")).toBe("Write");
+
+    const textR = toolResultText(map.get("r1") ?? "unknown", "r1", "ENOENT");
+    const textB = toolResultText(map.get("b1") ?? "unknown", "b1", "ok");
+    const textW = toolResultText(map.get("w1") ?? "unknown", "w1", "written");
+    expect(textR).toContain("name: Read");
+    expect(textB).toContain("name: Bash");
+    expect(textW).toContain("name: Write");
+  });
+
+  it("empty messages returns empty map", () => {
+    const map = buildToolUseIdMap([]);
+    expect(map.size).toBe(0);
+  });
+
+  it("ignores text and tool_result parts", () => {
+    const messages: CanonicalMessage[] = [
+      { role: "assistant", parts: [
+        { type: "text", text: "some text" },
+        { type: "tool_result", toolResult: { toolUseId: "x", content: "y" } },
+      ] },
+    ];
+    const map = buildToolUseIdMap(messages);
+    expect(map.size).toBe(0);
   });
 });

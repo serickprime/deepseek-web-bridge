@@ -279,6 +279,7 @@ export class DeepSeekClient {
   }
 
   private canonicalToRaw(messages: CanonicalMessage[]): Record<string, unknown>[] {
+    const toolNameById = buildToolUseIdMap(messages);
     return messages.map(msg => {
       const parts: string[] = [];
       for (const part of msg.parts) {
@@ -291,9 +292,11 @@ export class DeepSeekClient {
             part.toolCall?.arguments ?? {},
           ));
         } else if (part.type === "tool_result") {
+          const toolUseId = part.toolResult?.toolUseId ?? "";
+          const toolName = toolNameById.get(toolUseId) ?? "unknown";
           parts.push(toolResultText(
-            part.toolResult?.toolUseId ?? "",
-            part.toolResult?.toolUseId ?? "",
+            toolName,
+            toolUseId,
             part.toolResult?.content ?? "",
           ));
         }
@@ -404,4 +407,16 @@ export function buildToolNames(tools: CanonicalTool[]): Set<string> {
 
 export function toolsToCanonical(tools: CanonicalTool[]): CanonicalTool[] {
   return tools;
+}
+
+export function buildToolUseIdMap(messages: CanonicalMessage[]): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const msg of messages) {
+    for (const part of msg.parts) {
+      if (part.type === "tool_use" && part.toolCall?.id && part.toolCall?.name) {
+        map.set(part.toolCall.id, part.toolCall.name);
+      }
+    }
+  }
+  return map;
 }
