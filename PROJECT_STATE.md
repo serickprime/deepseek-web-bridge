@@ -177,36 +177,37 @@ Web API (`chat.deepseek.com`) ненадёжно для tool calling.
 
 ## Стабильная live-точка — 2026-08-19
 
-**Commit:** `676f8d8`
+Подтверждено live-тестами Claude Code (полный workflow «кодирование через бридж»):
 
-Подтверждено live-тестами Claude Code:
-
-- Claude Code получает правильный cwd из system prompt.
-- `tool_use` блоки реально выполняются Claude Code (Bash, Read, Write, Grep, Glob).
-- `tool_result` возвращается обратно в DeepSeek через tool_result continuation.
-- `parent_message_id` (number) корректно передаётся между запросами.
-- Создание файлов через tool работает.
-- Несколько последовательных tool-вызовов в одном запросе работают.
-- После `tool_result` модель автоматически продолжает выполнение.
-- Финальный ответ после инструментов приходит нормально.
+- Claude Code корректно понимает cwd из system prompt.
+- Новая Claude Code сессия не подтягивает старые задачи.
+- Одиночные tool-вызовы работают (Bash, Read, Write, Edit, Grep, Glob).
+- Последовательные tool-вызовы в одном запросе работают.
+- Создание файлов работает.
+- Редактирование существующих файлов работает (Edit tool).
+- Повторное чтение файлов работает.
+- Запуск shell-команд работает (npm test, ls и т.д.).
+- `npm test` запускается и возвращает корректный результат.
+- `tool_result` возвращается в DeepSeek через tool_result continuation.
+- DeepSeek автоматически продолжает после `tool_result`.
+- Multi-step coding workflow успешно выполнен и затем отдельно
+  VERIFIED чтением файлов и повторным `npm test`.
 - Anthropic SSE lifecycle корректен: `message_start` → `content_block_start`
   → `content_block_delta` → `content_block_stop` → `message_delta` → `message_stop`.
 - Tool use: `content_block_start` с `input: {}`, `input_json_delta`,
   `stop_reason: tool_use`.
 - Raw tool JSON не попадает в text block.
-- `DeepSeekPatchParser` корректно продолжает bare `{v:"text"}` через
-  persisted `currentPath`/`currentOp` без собственных p/o полей.
+- `parent_message_id` (number) корректно передаётся между запросами.
 
 ### Области, ещё не проверенные live-тестами
 
 Не являются багами — просто не проверялись:
 
-- Редактирование существующего кода (Edit tool).
-- Цепочки 5+ последовательных tool-вызовов.
+- Длинные цепочки 5+ последовательных tool-вызовов.
 - Обработка ошибок tool execution (tool_result с `is_error: true`).
 - Несколько параллельных Claude Code сессий к одному бриджу.
 - Большие `tool_result` (>10 000 символов).
-- Сохранение контекста в длинных сессиях (10+ exchanges).
+- Длинная сессия / compaction (10+ exchanges).
 
 ## Известные пробелы и TODO
 
