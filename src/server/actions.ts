@@ -42,7 +42,7 @@ export async function checkAuthStatus(): Promise<{ valid: boolean; message: stri
     const token = typeof raw.token === "string" ? raw.token : "";
     const cookie = typeof raw.cookie === "string" ? raw.cookie : "";
     if (!token && !cookie) return { valid: false, message: "NO AUTH" };
-    return { valid: true, message: `AUTH SAVED (${token.slice(0, 12)}...)` };
+    return { valid: true, message: "AUTH SAVED" };
   } catch (error) {
     return { valid: false, message: "NO AUTH" };
   }
@@ -63,7 +63,7 @@ export async function runDiagnosticsSSE(send: (event: ActionEvent) => void): Pro
       const cookie = typeof raw.cookie === "string" ? raw.cookie : "";
       if (!token && !cookie) throw new Error("no credentials");
       hasAuth = true;
-      send({ type: "progress", step: "auth_file", ok: true, message: `Present (${token.slice(0, 12)}...)` });
+      send({ type: "progress", step: "auth_file", ok: true, message: "Present" });
     } catch (error) {
       send({ type: "progress", step: "auth_file", ok: false, message: error instanceof Error ? error.message : String(error) });
     }
@@ -83,9 +83,10 @@ export async function runDiagnosticsSSE(send: (event: ActionEvent) => void): Pro
       const hifHeaders: Record<string, string> = {};
       if (hifLeim) hifHeaders["x-hif-leim"] = hifLeim;
       if (hifDliq) hifHeaders["x-hif-dliq"] = hifDliq;
-      const res = await fetch(`${config.baseUrl}/api/v0/auth/session`, {
-        headers: { authorization: `Bearer ${token}`, cookie, ...CLIENT_HEADERS, ...BROWSER_HEADERS, "user-agent": UPSTREAM_USER_AGENT, ...hifHeaders },
+      const res = await fetch(`${config.baseUrl}`, {
+        headers: { ...CLIENT_HEADERS, ...BROWSER_HEADERS, "user-agent": UPSTREAM_USER_AGENT },
         signal: AbortSignal.timeout(8000),
+        redirect: "follow",
       });
       send({ type: "progress", step: "upstream", ok: res.ok, message: `HTTP ${res.status}` });
     } catch (error) {
@@ -308,7 +309,7 @@ export async function runAuthSSE(
         fs.mkdirSync(path.dirname(config.authFile), { recursive: true });
         await writeJsonAtomic(config.authFile, auth, 0o600);
 
-        send({ type: "result", step: "auth", ok: true, message: `Auth saved. Token: ${auth.token.slice(0, 12)}...` });
+        send({ type: "result", step: "auth", ok: true, message: "Auth saved" });
         cleanup();
         return auth;
       }

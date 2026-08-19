@@ -3,6 +3,27 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-19 — Устранение утечек секретов в логах
+
+### Что исправлено
+
+- `src/server/actions.ts`: `checkAuthStatus()`, `runDiagnosticsSSE`, `runAuthSSE` —
+  удалены `token.slice(0, 12)` из всех сообщений, возвращаемых клиенту через
+  `/bridge/auth-status`, `/bridge/auth` SSE и `/bridge/diagnostics` SSE.
+- `scripts/auth.ts`: `printSummary()` — удалены `token.slice(0, 12)` и
+  `cookie.slice(0, 12)` из вывода в консоль; теперь печатается только длина.
+- `scripts/doctor.ts`: удалены отладочные `console.error("DEBUG ...")` строки
+  в `completion SSE stream parsed`.
+- `src/server/actions.ts` + `scripts/doctor.ts`: эндпоинт `/api/v0/auth/session`
+  заменён на безопасный GET-запрос к `baseUrl` (root URL) для проверки
+  доступности DeepSeek — без передачи токена/cookie/hif.
+
+### Тесты
+
+- `tests/unit/authSecretLeaks.test.ts` — 9 regression-тестов, проверяющих
+  отсутствие `token.slice`, `cookie.slice`, `/api/v0/auth/session` и
+  `console.error("DEBUG")` в исходниках.
+
 ## 2026-08-19 (Tool result name correlation fix)
 
 ### Live-тест после fix (b848a9d) — подтверждено

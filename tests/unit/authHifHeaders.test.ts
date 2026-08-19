@@ -105,7 +105,7 @@ describe("runDiagnosticsSSE HIF headers", () => {
   beforeEach(() => { vi.resetModules(); });
   afterEach(() => { tracker?.restore(); vi.restoreAllMocks(); });
 
-  it("upstream check sends x-hif-leim", async () => {
+  it("upstream reachability check uses root URL without auth", async () => {
     tracker = trackFetch();
     vi.doMock("../../src/config/env.js", () => ({
       buildConfig: () => ({ authFile: "auth.json", baseUrl: "https://chat.deepseek.com", dataDir: "/tmp/test", port: 9655 }),
@@ -115,12 +115,30 @@ describe("runDiagnosticsSSE HIF headers", () => {
     }));
     const { runDiagnosticsSSE } = await import("../../src/server/actions.js");
     await runDiagnosticsSSE(() => {});
-    const upstreamCall = tracker.calls.find(c => c.url.includes("/auth/session"));
+    const upstreamCall = tracker.calls.find(c => c.url === "https://chat.deepseek.com");
     expect(upstreamCall).toBeDefined();
-    expect((upstreamCall!.init?.headers as Record<string, string>)["x-hif-leim"]).toBe("diag-leim");
+    const headers = upstreamCall!.init?.headers as Record<string, string> | undefined;
+    expect(headers?.authorization).toBeUndefined();
+    expect(headers?.cookie).toBeUndefined();
   });
 
-  it("upstream check sends x-hif-dliq from legacy key", async () => {
+  it("upstream reachability check does not send x-hif-leim", async () => {
+    tracker = trackFetch();
+    vi.doMock("../../src/config/env.js", () => ({
+      buildConfig: () => ({ authFile: "auth.json", baseUrl: "https://chat.deepseek.com", dataDir: "/tmp/test", port: 9655 }),
+    }));
+    vi.doMock("../../src/utils/atomicFile.js", () => ({
+      readJsonIfExists: async () => ({ token: "tok123", cookie: "sid=abc", hifLeim: "diag-leim" }),
+    }));
+    const { runDiagnosticsSSE } = await import("../../src/server/actions.js");
+    await runDiagnosticsSSE(() => {});
+    const upstreamCall = tracker.calls.find(c => c.url === "https://chat.deepseek.com");
+    expect(upstreamCall).toBeDefined();
+    const headers = upstreamCall!.init?.headers as Record<string, string> | undefined;
+    expect(headers?.["x-hif-leim"]).toBeUndefined();
+  });
+
+  it("upstream reachability check does not send x-hif-dliq from legacy key", async () => {
     tracker = trackFetch();
     vi.doMock("../../src/config/env.js", () => ({
       buildConfig: () => ({ authFile: "auth.json", baseUrl: "https://chat.deepseek.com", dataDir: "/tmp/test", port: 9655 }),
@@ -130,8 +148,9 @@ describe("runDiagnosticsSSE HIF headers", () => {
     }));
     const { runDiagnosticsSSE } = await import("../../src/server/actions.js");
     await runDiagnosticsSSE(() => {});
-    const upstreamCall = tracker.calls.find(c => c.url.includes("/auth/session"));
+    const upstreamCall = tracker.calls.find(c => c.url === "https://chat.deepseek.com");
     expect(upstreamCall).toBeDefined();
-    expect((upstreamCall!.init?.headers as Record<string, string>)["x-hif-dliq"]).toBe("legacy-dliq");
+    const headers = upstreamCall!.init?.headers as Record<string, string> | undefined;
+    expect(headers?.["x-hif-dliq"]).toBeUndefined();
   });
 });

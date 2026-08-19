@@ -155,8 +155,8 @@ async function capture(conn: CdpConnection, expectedHost: string, timeoutMs: num
 function printSummary(auth: CapturedAuth): void {
   console.log("");
   console.log("Captured credentials:");
-  console.log(`  token:     ${auth.token.slice(0, 12)}... (${auth.token.length} chars)`);
-  console.log(`  cookie:    ${auth.cookie.slice(0, 12)}... (${auth.cookie.length} chars)`);
+  console.log(`  token:     ${auth.token.length} chars`);
+  console.log(`  cookie:    ${auth.cookie.length} chars`);
   if (auth.hifDliq) console.log(`  x-hif-dliq: captured`);
   if (auth.hifLeim) console.log(`  x-hif-leim: captured`);
   console.log("");

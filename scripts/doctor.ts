@@ -61,15 +61,11 @@ export async function runDoctor(): Promise<void> {
 
   await check("deepseek reachable", async () => {
     if (!state.auth) throw new Error("skipped: no auth");
-    const res = await fetch(`${state.auth.baseUrl}/api/v0/auth/session`);
+    const res = await fetch(`${state.auth.baseUrl}`, {
+      headers: { ...CLIENT_HEADERS, ...BROWSER_HEADERS, "user-agent": UPSTREAM_USER_AGENT },
+      redirect: "follow",
+    });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const json = (await res.json()) as Record<string, unknown>;
-    const code = typeof json.code === "number" ? json.code : 0;
-    if (code === 40003) throw new Error("AUTH INVALID (code 40003)");
-    if (code !== 0) {
-      const msg = typeof json.msg === "string" ? json.msg : `code ${code}`;
-      throw new Error(`AUTH INVALID (${msg})`);
-    }
   });
 
   let challengePayload: ReturnType<typeof parseChallengePayload> | null = null;
@@ -147,9 +143,6 @@ export async function runDoctor(): Promise<void> {
       chatSessionId = bizData.chat_session.id;
     }
     if (!chatSessionId) {
-      console.error("DEBUG sessionJson keys:", Object.keys(sessionJson));
-      console.error("DEBUG data keys:", Object.keys(sessionData));
-      console.error("DEBUG bizData keys:", Object.keys(bizData));
       throw new Error("no chat_session_id from session create");
     }
 
