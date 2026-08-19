@@ -36,27 +36,20 @@ export class DeepSeekPatchParser {
     if (!("v" in raw)) return null;
     const v = raw.v;
 
-    // ── New p/o/v format ──
-    // Track whether this event explicitly provides path context
-    const hasOwnP = typeof raw.p === "string";
-    const hasOwnO = typeof raw.o === "string";
-
-    if (hasOwnP) this.currentPath = raw.p as string;
-    if (hasOwnO) this.currentOp = raw.o as string;
+    // ── New p/o/v format — persist path/op across events ──
+    if (typeof raw.p === "string") this.currentPath = raw.p;
+    if (typeof raw.o === "string") this.currentOp = raw.o;
 
     let path = this.currentPath;
     let op = this.currentOp;
 
     // When p/o are nested inside v, extract the actual value
     let value: unknown = v;
-    let hasNestedPath = false;
     if (isRecord(v)) {
-      if (typeof v.p === "string") { path = v.p; this.currentPath = v.p; hasNestedPath = true; }
-      if (typeof v.o === "string") { op = v.o; this.currentOp = v.o; hasNestedPath = true; }
+      if (typeof v.p === "string") { path = v.p; this.currentPath = v.p; }
+      if (typeof v.o === "string") { op = v.o; this.currentOp = v.o; }
       if ("v" in v) value = v.v;
     }
-
-    const hasPathContext = hasOwnP || hasOwnO || hasNestedPath;
 
     // Status update: { p: "response/status", o: "SET", v: "FINISHED" }
     if (path === "response/status" && typeof value === "string") {
@@ -80,18 +73,20 @@ export class DeepSeekPatchParser {
       return this.applyBatch(value);
     }
 
-    // Fragment content append: { p: "response/fragments/-1/content", o: "APPEND", v: "text" }
-    if (hasPathContext && path === "response/fragments/-1/content" && op === "APPEND" && typeof value === "string") {
+    // Fragment content append: explicit {p, o, v} or bare {v} continuation
+    // via persisted currentPath/currentOp from previous APPEND event
+    if (path === "response/fragments/-1/content" && op === "APPEND" && typeof value === "string") {
+      if (value === "FINISHED" || value === "INCOMPLETE") return null;
       return this.applyFragmentAppend(value);
     }
 
     // New fragment append: { p: "response/fragments", o: "APPEND", v: [{type,content}] }
-    if (hasPathContext && path === "response/fragments" && op === "APPEND" && Array.isArray(value)) {
+    if (path === "response/fragments" && op === "APPEND" && Array.isArray(value)) {
       return this.applyNewFragments(value);
     }
 
     // Plain token delta: { v: "text" } — only when no path context
-    if (!path && typeof value === "string") {
+    if (!path && typeof value === "string" && value !== "FINISHED" && value !== "INCOMPLETE") {
       return { index: 0, delta: value, done: false, parentMessageId: null };
     }
 

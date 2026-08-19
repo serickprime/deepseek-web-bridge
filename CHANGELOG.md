@@ -3,6 +3,26 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-19 (DeepSeek patch continuation fix)
+
+### Исправления
+
+- `src/deepseek/updateParser.ts` — убран `hasPathContext` guard с проверок
+  fragment APPEND. Теперь bare `{v:"text"}` автоматически продолжает
+  предыдущий APPEND через persisted `currentPath`/`currentOp`. Ранее
+  bare values без собственных p/o полей отбрасывались → обрыв ответа
+  ("Выпол", "{\"tool"). Добавлен фильтр FINISHED/INCOMPLETE: эти токены
+  не попадают в content даже при активном fragment APPEND.
+
+### Тесты
+
+- `tests/unit/sse.test.ts` — 4 новых regression tests:
+  1. tool call JSON, разбитый на 3 события, собирается полностью
+  2. THINK APPEND → bare continuation идёт в reasoningDelta
+  3. RESPONSE APPEND → bare continuation идёт в delta
+  4. bare FINISHED после fragment APPEND не попадает в content
+  Итого 174 теста (14 файлов), все проходят.
+
 ## 2026-08-19 (Anthropic SSE content blocks fix)
 
 ### Исправления

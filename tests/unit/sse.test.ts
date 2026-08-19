@@ -285,6 +285,58 @@ describe("FIX3: FINISHED does not leak into fragment content", () => {
   });
 });
 
+describe("p/o persistence: bare {v} continues fragment APPEND", () => {
+  it("tool call JSON split across events collects fully", () => {
+    const p = new DeepSeekPatchParser();
+    p.apply({ v: { response: { fragments: [{ type: "RESPONSE", content: "" }] } } });
+
+    const c1 = p.apply({ v: { p: "response/fragments/-1/content", o: "APPEND", v: "{\"tool" } });
+    expect(c1?.delta).toBe("{\"tool");
+
+    const c2 = p.apply({ v: "_call\":" });
+    expect(c2?.delta).toBe("_call\":");
+
+    const c3 = p.apply({ v: "{\"name\":\"Bash\"}}" });
+    expect(c3?.delta).toBe("{\"name\":\"Bash\"}}");
+
+    expect(p.getFragments()[0]!.content).toBe("{\"tool_call\":{\"name\":\"Bash\"}}");
+  });
+
+  it("THINK APPEND → bare continuation goes to reasoningDelta", () => {
+    const p = new DeepSeekPatchParser();
+    p.apply({ v: { response: { fragments: [{ type: "THINK", content: "" }] } } });
+
+    const c1 = p.apply({ v: { p: "response/fragments/-1/content", o: "APPEND", v: "reasoning" } });
+    expect(c1?.reasoningDelta).toBe("reasoning");
+
+    const c2 = p.apply({ v: " continuation" });
+    expect(c2?.reasoningDelta).toBe(" continuation");
+    expect(c2?.delta).toBe("");
+  });
+
+  it("RESPONSE APPEND → bare continuation goes to delta", () => {
+    const p = new DeepSeekPatchParser();
+    p.apply({ v: { response: { fragments: [{ type: "RESPONSE", content: "" }] } } });
+
+    const c1 = p.apply({ v: { p: "response/fragments/-1/content", o: "APPEND", v: "response" } });
+    expect(c1?.delta).toBe("response");
+
+    const c2 = p.apply({ v: " continuation" });
+    expect(c2?.delta).toBe(" continuation");
+  });
+
+  it("bare FINISHED after fragment APPEND does not pollute content", () => {
+    const p = new DeepSeekPatchParser();
+    p.apply({ v: { response: { fragments: [{ type: "RESPONSE", content: "" }] } } });
+
+    const c1 = p.apply({ v: { p: "response/fragments/-1/content", o: "APPEND", v: "text" } });
+    expect(c1?.delta).toBe("text");
+
+    const c2 = p.apply({ v: "FINISHED" });
+    expect(c2).toBeNull();
+  });
+});
+
 describe("FIX2: toAnthropicMessage does not include raw JSON text when tool_call present", () => {
   it("tool_use result has tool_use block and no text block", () => {
     const result = {
