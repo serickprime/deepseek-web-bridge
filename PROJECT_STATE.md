@@ -209,13 +209,19 @@ Web API (`chat.deepseek.com`) ненадёжно для tool calling.
   file1.txt → file2.txt → оба прочитаны → result.txt → file2
   переименован в second.txt → result.txt прочитан → ls папки.
   Все шаги выполнены, PowerShell подтвердил результаты.
+- Длинная сессия / compaction: 12 exchanges + /compact.
+  После compaction сохранились cwd, ALPHA-731, BETA-482, контекст.
+  Простой post-compact workflow (create → read) прошёл успешно.
+  PowerShell подтвердил: `compact-simple.txt` → `compact simple ok`.
+  **Оговорка**: на сложной multi-step задаче после compaction модель
+  заявила о создании файла, который реально отсутствовал
+  (premature final answer).
 
 ### Области, ещё не проверенные live-тестами
 
 Не являются багами — просто не проверялись:
 
 - Большие `tool_result` (>10 000 символов).
-- Длинная сессия / compaction (10+ exchanges).
 
 ## Известные пробелы и TODO
 
@@ -265,6 +271,9 @@ Web API (`chat.deepseek.com`) ненадёжно для tool calling.
 - [ ] DeepSeek иногда придумывает абсолютный путь (например
       `C:\Users\Mi\session-B.txt`) вместо использования cwd/относительного
       пути. Изолированное наблюдение при параллельных сессиях.
+- [ ] После compaction на сложной multi-step задаче модель может
+      заявить о выполнении (premature final answer) без фактического
+      вызова всех нужных tools. Простые post-compact workflows работают.
 
 ## Как проверить работу после изменений
 

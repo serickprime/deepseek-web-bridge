@@ -102,6 +102,13 @@ DeepSeek однажды придумал абсолютный путь `C:\Users
 8 последовательных шагов: создание файлов → чтение → объединение
 → переименование → повторное чтение → ls. PowerShell подтвердил.
 
+### Live-тест: длинная сессия / compaction — подтверждено
+
+12 exchanges + /compact. После compaction сохранились cwd, ALPHA-731,
+BETA-482, контекст. Простой post-compact workflow прошёл успешно.
+**Оговорка**: на сложной multi-step задаче после compaction —
+premature final answer (модель заявила о создании файла, которого нет).
+
 Подтверждено live-тестами Claude Code — полный workflow «кодирование через бридж»:
 
 - Claude Code понимает cwd.
