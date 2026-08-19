@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { parseUpdateChunk, isTerminalUpdate } from "../../src/deepseek/updateParser.js";
+import { describe, expect, it, beforeEach } from "vitest";
+import { parseUpdateChunk, isTerminalUpdate, resetFragmentState } from "../../src/deepseek/updateParser.js";
 import { SseAccumulator, parseSseBlock } from "../../src/deepseek/sseParser.js";
 import { anthropicSseMessageDone } from "../../src/server/outputAnthropic.js";
 import { ProtocolStream } from "../../src/server/protocolStream.js";
@@ -54,6 +54,93 @@ describe("updateParser", () => {
   it("isTerminalUpdate detects done", () => {
     expect(isTerminalUpdate({ data: { type: "response_message_done" } })).toBe(true);
     expect(isTerminalUpdate({ data: { type: "response_message" } })).toBe(false);
+  });
+});
+
+describe("THINK/RESPONSE fragment routing (new p/o/v format)", () => {
+  beforeEach(() => { resetFragmentState(); });
+
+  it("THINK fragment → reasoningDelta, NOT delta", () => {
+    const chunk = parseUpdateChunk({
+      v: { response: { fragments: [{ type: "THINK", content: "reasoning text" }] } },
+    });
+    expect(chunk?.delta).toBe("");
+    expect(chunk?.reasoningDelta).toBe("reasoning text");
+  });
+
+  it("RESPONSE fragment → delta, NOT reasoningDelta", () => {
+    const chunk = parseUpdateChunk({
+      v: { response: { fragments: [{ type: "RESPONSE", content: "visible text" }] } },
+    });
+    expect(chunk?.delta).toBe("visible text");
+    expect(chunk?.reasoningDelta).toBeUndefined();
+  });
+
+  it("THINK → RESPONSE switches state correctly", () => {
+    const c1 = parseUpdateChunk({
+      v: { response: { fragments: [{ type: "THINK", content: "thinking" }] } },
+    });
+    expect(c1?.reasoningDelta).toBe("thinking");
+    expect(c1?.delta).toBe("");
+
+    const c2 = parseUpdateChunk({
+      v: { response: { fragments: [{ type: "RESPONSE", content: "answer" }] } },
+    });
+    expect(c2?.delta).toBe("answer");
+    expect(c2?.reasoningDelta).toBeUndefined();
+  });
+
+  it("APPEND after THINK goes to reasoningDelta", () => {
+    parseUpdateChunk({
+      v: { response: { fragments: [{ type: "THINK", content: "initial" }] } },
+    });
+    const chunk = parseUpdateChunk({
+      v: { p: "response/fragments/-1/content", o: "APPEND", v: " continued" },
+    });
+    expect(chunk?.reasoningDelta).toBe(" continued");
+    expect(chunk?.delta).toBe("");
+  });
+
+  it("APPEND after RESPONSE goes to delta", () => {
+    parseUpdateChunk({
+      v: { response: { fragments: [{ type: "RESPONSE", content: "initial" }] } },
+    });
+    const chunk = parseUpdateChunk({
+      v: { p: "response/fragments/-1/content", o: "APPEND", v: " more" },
+    });
+    expect(chunk?.delta).toBe(" more");
+    expect(chunk?.reasoningDelta).toBeUndefined();
+  });
+
+  it("FINISHED resets fragment state", () => {
+    parseUpdateChunk({
+      v: { response: { fragments: [{ type: "THINK", content: "thought" }] } },
+    });
+    parseUpdateChunk({ v: { p: "response/status", o: "SET", v: "FINISHED" } });
+    const chunk = parseUpdateChunk({
+      v: { response: { fragments: [{ type: "RESPONSE", content: "new answer" }] } },
+    });
+    expect(chunk?.delta).toBe("new answer");
+    expect(chunk?.reasoningDelta).toBeUndefined();
+  });
+
+  it("fragment without type uses last known state", () => {
+    parseUpdateChunk({
+      v: { response: { fragments: [{ type: "THINK", content: "thinking" }] } },
+    });
+    const chunk = parseUpdateChunk({
+      v: { response: { fragments: [{ content: "more thinking" }] } },
+    });
+    expect(chunk?.reasoningDelta).toBe("more thinking");
+    expect(chunk?.delta).toBe("");
+  });
+
+  it("old format reasoning_content still works", () => {
+    const chunk = parseUpdateChunk({
+      data: { type: "response_message", index: 0, message: { content: "" }, reasoning_content: "old reasoning" },
+    });
+    expect(chunk?.reasoningDelta).toBe("old reasoning");
+    expect(chunk?.delta).toBe("");
   });
 });
 

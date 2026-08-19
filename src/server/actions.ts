@@ -42,8 +42,15 @@ export async function checkAuthStatus(): Promise<{ valid: boolean; message: stri
     const token = typeof raw.token === "string" ? raw.token : "";
     const cookie = typeof raw.cookie === "string" ? raw.cookie : "";
     if (!token && !cookie) return { valid: false, message: "No credentials in auth.json" };
+    const hifLeim = typeof raw.hifLeim === "string" ? raw.hifLeim
+      : typeof raw.hif_leim === "string" ? raw.hif_leim : undefined;
+    const hifDliq = typeof raw.hifDliq === "string" ? raw.hifDliq
+      : typeof raw.hif_dliq === "string" ? raw.hif_dliq : undefined;
+    const hifHeaders: Record<string, string> = {};
+    if (hifLeim) hifHeaders["x-hif-leim"] = hifLeim;
+    if (hifDliq) hifHeaders["x-hif-dliq"] = hifDliq;
     const res = await fetch(`${config.baseUrl}/api/v0/auth/session`, {
-      headers: { authorization: `Bearer ${token}`, cookie, ...CLIENT_HEADERS, ...BROWSER_HEADERS, "user-agent": UPSTREAM_USER_AGENT },
+      headers: { authorization: `Bearer ${token}`, cookie, ...CLIENT_HEADERS, ...BROWSER_HEADERS, "user-agent": UPSTREAM_USER_AGENT, ...hifHeaders },
       signal: AbortSignal.timeout(8000),
     });
     if (!res.ok) return { valid: false, message: `Upstream HTTP ${res.status}` };
@@ -88,8 +95,15 @@ export async function runDiagnosticsSSE(send: (event: ActionEvent) => void): Pro
       const data = isRecord(raw) ? raw : {};
       const token = typeof data.token === "string" ? data.token : "";
       const cookie = typeof data.cookie === "string" ? data.cookie : "";
+      const hifLeim = typeof data.hifLeim === "string" ? data.hifLeim
+        : typeof data.hif_leim === "string" ? data.hif_leim : undefined;
+      const hifDliq = typeof data.hifDliq === "string" ? data.hifDliq
+        : typeof data.hif_dliq === "string" ? data.hif_dliq : undefined;
+      const hifHeaders: Record<string, string> = {};
+      if (hifLeim) hifHeaders["x-hif-leim"] = hifLeim;
+      if (hifDliq) hifHeaders["x-hif-dliq"] = hifDliq;
       const res = await fetch(`${config.baseUrl}/api/v0/auth/session`, {
-        headers: { authorization: `Bearer ${token}`, cookie, ...CLIENT_HEADERS, ...BROWSER_HEADERS, "user-agent": UPSTREAM_USER_AGENT },
+        headers: { authorization: `Bearer ${token}`, cookie, ...CLIENT_HEADERS, ...BROWSER_HEADERS, "user-agent": UPSTREAM_USER_AGENT, ...hifHeaders },
         signal: AbortSignal.timeout(8000),
       });
       send({ type: "progress", step: "upstream", ok: res.ok, message: `HTTP ${res.status}` });

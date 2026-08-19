@@ -3,6 +3,34 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-19 (Auth HIF headers + DeepSeek reasoning fragment routing)
+
+### Исправления
+
+- `src/server/actions.ts` — `checkAuthStatus()`: теперь читает `hifLeim`/`hifDliq`
+  из auth.json (camelCase с fallback на legacy `hif_leim`/`hif_dliq`) и передаёт
+  заголовки `x-hif-leim`/`x-hif-dliq` в запрос auth-status. Ранее HIF headers
+  не отправлялись → false "NO AUTH" в панели.
+- `src/server/actions.ts` — `runDiagnosticsSSE()`: upstream check теперь также
+  передаёт `x-hif-leim`/`x-hif-dliq` из auth.json.
+- `src/deepseek/updateParser.ts` — новый p/o/v формат теперь разделяет
+  THINK и RESPONSE фрагменты. Fragment type (`frag.type`) определяет
+  маршрут: `"THINK"` → `reasoningDelta`, `"RESPONSE"` → `delta`.
+  APPEND события наследуют тип последнего snapshot-фрагмента.
+  State сбрасывается при FINISHED. Старый формат не затронут.
+
+### Тесты
+
+- `tests/unit/sse.test.ts` — 8 новых тестов для THINK/RESPONSE routing:
+  THINK → reasoningDelta, RESPONSE → delta, переключение THINK→RESPONSE,
+  APPEND после THINK → reasoning, APPEND после RESPONSE → content,
+  FINISHED сброс state, fragment без type наследует состояние,
+  старый формат reasoning_content. Итого 16 тестов в файле.
+- `tests/unit/authHifHeaders.test.ts` — 5 новых тестов:
+  checkAuthStatus отправляет x-hif-leim (camelCase), x-hif-leim (legacy),
+  x-hif-dliq + x-hif-leim; diagnostics отправляет x-hif-leim,
+  diagnostics отправляет x-hif-dliq (legacy). Итого 151 тест.
+
 ## 2026-08-19 (Windows atomic file write fix)
 
 ### Исправления

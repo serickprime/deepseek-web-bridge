@@ -70,14 +70,14 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
 | 7. DeepSeek | pow (WASM), sseParser, updateParser, client | ✅ готово |
 | 8. Server | middleware, output-адаптеры, protocolStream, routes, server | ✅ готово |
 | 9. Entrypoint | app.ts, index.ts, start.ts | ✅ готово |
-| 10. Тесты | 13 файлов, 138 offline-тестов | ✅ готово |
+| 10. Тесты | 14 файлов, 151 offline-тест | ✅ готово |
 | 11. Скрипты | cdp, auth, doctor, launcher, live | ✅ live-часть работает |
 | 12. Веб-интерфейс | Bridge Console на `GET /` (Mileo dark theme, two-panel, diagnostics, model picker) | ✅ готово |
 
 **Проверки сейчас:**
 - `npm run typecheck` — ✅ без ошибок.
 - `npm run build` — ✅ собирается.
-- `npm test` — ✅ 138/138.
+- `npm test` — ✅ 151/151.
 - `npm run auth` — ✅ окно Chrome открывается, захват работает (сеть + localStorage
   fallback).
 - `npm run doctor` — ✅ все 6/6 проверок проходят (auth, reachable, challenge,
@@ -92,8 +92,11 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
 - PoW: загрузка/кэш WASM, решение DeepSeekHashV1 через wasm_solve, заголовок
   `x-ds-pow-response` (base64-encoded JSON).
 - SSE: накопитель парса чанков, парсер update-событий нового формата
-  `{ v: { response: { fragments: [...] } } }` (инкрементальный контент),
-  plain token deltas `{ v: "text" }`, fragment appends, и
+  `{ v: { response: { fragments: [...] } } }` (инкрементальный контент)
+  с **THINK/RESPONSE разделением**: fragment type определяет маршрут
+  (`"THINK"` → `reasoningDelta`, `"RESPONSE"` → `delta`), APPEND события
+  наследуют тип последнего snapshot-фрагмента. plain token deltas
+  `{ v: "text" }`, fragment appends, и
   `{ p: "response/status", o: "SET", v: "FINISHED" }` (терминальное).
   Старый формат `{ data: { type: "...", message: { content: "..." } } }`
   сохранён как fallback.
@@ -130,6 +133,8 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
   loopback-проверка + PROXY_API_KEY для не-loopback, CORS по умолчанию только
   loopback, ограничение глубины/размера tool аргументов, защита от
   `__proto__`/`prototype`/`constructor`.
+  `checkAuthStatus()` и diagnostics передают `x-hif-leim`/`x-hif-dliq` из auth.json
+  (camelCase + legacy fallback) во все upstream-запросы.
 - Скрипты: `auth` (CDP, читает hif_leim из localStorage), `doctor` (6 последовательных
   чеков + реальный completion-запрос), `launcher` (меню), `live/run` (smoke-тест).
 

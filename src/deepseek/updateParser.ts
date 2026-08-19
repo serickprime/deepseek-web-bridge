@@ -20,6 +20,15 @@ export interface UpdateChunk {
   };
 }
 
+type FragmentType = "THINK" | "RESPONSE";
+
+/** Minimal state: tracks current fragment type for new p/o/v format. */
+const fragmentState = { currentType: undefined as FragmentType | undefined };
+
+export function resetFragmentState(): void {
+  fragmentState.currentType = undefined;
+}
+
 function extractMessage(update: Record<string, unknown>): Record<string, unknown> | null {
   const message = update.message;
   if (isRecord(message)) return message;
@@ -48,6 +57,7 @@ export function parseUpdateChunk(raw: unknown): UpdateChunk | null {
 
   // Status update: { p: "response/status", o: "SET", v: "FINISHED" } — check BEFORE string v
   if (typeof raw.p === "string" && raw.p === "response/status" && v === "FINISHED") {
+    fragmentState.currentType = undefined;
     return { index: 0, delta: "", done: true, parentMessageId: null };
   }
 
@@ -62,16 +72,24 @@ export function parseUpdateChunk(raw: unknown): UpdateChunk | null {
       const fragments = response.fragments;
       if (Array.isArray(fragments)) {
         let delta = "";
+        let reasoningDelta = "";
         for (const frag of fragments) {
-          if (isRecord(frag) && typeof frag.content === "string") {
+          if (!isRecord(frag) || typeof frag.content !== "string") continue;
+          const fragType = typeof frag.type === "string" ? (frag.type as FragmentType) : undefined;
+          if (fragType) fragmentState.currentType = fragType;
+          if (fragType === "THINK" || fragmentState.currentType === "THINK") {
+            reasoningDelta += frag.content;
+          } else {
             delta += frag.content;
           }
         }
         const messageId = typeof response.message_id === "number" ? String(response.message_id) : undefined;
         const done = typeof response.status === "string" && response.status === "FINISHED";
+        if (done) fragmentState.currentType = undefined;
         return {
           index: 0,
           delta,
+          reasoningDelta: reasoningDelta || undefined,
           messageId,
           done,
           parentMessageId: null,
@@ -82,11 +100,16 @@ export function parseUpdateChunk(raw: unknown): UpdateChunk | null {
     // Status update: { p: "response/status", o: "SET", v: "FINISHED" }
     const p = v.p;
     if (p === "response/status" && v.v === "FINISHED") {
+      fragmentState.currentType = undefined;
       return { index: 0, delta: "", done: true, parentMessageId: null };
     }
     // Fragment content append: { p: "response/fragments/-1/content", o: "APPEND", v: "text" }
     if (typeof p === "string" && p.includes("fragments") && v.o === "APPEND" && typeof v.v === "string") {
-      return { index: 0, delta: v.v, done: false, parentMessageId: null };
+      const text = v.v;
+      if (fragmentState.currentType === "THINK") {
+        return { index: 0, delta: "", reasoningDelta: text, done: false, parentMessageId: null };
+      }
+      return { index: 0, delta: text, done: false, parentMessageId: null };
     }
     // Nested token delta: { v: "text" } where v is nested inside a record
     if (typeof v.v === "string" && v.v !== "FINISHED") {
