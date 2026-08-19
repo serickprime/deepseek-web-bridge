@@ -10,7 +10,11 @@ export async function writeJsonAtomic(file: string, data: unknown, mode?: number
   await fs.promises.mkdir(dir, { recursive: true });
   const temp = tempSiblingPath(file);
   const body = JSON.stringify(data, null, 2);
-  await fs.promises.writeFile(temp, body, { encoding: "utf8", mode });
+  const isWin = process.platform === "win32";
+  const writeOpts: fs.WriteFileOptions = isWin
+    ? { encoding: "utf8" }
+    : { encoding: "utf8", mode };
+  await fs.promises.writeFile(temp, body, writeOpts);
   try {
     await fs.promises.rename(temp, file);
   } catch (error) {
@@ -22,7 +26,7 @@ export async function writeJsonAtomic(file: string, data: unknown, mode?: number
       throw error;
     }
   }
-  if (mode !== undefined) {
+  if (!isWin && mode !== undefined) {
     await fs.promises.chmod(file, mode).catch(() => undefined);
   }
 }

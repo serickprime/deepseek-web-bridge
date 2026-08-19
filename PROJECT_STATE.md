@@ -1,6 +1,6 @@
 # Состояние проекта
 
-> **Актуально на:** 2026-08-18.
+> **Актуально на:** 2026-08-19.
 > Этот файл — главный источник правды о стадии проекта. Любой агент обязан
 > прочитать его перед началом работы и обновить после внесения изменений.
 > Обязательный порядок чтения перед задачей: `AGENTS.md` → `PROJECT_STATE.md`
@@ -47,7 +47,7 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
 
 Каталоги:
 - `src/config/` — константы и загрузка конфига из env / `.env`.
-- `src/utils/` — errors, crypto, json, redaction, atomicFile, logger, tokenEstimate, sessionCreateLimiter.
+- `src/utils/` — errors, crypto, json, redaction, atomicFile (Windows-safe: skip chmod on win32), logger, tokenEstimate, sessionCreateLimiter.
 - `src/auth/` — менеджер сессий-«ключей» (sid cookies), файловое хранилище.
 - `src/sessions/` — upstream-состояние, mutex, identity-resolver, lineage.
 - `src/api/` — canonical, нормализация трёх протоколов, handler.
@@ -70,14 +70,14 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
 | 7. DeepSeek | pow (WASM), sseParser, updateParser, client | ✅ готово |
 | 8. Server | middleware, output-адаптеры, protocolStream, routes, server | ✅ готово |
 | 9. Entrypoint | app.ts, index.ts, start.ts | ✅ готово |
-| 10. Тесты | 12 файлов, 123 offline-тестов | ✅ готово |
+| 10. Тесты | 13 файлов, 138 offline-тестов | ✅ готово |
 | 11. Скрипты | cdp, auth, doctor, launcher, live | ✅ live-часть работает |
 | 12. Веб-интерфейс | Bridge Console на `GET /` (Mileo dark theme, two-panel, diagnostics, model picker) | ✅ готово |
 
 **Проверки сейчас:**
 - `npm run typecheck` — ✅ без ошибок.
 - `npm run build` — ✅ собирается.
-- `npm test` — ✅ 123/123.
+- `npm test` — ✅ 138/138.
 - `npm run auth` — ✅ окно Chrome открывается, захват работает (сеть + localStorage
   fallback).
 - `npm run doctor` — ✅ все 6/6 проверок проходят (auth, reachable, challenge,
@@ -126,7 +126,7 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
   toast notifications. Статические файлы `GET /assets/*` (PNG, CSS, JS) с
   path-traversal protection. Публичные пути: `/`, `/health`, `/readyz`,
   `/assets/*` (GET).
-- Безопасность: redaction секретов в логах, 0600 для auth/sessions файлов,
+- Безопасность: redaction секретов в логах, 0600 для auth/sessions файлов (Unix; на Windows без chmod для совместимости с NTFS),
   loopback-проверка + PROXY_API_KEY для не-loopback, CORS по умолчанию только
   loopback, ограничение глубины/размера tool аргументов, защита от
   `__proto__`/`prototype`/`constructor`.

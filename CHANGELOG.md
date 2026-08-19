@@ -3,6 +3,36 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-19 (Windows atomic file write fix)
+
+### Исправления
+
+- `src/utils/atomicFile.ts` — `writeJsonAtomic()`: на Windows (`process.platform === "win32"`)
+  mode/chmod больше не применяется. На Windows writeFile вызывается без `mode` в options,
+  а `chmod()` после rename не вызывается. Это решает проблему EPERM при rename/unlink
+  и накопившихся `*.tmp` файлов, вызванных Unix-правами на NTFS.
+- На Linux/macOS поведение сохранено: mode передаётся в writeFile + chmod после rename.
+- Atomic rename механизм (temp → rename с fallback unlink на EEXIST/EPERM) сохранён.
+
+### Тесты
+
+- `tests/unit/atomicFile.test.ts` — 15 новых offline-тестов:
+  1. writeJsonAtomic: запись и чтение обратно
+  2. writeJsonAtomic: перезапись через atomic rename
+  3. writeJsonAtomic: создание промежуточных директорий
+  4. writeJsonAtomic: нет .tmp файлов после успешной записи
+  5. win32: chmod НЕ вызывается
+  6. win32: запись без mode option
+  7. win32: перезапись работает без EPERM
+  8. non-win32: chmod вызывается с указанным mode
+  9. non-win32: chmod пропускается при undefined mode
+  10. atomic rename fallback: повтор при EPERM через unlink
+  11. fileMode возвращает биты прав
+  12. fileMode возвращает null для несуществующего файла
+  13. isOwnerOnlyMode: 0600 → true
+  14. isOwnerOnlyMode: 0644 → false
+  15. isOwnerOnlyMode: null → false. Итого 138 тестов.
+
 ## 2026-08-18 (DeepSeek re-authentication flow fix)
 
 ### Исправления
