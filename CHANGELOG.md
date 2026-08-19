@@ -86,6 +86,17 @@ Read несуществующего файла → tool error → Bash(pwd) → 
 
 ## 2026-08-19 — Стабильная live-точка (полный coding workflow)
 
+### Live-тест: параллельные Claude Code сессии — подтверждено
+
+Session A (cwd `D:\test CC NODE`): `session-A2.txt` → `AAA2`
+Session B (cwd `D:\test 2`): `session-B2.txt` → `BBB2`
+Cross-check: файлы не смешиваются, lineage изолирован.
+
+### Наблюдение (не баг)
+
+DeepSeek однажды придумал абсолютный путь `C:\Users\Mi\session-B.txt`
+вместо использования cwd `D:\test 2`. Изолированный случай.
+
 Подтверждено live-тестами Claude Code — полный workflow «кодирование через бридж»:
 
 - Claude Code понимает cwd.
