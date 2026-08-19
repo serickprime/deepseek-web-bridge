@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseToolInvocation, hasToolTag, createToolRetryPrompt, historicalToolInvocationText, toolResultText } from "../../src/tools/toolParser.js";
+import { parseToolInvocation, hasToolTag, createToolRetryPrompt, historicalToolInvocationText, toolResultText, looksLikeToolIntentText } from "../../src/tools/toolParser.js";
 import { buildToolPrompt } from "../../src/tools/toolPrompt.js";
 import { ToolRetryTracker } from "../../src/tools/toolRetry.js";
 import { shouldRetry, buildToolUseIdMap } from "../../src/deepseek/client.js";
@@ -385,5 +385,105 @@ describe("tool_result name correlation (buildToolUseIdMap)", () => {
     ];
     const map = buildToolUseIdMap(messages);
     expect(map.size).toBe(0);
+  });
+});
+
+describe("looksLikeToolIntentText", () => {
+  it("Russian intent with tool name → true", () => {
+    expect(looksLikeToolIntentText("Я попробую прочитать файл через Read.", ["Read"])).toBe(true);
+  });
+
+  it("Russian intent with action verb + object → true", () => {
+    expect(looksLikeToolIntentText("Я выполню команду через Bash.", ["Bash"])).toBe(true);
+  });
+
+  it("English intent with tool name → true", () => {
+    expect(looksLikeToolIntentText("Let me read the file using Read.", ["Read"])).toBe(true);
+  });
+
+  it("English intent 'I'll run' with tool name → true", () => {
+    expect(looksLikeToolIntentText("I'll run this with Bash.", ["Bash"])).toBe(true);
+  });
+
+  it("normal final answer → false", () => {
+    expect(looksLikeToolIntentText("Файл не найден, проверьте путь.", ["Read"])).toBe(false);
+  });
+
+  it("question about tool → false", () => {
+    expect(looksLikeToolIntentText("Что такое Read tool?", ["Read"])).toBe(false);
+  });
+
+  it("long text > 300 chars → false", () => {
+    const long = "Я попробую ".repeat(50);
+    expect(looksLikeToolIntentText(long, ["Read"])).toBe(false);
+  });
+
+  it("no tools available → false", () => {
+    expect(looksLikeToolIntentText("Я попробую прочитать файл.", [])).toBe(false);
+  });
+
+  it("empty content → false", () => {
+    expect(looksLikeToolIntentText("", ["Read"])).toBe(false);
+  });
+
+  it("intent without tool name or action object → false", () => {
+    expect(looksLikeToolIntentText("Я попробую понять ситуацию.", ["Read"])).toBe(false);
+  });
+
+  it("Russian 'давай я' with tool name → true", () => {
+    expect(looksLikeToolIntentText("Давай я создам файл через Write.", ["Write"])).toBe(true);
+  });
+
+  it("Russian 'сейчас я' with action object → true", () => {
+    expect(looksLikeToolIntentText("Сейчас я проверю директорию.", ["Bash"])).toBe(true);
+  });
+
+  it("English 'I can read' → true", () => {
+    expect(looksLikeToolIntentText("I can read the file for you.", ["Read"])).toBe(true);
+  });
+
+  it("English 'I will create' → true", () => {
+    expect(looksLikeToolIntentText("I will create the file.", ["Write"])).toBe(true);
+  });
+});
+
+describe("shouldRetry with intent text", () => {
+  const tools = ["Read", "Bash", "Write"];
+
+  it("Russian intent text + tools → retry", () => {
+    expect(shouldRetry(true, null, "Я попробую прочитать файл через Read.", "", tools)).toBe(true);
+  });
+
+  it("English intent text + tools → retry", () => {
+    expect(shouldRetry(true, null, "Let me read the file using Read.", "", tools)).toBe(true);
+  });
+
+  it("normal answer + tools → no retry", () => {
+    expect(shouldRetry(true, null, "Файл не найден.", "", tools)).toBe(false);
+  });
+
+  it("question + tools → no retry", () => {
+    expect(shouldRetry(true, null, "Что такое Read tool?", "", tools)).toBe(false);
+  });
+
+  it("long text + tools → no retry", () => {
+    const long = "Я попробую ".repeat(50);
+    expect(shouldRetry(true, null, long, "", tools)).toBe(false);
+  });
+
+  it("no tools → no retry", () => {
+    expect(shouldRetry(false, null, "Я попробую прочитать файл.", "", [])).toBe(false);
+  });
+
+  it("toolCall found → no retry", () => {
+    expect(shouldRetry(true, { name: "Read", arguments: {} }, "Я попробую прочитать.", "", tools)).toBe(false);
+  });
+
+  it("empty content + reasoning → retry (legacy)", () => {
+    expect(shouldRetry(true, null, "", "Нужно прочитать файл...", tools)).toBe(true);
+  });
+
+  it("empty content + no reasoning → no retry", () => {
+    expect(shouldRetry(true, null, "", "", tools)).toBe(false);
   });
 });

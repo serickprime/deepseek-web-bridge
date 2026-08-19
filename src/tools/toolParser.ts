@@ -203,6 +203,53 @@ export function inspectToolCallFromOutput(output: { content?: string; reasoning?
 
 // --- Retry detection helpers ---
 
+const INTENT_MAX_LENGTH = 300;
+
+const INTENT_PATTERNS_RU = [
+  /^я попробую/i,
+  /^я выполню/i,
+  /^я прочитаю/i,
+  /^я запущу/i,
+  /^я создам/i,
+  /^я проверю/i,
+  /^я открою/i,
+  /^давайте я/i,
+  /^давай я/i,
+  /^сейчас я/i,
+];
+
+const INTENT_PATTERNS_EN = [
+  /^let me /i,
+  /^i will /i,
+  /^i'll /i,
+  /^i can run/i,
+  /^i can read/i,
+  /^i can create/i,
+  /^i can check/i,
+  /^i can open/i,
+];
+
+export function looksLikeToolIntentText(content: string, allowedToolNames: string[]): boolean {
+  if (allowedToolNames.length === 0) return false;
+  const trimmed = content.trim();
+  if (trimmed.length === 0 || trimmed.length > INTENT_MAX_LENGTH) return false;
+
+  const lower = trimmed.toLowerCase();
+
+  const hasIntentPrefix =
+    INTENT_PATTERNS_RU.some(p => p.test(trimmed)) ||
+    INTENT_PATTERNS_EN.some(p => p.test(trimmed));
+
+  if (!hasIntentPrefix) return false;
+
+  for (const name of allowedToolNames) {
+    if (lower.includes(name.toLowerCase())) return true;
+  }
+
+  const ACTION_OBJECT_RE = /файл|команд|директор|каталог|блок|строк|процесс|command|file|directory|folder|block|line|process|code|script/i;
+  return ACTION_OBJECT_RE.test(trimmed);
+}
+
 function shouldRetryToolResponse(hasTools: boolean, output: { content?: string; reasoning?: string }, toolCall: CanonicalToolCall | null): boolean {
   return !toolCall && hasTools
     && typeof output.content === "string" && output.content.trim() === ""

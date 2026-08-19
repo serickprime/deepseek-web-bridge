@@ -23,6 +23,7 @@ import {
   createToolRetryPrompt,
   historicalToolInvocationText,
   toolResultText,
+  looksLikeToolIntentText,
   buildUpstreamPrompt,
 } from "../tools/toolParser.js";
 
@@ -114,9 +115,9 @@ export class DeepSeekClient {
     const inspection = inspectToolCallFromOutput(output, allowedNames);
     let toolCall = inspection.toolCall;
 
-    // Retry only when tools were expected, no tool call found, content is empty
-    // but reasoning exists — model was thinking but didn't produce output.
-    if (shouldRetry(hasTools, toolCall, output.content, output.reasoning)) {
+    // Retry when: (a) tools expected, no tool call found, content empty but reasoning exists;
+    // or (b) content looks like intent text describing an action instead of performing it.
+    if (shouldRetry(hasTools, toolCall, output.content, output.reasoning, allowedNames)) {
       const retryPrompt = createToolRetryPrompt(allowedNames);
       output = await this.runCompletion(retryPrompt, state);
       const retryInspection = inspectToolCallFromOutput(output, allowedNames);
@@ -395,10 +396,11 @@ export class DeepSeekClient {
   }
 }
 
-export function shouldRetry(hasTools: boolean, toolCall: unknown, content: string, reasoning: string): boolean {
+export function shouldRetry(hasTools: boolean, toolCall: unknown, content: string, reasoning: string, allowedToolNames: string[] = []): boolean {
   if (!hasTools || toolCall) return false;
-  if (content.trim() !== "") return false;
-  return reasoning.trim() !== "";
+  if (content.trim() === "" && reasoning.trim() !== "") return true;
+  if (content.trim() !== "" && looksLikeToolIntentText(content, allowedToolNames)) return true;
+  return false;
 }
 
 export function buildToolNames(tools: CanonicalTool[]): Set<string> {

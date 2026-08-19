@@ -26,12 +26,15 @@ Read несуществующего файла → tool error → Bash(pwd) → 
 модель "замолчала" (пустой content, но reasoning есть). Когда модель
 пишет intent-текст — content не пустой, retry пропускается.
 
-**Возможный minimal fix** (пока НЕ реализован):
-- детектировать intent-паттерны в content ("я попробую", "let me",
-  "я выполню", "я прочитаю", "я запущу") когда tools доступны;
-- запускать retry с `createToolRetryPrompt` в этом случае;
-- или усилить tool prompt правилом: "intent-текст = нарушение;
-  текстовый ответ допустим ТОЛЬКО если tool НЕ нужен".
+## 2026-08-19 — Стабильная live-точка (полный coding workflow)
+
+**Возможный minimal fix** (реализован):
+- добавлен `looksLikeToolIntentText()` в `toolParser.ts` — детектирует
+  intent-паттерны ("я попробую", "let me", "I'll run" и т.д.) когда
+  tools доступны и content короткий (≤ 300 chars);
+- `shouldRetry()` в `client.ts` расширен: retry срабатывает также
+  когда content выглядит как намерение выполнить действие;
+- это ДОПОЛНЕНИЕ к существующему retry (empty content + reasoning).
 
 ### Исправления
 
@@ -55,7 +58,31 @@ Read несуществующего файла → tool error → Bash(pwd) → 
   6. Chain: failed Read → Bash → Write
   7. Empty messages → empty map
   8. Ignores text and tool_result parts
-  Итого 198 тестов (14 файлов), все проходят.
+- 14 новых tests для `looksLikeToolIntentText` и `shouldRetry` intent case:
+  1. Russian intent with tool name → true
+  2. Russian intent with action verb + object → true
+  3. English intent with tool name → true
+  4. English "I'll run" → true
+  5. normal final answer → false
+  6. question about tool → false
+  7. long text > 300 → false
+  8. no tools → false
+  9. empty content → false
+  10. intent without tool name or action object → false
+  11. "давай я" + tool name → true
+  12. "сейчас я" + action object → true
+  13. "I can read" → true
+  14. "I will create" → true
+  15. shouldRetry: Russian intent → retry
+  16. shouldRetry: English intent → retry
+  17. shouldRetry: normal answer → no retry
+  18. shouldRetry: question → no retry
+  19. shouldRetry: long text → no retry
+  20. shouldRetry: no tools → no retry
+  21. shouldRetry: toolCall found → no retry
+  22. shouldRetry: empty content + reasoning → retry (legacy)
+  23. shouldRetry: empty content + no reasoning → no retry
+  Итого 221 тест (14 файлов), все проходят.
 
 ## 2026-08-19 — Стабильная live-точка (полный coding workflow)
 
