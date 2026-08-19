@@ -163,6 +163,38 @@ describe("toolPrompt", () => {
     expect(prompt).toMatch(/Do NOT show the command as plain text/i);
   });
 
+  it("contains PATH RULES section", () => {
+    const prompt = buildToolPrompt(tools);
+    expect(prompt).toContain("PATH RULES (mandatory)");
+  });
+
+  it("contains cwd-as-source-of-truth rule", () => {
+    const prompt = buildToolPrompt(tools);
+    expect(prompt).toMatch(/current working directory[\s\S]*?is the ONLY source of truth/i);
+  });
+
+  it("contains do-not-invent-absolute-paths rule", () => {
+    const prompt = buildToolPrompt(tools);
+    expect(prompt).toMatch(/NEVER invent absolute paths/i);
+    expect(prompt).toContain("C:\\Users\\...");
+    expect(prompt).toContain("/home/...");
+  });
+
+  it("contains resolve-from-cwd rule", () => {
+    const prompt = buildToolPrompt(tools);
+    expect(prompt).toMatch(/resolve it relative to the cwd/i);
+  });
+
+  it("contains confirm-cwd-first rule", () => {
+    const prompt = buildToolPrompt(tools);
+    expect(prompt).toMatch(/first run a Bash tool to confirm the real cwd/i);
+  });
+
+  it("contains explicit-user-path exception", () => {
+    const prompt = buildToolPrompt(tools);
+    expect(prompt).toMatch(/Explicitly user-provided absolute paths/i);
+  });
+
   it("contains auto-continuation after tool_result", () => {
     const prompt = buildToolPrompt(tools);
     expect(prompt).toContain("After receiving a tool_result: automatically continue");

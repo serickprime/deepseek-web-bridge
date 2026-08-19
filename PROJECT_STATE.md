@@ -71,14 +71,14 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
 | 7. DeepSeek | pow (WASM), sseParser, updateParser, client | ✅ готово |
 | 8. Server | middleware, output-адаптеры, protocolStream, routes, server | ✅ готово |
 | 9. Entrypoint | app.ts, index.ts, start.ts | ✅ готово |
-| 10. Тесты | 16 файлов, 248 offline-тестов | ✅ готово |
+| 10. Тесты | 16 файлов, 254 offline-теста | ✅ готово |
 | 11. Скрипты | cdp, auth, doctor, launcher, live | ✅ live-часть работает |
 | 12. Веб-интерфейс | Bridge Console на `GET /` (Mileo dark theme, two-panel, diagnostics, model picker) | ✅ готово |
 
 **Проверки сейчас:**
 - `npm run typecheck` — ✅ без ошибок.
 - `npm run build` — ✅ собирается.
-- `npm test` — ✅ 248/248.
+- `npm test` — ✅ 254/254.
 - `npm run auth` — ✅ окно Chrome открывается, захват работает (сеть + localStorage
   fallback).
 - `npm run doctor` — ✅ все 6/6 проверок проходят (auth, reachable, challenge,
@@ -280,9 +280,13 @@ _(все проверены)_
       «сбросить и предложить npm run auth» реализовано: `sessionStore.reset()` +
       `lineage.removeByUpstreamKey()` + лог `auth_expired_session_reset`.
       14 offline-тестов (`authExpired401.test.ts`).
-- [ ] DeepSeek иногда придумывает абсолютный путь (например
+- [~] DeepSeek иногда придумывает абсолютный путь (например
       `C:\Users\Mi\session-B.txt`) вместо использования cwd/относительного
-      пути. Изолированное наблюдение при параллельных сессиях.
+      пути. **Prompt fix implemented**: добавлены PATH RULES в tool prompt
+      (rule 8a-f: cwd = source of truth, запрет на изобретение путей,
+      разрешение от cwd, проверка cwd через Bash, исключение явных путей
+      пользователя). 6 offline-тестов (`tools.test.ts`). Требуется
+      live-test двух разных cwd.
 - [ ] После compaction на сложной multi-step задаче модель может
       заявить о выполнении (premature final answer) без фактического
       вызова всех нужных tools. Простые post-compact workflows работают.
