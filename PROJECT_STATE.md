@@ -70,14 +70,14 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
 | 7. DeepSeek | pow (WASM), sseParser, updateParser, client | ✅ готово |
 | 8. Server | middleware, output-адаптеры, protocolStream, routes, server | ✅ готово |
 | 9. Entrypoint | app.ts, index.ts, start.ts | ✅ готово |
-| 10. Тесты | 14 файлов, 151 offline-тест | ✅ готово |
+| 10. Тесты | 14 файлов, 153 offline-тест | ✅ готово |
 | 11. Скрипты | cdp, auth, doctor, launcher, live | ✅ live-часть работает |
 | 12. Веб-интерфейс | Bridge Console на `GET /` (Mileo dark theme, two-panel, diagnostics, model picker) | ✅ готово |
 
 **Проверки сейчас:**
 - `npm run typecheck` — ✅ без ошибок.
 - `npm run build` — ✅ собирается.
-- `npm test` — ✅ 151/151.
+- `npm test` — ✅ 153/153.
 - `npm run auth` — ✅ окно Chrome открывается, захват работает (сеть + localStorage
   fallback).
 - `npm run doctor` — ✅ все 6/6 проверок проходят (auth, reachable, challenge,
@@ -99,7 +99,9 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
   `{ v: "text" }`, fragment appends, и
   `{ p: "response/status", o: "SET", v: "FINISHED" }` (терминальное).
   Старый формат `{ data: { type: "...", message: { content: "..." } } }`
-  сохранён как fallback.
+  сохранён как fallback. **Класс `DeepSeekPatchParser`** с инстансным
+  состоянием (currentPath, currentOp, fragments[], status) — каждый
+  `runCompletion()` создаёт свой экземпляр, нет модульного глобального state.
 - Upstream-клиент: создание `chat_session_id`, completion с ретраями на 429/5xx
   (backoff), 401/403 → отдельные ошибки, AbortController по таймауту.
   `prompt` заполняется из системного промпта или последнего user-сообщения;

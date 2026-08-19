@@ -3,6 +3,38 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-19 (Local auth status + DeepSeek patch state machine)
+
+### Исправления
+
+- `src/server/actions.ts` — `checkAuthStatus()`: теперь полностью локальная
+  (без HTTP-запроса upstream). Проверяет только наличие auth.json и наличие
+  token/cookie. Возвращает "NO AUTH" если файла нет или нет credentials,
+  "AUTH SVED" если есть token/cookie. Устраняет ложные "NO AUTH" из-за
+  ненадёжного `/api/v0/auth/session`.
+- `src/deepseek/updateParser.ts` — полная переработка в класс
+  `DeepSeekPatchParser` с инстансным состоянием. Модульный глобальный state
+  (`fragmentState`) заменён на экземпляр `currentPath`, `currentOp`,
+  `fragments[]`, `status`. Каждый `runCompletion()` создаёт свой экземпляр
+  парсера. Критический случай THINK→APPEND→text теперь корректно
+  маршрутизируется в `reasoningDelta`.
+- `src/deepseek/client.ts` — создаёт `new DeepSeekPatchParser()` на каждый
+  `runCompletion()`. Парсер инкапсулирует state.
+- `scripts/doctor.ts` — аналогично, создаёт свой экземпляр парсера.
+- `src/deepseek/updateParser.ts` — удалены `resetFragmentState()` и
+  `isTerminalUpdate()` (не нужны при инстансном подходе).
+
+### Тесты
+
+- `tests/unit/sse.test.ts` — переработаны для инстансного API (`new DeepSeekPatchParser()`).
+  Добавлены: THINK→APPEND→text reasoning-only, RESPONSE→APPEND content-only,
+  BATCH dispatch, два независимых инстанса. Итого 17 тестов.
+- `tests/unit/authHifHeaders.test.ts` — переработаны: убраны 3 теста,
+  ожидавшие HTTP-запрос от `checkAuthStatus` (теперь локальная). Добавлены
+  тесты: AUTH SAVED, NO AUTH (нет файла), NO AUTH (пустые credentials),
+  ноль HTTP-вызовов. Итого 6 тестов.
+- Общее количество: 153 теста (14 файлов), все проходят.
+
 ## 2026-08-19 (Auth HIF headers + DeepSeek reasoning fragment routing)
 
 ### Исправления

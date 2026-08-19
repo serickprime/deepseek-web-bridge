@@ -9,7 +9,7 @@ import { Redactor } from "../utils/redaction.js";
 import { Logger } from "../utils/logger.js";
 import { PowSolver, parseChallengePayload } from "../deepseek/pow.js";
 import { SseAccumulator } from "../deepseek/sseParser.js";
-import { parseUpdateChunk } from "../deepseek/updateParser.js";
+import { DeepSeekPatchParser } from "../deepseek/updateParser.js";
 import { COMPLETION_PATH, SESSION_CREATE_PATH, CLIENT_HEADERS, BROWSER_HEADERS, UPSTREAM_USER_AGENT } from "../config/constants.js";
 import { CdpConnection, createPage, launchChrome, waitForDebugger, findChrome } from "../cdp.js";
 
@@ -32,38 +32,19 @@ export function endSSE(res: ServerResponse): void {
   res.end();
 }
 
-/* ── AUTH STATUS CHECK ── */
+/* ── AUTH STATUS CHECK (local only — no upstream HTTP) ── */
 
 export async function checkAuthStatus(): Promise<{ valid: boolean; message: string }> {
   const config = buildConfig();
   try {
     const raw = await readJsonIfExists(config.authFile);
-    if (!isRecord(raw)) return { valid: false, message: "No auth.json found" };
+    if (!isRecord(raw)) return { valid: false, message: "NO AUTH" };
     const token = typeof raw.token === "string" ? raw.token : "";
     const cookie = typeof raw.cookie === "string" ? raw.cookie : "";
-    if (!token && !cookie) return { valid: false, message: "No credentials in auth.json" };
-    const hifLeim = typeof raw.hifLeim === "string" ? raw.hifLeim
-      : typeof raw.hif_leim === "string" ? raw.hif_leim : undefined;
-    const hifDliq = typeof raw.hifDliq === "string" ? raw.hifDliq
-      : typeof raw.hif_dliq === "string" ? raw.hif_dliq : undefined;
-    const hifHeaders: Record<string, string> = {};
-    if (hifLeim) hifHeaders["x-hif-leim"] = hifLeim;
-    if (hifDliq) hifHeaders["x-hif-dliq"] = hifDliq;
-    const res = await fetch(`${config.baseUrl}/api/v0/auth/session`, {
-      headers: { authorization: `Bearer ${token}`, cookie, ...CLIENT_HEADERS, ...BROWSER_HEADERS, "user-agent": UPSTREAM_USER_AGENT, ...hifHeaders },
-      signal: AbortSignal.timeout(8000),
-    });
-    if (!res.ok) return { valid: false, message: `Upstream HTTP ${res.status}` };
-    const json = await res.json() as Record<string, unknown>;
-    const code = typeof json.code === "number" ? json.code : 0;
-    if (code === 40003) return { valid: false, message: `AUTH INVALID (code 40003)` };
-    if (code !== 0) {
-      const msg = typeof json.msg === "string" ? json.msg : `code ${code}`;
-      return { valid: false, message: `AUTH INVALID (${msg})` };
-    }
-    return { valid: true, message: `Auth OK (${token.slice(0, 12)}...)` };
+    if (!token && !cookie) return { valid: false, message: "NO AUTH" };
+    return { valid: true, message: `AUTH SAVED (${token.slice(0, 12)}...)` };
   } catch (error) {
-    return { valid: false, message: error instanceof Error ? error.message : String(error) };
+    return { valid: false, message: "NO AUTH" };
   }
 }
 
@@ -464,13 +445,14 @@ export async function runDoctorSSE(
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     const acc = new SseAccumulator();
+    const parser = new DeepSeekPatchParser();
     let text = "";
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       for (const event of acc.push(decoder.decode(value, { stream: true }))) {
         if (event.type === "update") {
-          const chunk = parseUpdateChunk(event.data);
+          const chunk = parser.apply(event.data);
           if (chunk?.delta) text += chunk.delta;
         }
       }

@@ -7,7 +7,7 @@ import { Redactor } from "../src/utils/redaction.js";
 import { Logger } from "../src/utils/logger.js";
 import { PowSolver, parseChallengePayload } from "../src/deepseek/pow.js";
 import { SseAccumulator } from "../src/deepseek/sseParser.js";
-import { parseUpdateChunk } from "../src/deepseek/updateParser.js";
+import { DeepSeekPatchParser } from "../src/deepseek/updateParser.js";
 import { COMPLETION_PATH, SESSION_CREATE_PATH, CLIENT_HEADERS, BROWSER_HEADERS, UPSTREAM_USER_AGENT } from "../src/config/constants.js";
 
 interface CheckResult {
@@ -195,13 +195,14 @@ export async function runDoctor(): Promise<void> {
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     const acc = new SseAccumulator();
+    const parser = new DeepSeekPatchParser();
     let text = "";
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       for (const event of acc.push(decoder.decode(value, { stream: true }))) {
         if (event.type === "update") {
-          const chunk = parseUpdateChunk(event.data);
+          const chunk = parser.apply(event.data);
           if (chunk?.delta) text += chunk.delta;
         }
       }

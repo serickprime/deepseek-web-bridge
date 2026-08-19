@@ -31,58 +31,69 @@ function trackFetch(): {
   };
 }
 
-/* ── checkAuthStatus HIF header forwarding ── */
+/* ── checkAuthStatus: local-only (no upstream HTTP) ── */
 
-describe("checkAuthStatus HIF headers", () => {
+describe("checkAuthStatus", () => {
   let tracker: ReturnType<typeof trackFetch>;
 
   beforeEach(() => { vi.resetModules(); });
   afterEach(() => { tracker?.restore(); vi.restoreAllMocks(); });
 
-  it("sends x-hif-leim from camelCase key", async () => {
+  it("returns AUTH SAVED when token+cookie present", async () => {
     tracker = trackFetch();
     vi.doMock("../../src/config/env.js", () => ({
       buildConfig: () => ({ authFile: "auth.json", baseUrl: "https://chat.deepseek.com" }),
     }));
     vi.doMock("../../src/utils/atomicFile.js", () => ({
-      readJsonIfExists: async () => ({ token: "tok123", cookie: "sid=abc", hifLeim: "leim-val" }),
+      readJsonIfExists: async () => ({ token: "tok123", cookie: "sid=abc" }),
     }));
     const { checkAuthStatus } = await import("../../src/server/actions.js");
     const result = await checkAuthStatus();
     expect(result.valid).toBe(true);
-    const call = tracker.calls.find(c => c.url.includes("/auth/session"));
-    expect(call).toBeDefined();
-    expect((call!.init?.headers as Record<string, string>)["x-hif-leim"]).toBe("leim-val");
+    expect(result.message).toMatch(/AUTH SAVED/);
+    const httpCalls = tracker.calls.filter(c => c.url.includes("/auth/session"));
+    expect(httpCalls).toHaveLength(0);
   });
 
-  it("sends x-hif-leim from legacy snake_case key", async () => {
+  it("returns NO AUTH when no auth.json", async () => {
     tracker = trackFetch();
     vi.doMock("../../src/config/env.js", () => ({
       buildConfig: () => ({ authFile: "auth.json", baseUrl: "https://chat.deepseek.com" }),
     }));
     vi.doMock("../../src/utils/atomicFile.js", () => ({
-      readJsonIfExists: async () => ({ token: "tok123", cookie: "sid=abc", hif_leim: "legacy-leim" }),
+      readJsonIfExists: async () => null,
     }));
     const { checkAuthStatus } = await import("../../src/server/actions.js");
-    await checkAuthStatus();
-    const call = tracker.calls.find(c => c.url.includes("/auth/session"));
-    expect((call!.init?.headers as Record<string, string>)["x-hif-leim"]).toBe("legacy-leim");
+    const result = await checkAuthStatus();
+    expect(result.valid).toBe(false);
+    expect(result.message).toBe("NO AUTH");
   });
 
-  it("sends x-hif-dliq when present", async () => {
+  it("returns NO AUTH when auth.json has no credentials", async () => {
     tracker = trackFetch();
     vi.doMock("../../src/config/env.js", () => ({
       buildConfig: () => ({ authFile: "auth.json", baseUrl: "https://chat.deepseek.com" }),
     }));
     vi.doMock("../../src/utils/atomicFile.js", () => ({
-      readJsonIfExists: async () => ({ token: "tok123", cookie: "sid=abc", hifDliq: "dliq-val", hifLeim: "leim-val" }),
+      readJsonIfExists: async () => ({ token: "", cookie: "" }),
+    }));
+    const { checkAuthStatus } = await import("../../src/server/actions.js");
+    const result = await checkAuthStatus();
+    expect(result.valid).toBe(false);
+    expect(result.message).toBe("NO AUTH");
+  });
+
+  it("makes zero HTTP calls", async () => {
+    tracker = trackFetch();
+    vi.doMock("../../src/config/env.js", () => ({
+      buildConfig: () => ({ authFile: "auth.json", baseUrl: "https://chat.deepseek.com" }),
+    }));
+    vi.doMock("../../src/utils/atomicFile.js", () => ({
+      readJsonIfExists: async () => ({ token: "tok123", cookie: "sid=abc" }),
     }));
     const { checkAuthStatus } = await import("../../src/server/actions.js");
     await checkAuthStatus();
-    const call = tracker.calls.find(c => c.url.includes("/auth/session"));
-    const h = call!.init?.headers as Record<string, string>;
-    expect(h["x-hif-dliq"]).toBe("dliq-val");
-    expect(h["x-hif-leim"]).toBe("leim-val");
+    expect(tracker.calls).toHaveLength(0);
   });
 });
 

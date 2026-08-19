@@ -1,11 +1,5 @@
 import { isRecord } from "../utils/json.js";
 
-export interface UpdateMessage {
-  content: string;
-  reasoning?: string;
-  parentMessageId: string | null;
-}
-
 export interface UpdateChunk {
   index: number;
   delta: string;
@@ -20,155 +14,260 @@ export interface UpdateChunk {
   };
 }
 
-type FragmentType = "THINK" | "RESPONSE";
+/* ── DeepSeek Patch State Machine ── */
 
-/** Minimal state: tracks current fragment type for new p/o/v format. */
-const fragmentState = { currentType: undefined as FragmentType | undefined };
-
-export function resetFragmentState(): void {
-  fragmentState.currentType = undefined;
+interface Fragment {
+  type: string;
+  content: string;
 }
 
-function extractMessage(update: Record<string, unknown>): Record<string, unknown> | null {
-  const message = update.message;
-  if (isRecord(message)) return message;
-  return null;
-}
+export class DeepSeekPatchParser {
+  private currentPath: string | undefined;
+  private currentOp = "SET";
+  private fragments: Fragment[] = [];
+  private status: string | undefined;
 
-function extractContent(message: Record<string, unknown>): string {
-  if (typeof message.content === "string") return message.content;
-  if (Array.isArray(message.content)) {
-    return message.content
-      .map(part => {
-        if (isRecord(part) && typeof part.text === "string") return part.text;
-        if (typeof part === "string") return part;
-        return "";
-      })
-      .join("");
-  }
-  return "";
-}
+  apply(raw: unknown): UpdateChunk | null {
+    if (!isRecord(raw)) return null;
 
-export function parseUpdateChunk(raw: unknown): UpdateChunk | null {
-  if (!isRecord(raw)) return null;
+    // ── Old format: { data: { type: "...", message: {...} } } ──
+    if ("data" in raw) return this.applyOldData(raw.data);
 
-  // New format: { v: ... }
-  const v = raw.v;
+    if (!("v" in raw)) return null;
+    const v = raw.v;
 
-  // Status update: { p: "response/status", o: "SET", v: "FINISHED" } — check BEFORE string v
-  if (typeof raw.p === "string" && raw.p === "response/status" && v === "FINISHED") {
-    fragmentState.currentType = undefined;
-    return { index: 0, delta: "", done: true, parentMessageId: null };
-  }
+    // ── New p/o/v format ──
+    // p/o may be top-level or nested inside v
+    if (typeof raw.p === "string") this.currentPath = raw.p;
+    if (typeof raw.o === "string") this.currentOp = raw.o;
 
-  // Plain token delta: { v: "text" } — v is a string
-  if (typeof v === "string") {
-    return { index: 0, delta: v, done: false, parentMessageId: null };
-  }
+    let path = this.currentPath;
+    let op = this.currentOp;
 
-  if (isRecord(v)) {
-    const response = v.response;
-    if (isRecord(response)) {
-      const fragments = response.fragments;
-      if (Array.isArray(fragments)) {
-        let delta = "";
-        let reasoningDelta = "";
-        for (const frag of fragments) {
-          if (!isRecord(frag) || typeof frag.content !== "string") continue;
-          const fragType = typeof frag.type === "string" ? (frag.type as FragmentType) : undefined;
-          if (fragType) fragmentState.currentType = fragType;
-          if (fragType === "THINK" || fragmentState.currentType === "THINK") {
-            reasoningDelta += frag.content;
-          } else {
-            delta += frag.content;
-          }
-        }
-        const messageId = typeof response.message_id === "number" ? String(response.message_id) : undefined;
-        const done = typeof response.status === "string" && response.status === "FINISHED";
-        if (done) fragmentState.currentType = undefined;
-        return {
-          index: 0,
-          delta,
-          reasoningDelta: reasoningDelta || undefined,
-          messageId,
-          done,
-          parentMessageId: null,
-        };
-      }
+    // When p/o are nested inside v, extract the actual value
+    let value: unknown = v;
+    if (isRecord(v)) {
+      if (typeof v.p === "string") { path = v.p; this.currentPath = v.p; }
+      if (typeof v.o === "string") { op = v.o; this.currentOp = v.o; }
+      if ("v" in v) value = v.v;
     }
-    // Batch update: { p: "response", o: "BATCH", v: [...] }
+
     // Status update: { p: "response/status", o: "SET", v: "FINISHED" }
-    const p = v.p;
-    if (p === "response/status" && v.v === "FINISHED") {
-      fragmentState.currentType = undefined;
-      return { index: 0, delta: "", done: true, parentMessageId: null };
-    }
-    // Fragment content append: { p: "response/fragments/-1/content", o: "APPEND", v: "text" }
-    if (typeof p === "string" && p.includes("fragments") && v.o === "APPEND" && typeof v.v === "string") {
-      const text = v.v;
-      if (fragmentState.currentType === "THINK") {
-        return { index: 0, delta: "", reasoningDelta: text, done: false, parentMessageId: null };
+    if (path === "response/status" && typeof value === "string") {
+      this.status = value;
+      if (value === "FINISHED" || value === "INCOMPLETE") {
+        return { index: 0, delta: "", done: true, parentMessageId: null };
       }
-      return { index: 0, delta: text, done: false, parentMessageId: null };
+      return null;
     }
-    // Nested token delta: { v: "text" } where v is nested inside a record
-    if (typeof v.v === "string" && v.v !== "FINISHED") {
-      return { index: 0, delta: v.v, done: false, parentMessageId: null };
+
+    // Initial snapshot: { v: { response: { fragments: [...], status: "..." } } }
+    if (!path && isRecord(v)) {
+      const response = v.response;
+      if (isRecord(response)) return this.applyInitialSnapshot(response);
     }
+
+    // BATCH: { v: [...] }
+    if (op === "BATCH" && Array.isArray(value)) {
+      return this.applyBatch(value);
+    }
+
+    // Fragment content append: { p: "response/fragments/-1/content", o: "APPEND", v: "text" }
+    if (path === "response/fragments/-1/content" && op === "APPEND" && typeof value === "string") {
+      return this.applyFragmentAppend(value);
+    }
+
+    // New fragment append: { p: "response/fragments", o: "APPEND", v: [{type,content}] }
+    if (path === "response/fragments" && op === "APPEND" && Array.isArray(value)) {
+      return this.applyNewFragments(value);
+    }
+
+    // Plain token delta: { v: "text" }
+    if (typeof value === "string") {
+      return { index: 0, delta: value, done: false, parentMessageId: null };
+    }
+
+    return null;
   }
 
-  // Old format: { data: { type: "...", message: { content: "..." } } }
-  const data = raw.data;
-  if (!isRecord(data)) return null;
-  const type = data.type;
-  if (typeof type !== "string") return null;
+  private applyInitialSnapshot(response: Record<string, unknown>): UpdateChunk {
+    if (typeof response.status === "string") this.status = response.status;
 
-  const message = extractMessage(data);
-  const index = typeof data.index === "number" ? data.index : 0;
-  const done = type === "response_message_done";
-  const messageId = typeof data.message_id === "string" ? data.message_id : undefined;
-  const reasoningDelta =
-    typeof data.reasoning_content === "string" ? data.reasoning_content : undefined;
+    const fragArr = response.fragments;
+    if (Array.isArray(fragArr)) {
+      this.fragments = [];
+      let delta = "";
+      let reasoningDelta = "";
+      for (const frag of fragArr) {
+        if (!isRecord(frag) || typeof frag.type !== "string" || typeof frag.content !== "string") continue;
+        this.fragments.push({ type: frag.type, content: frag.content });
+        if (!frag.content) continue;
+        if (frag.type === "THINK") reasoningDelta += frag.content;
+        else delta += frag.content;
+      }
+      const messageId = typeof response.message_id === "number" ? String(response.message_id) : undefined;
+      const done = this.status === "FINISHED" || this.status === "INCOMPLETE";
+      return {
+        index: 0,
+        delta,
+        reasoningDelta: reasoningDelta || undefined,
+        messageId,
+        done,
+        parentMessageId: null,
+      };
+    }
 
-  let delta = "";
-  let parentMessageId: string | null = null;
-  if (message) {
-    delta = extractContent(message);
-    const parent = message.new_parent_message_id;
-    if (typeof parent === "string") parentMessageId = parent;
+    return { index: 0, delta: "", done: false, parentMessageId: null };
   }
 
-  let usage: UpdateChunk["usage"];
-  if (isRecord(data.usage)) {
-    const u = data.usage;
-    const promptTokens = typeof u.prompt_tokens === "number" ? u.prompt_tokens : undefined;
-    const completionTokens = typeof u.completion_tokens === "number" ? u.completion_tokens : undefined;
-    const promptCache = typeof u.prompt_cache_hit_tokens === "number" ? u.prompt_cache_hit_tokens : 0;
-    const totalTokens =
-      typeof u.total_tokens === "number" ? u.total_tokens
-      : promptTokens !== undefined || completionTokens !== undefined
-        ? (promptTokens ?? 0) + (completionTokens ?? 0)
-        : undefined;
-    usage = {
-      promptTokens: promptTokens !== undefined ? promptTokens + (promptCache ?? 0) : undefined,
-      completionTokens,
-      totalTokens,
+  private applyBatch(arr: unknown[]): UpdateChunk | null {
+    let delta = "";
+    let reasoningDelta = "";
+    let done = false;
+    let messageId: string | undefined;
+
+    const savedPath = this.currentPath;
+    const savedOp = this.currentOp;
+
+    let subPath = "";
+    let subOp = "SET";
+
+    for (const item of arr) {
+      if (!isRecord(item)) continue;
+      if (typeof item.p === "string") subPath = item.p;
+      if (typeof item.o === "string") subOp = item.o;
+
+      const fullPath = savedPath ? (subPath || savedPath) : subPath;
+
+      this.currentPath = fullPath;
+      this.currentOp = subOp;
+
+      if ("v" in item) {
+        const child = this.apply({ p: fullPath, o: subOp, v: item.v });
+        if (child) {
+          delta += child.delta;
+          if (child.reasoningDelta) reasoningDelta += child.reasoningDelta;
+          if (child.done) done = true;
+          if (child.messageId) messageId = child.messageId;
+        }
+      }
+    }
+
+    this.currentPath = savedPath;
+    this.currentOp = savedOp;
+
+    if (!delta && !reasoningDelta && !done) return null;
+
+    return {
+      index: 0,
+      delta,
+      reasoningDelta: reasoningDelta || undefined,
+      messageId,
+      done,
+      parentMessageId: null,
     };
   }
 
-  return {
-    index,
-    delta,
-    reasoningDelta,
-    messageId,
-    done,
-    parentMessageId: done ? parentMessageId : null,
-    usage,
-  };
+  private applyFragmentAppend(text: string): UpdateChunk | null {
+    const last = this.fragments[this.fragments.length - 1];
+    if (!last) return null;
+
+    last.content += text;
+
+    if (last.type === "THINK") {
+      return { index: 0, delta: "", reasoningDelta: text, done: false, parentMessageId: null };
+    }
+    return { index: 0, delta: text, done: false, parentMessageId: null };
+  }
+
+  private applyNewFragments(arr: unknown[]): UpdateChunk | null {
+    let delta = "";
+    let reasoningDelta = "";
+
+    for (const item of arr) {
+      if (!isRecord(item) || typeof item.type !== "string" || typeof item.content !== "string") continue;
+      this.fragments.push({ type: item.type, content: item.content });
+      if (!item.content) continue;
+      if (item.type === "THINK") reasoningDelta += item.content;
+      else delta += item.content;
+    }
+
+    if (!delta && !reasoningDelta) return null;
+
+    return {
+      index: 0,
+      delta,
+      reasoningDelta: reasoningDelta || undefined,
+      done: false,
+      parentMessageId: null,
+    };
+  }
+
+  private applyOldData(data: unknown): UpdateChunk | null {
+    if (!isRecord(data)) return null;
+    const type = data.type;
+    if (typeof type !== "string") return null;
+
+    const message = isRecord(data.message) ? data.message : null;
+    const index = typeof data.index === "number" ? data.index : 0;
+    const done = type === "response_message_done";
+    const messageId = typeof data.message_id === "string" ? data.message_id : undefined;
+    const reasoningDelta = typeof data.reasoning_content === "string" ? data.reasoning_content : undefined;
+
+    let delta = "";
+    let parentMessageId: string | null = null;
+    if (message) {
+      if (typeof message.content === "string") {
+        delta = message.content;
+      } else if (Array.isArray(message.content)) {
+        delta = message.content
+          .map((part: unknown) => {
+            if (isRecord(part) && typeof part.text === "string") return part.text;
+            if (typeof part === "string") return part;
+            return "";
+          })
+          .join("");
+      }
+      const parent = message.new_parent_message_id;
+      if (typeof parent === "string") parentMessageId = parent;
+    }
+
+    let usage: UpdateChunk["usage"];
+    if (isRecord(data.usage)) {
+      const u = data.usage;
+      const promptTokens = typeof u.prompt_tokens === "number" ? u.prompt_tokens : undefined;
+      const completionTokens = typeof u.completion_tokens === "number" ? u.completion_tokens : undefined;
+      const promptCache = typeof u.prompt_cache_hit_tokens === "number" ? u.prompt_cache_hit_tokens : 0;
+      const totalTokens =
+        typeof u.total_tokens === "number" ? u.total_tokens
+        : promptTokens !== undefined || completionTokens !== undefined
+          ? (promptTokens ?? 0) + (completionTokens ?? 0)
+          : undefined;
+      usage = {
+        promptTokens: promptTokens !== undefined ? promptTokens + (promptCache ?? 0) : undefined,
+        completionTokens,
+        totalTokens,
+      };
+    }
+
+    return {
+      index,
+      delta,
+      reasoningDelta,
+      messageId,
+      done,
+      parentMessageId: done ? parentMessageId : null,
+      usage,
+    };
+  }
+
+  getStatus(): string | undefined {
+    return this.status;
+  }
+
+  getFragments(): Fragment[] {
+    return this.fragments;
+  }
 }
 
-export function isTerminalUpdate(raw: unknown): boolean {
-  if (!isRecord(raw)) return false;
-  const data = raw.data;
-  return isRecord(data) && data.type === "response_message_done";
-}
+

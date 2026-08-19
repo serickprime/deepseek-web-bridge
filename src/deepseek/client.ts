@@ -15,7 +15,7 @@ import type { SessionManager } from "../auth/sessionManager.js";
 import type { UpstreamSessionState } from "../sessions/sessionStore.js";
 import { PowSolver, parseChallengePayload } from "./pow.js";
 import { parseSseBlock, SseAccumulator } from "./sseParser.js";
-import { parseUpdateChunk } from "./updateParser.js";
+import { DeepSeekPatchParser } from "./updateParser.js";
 import { buildToolPrompt } from "../tools/toolPrompt.js";
 import { SessionCreateLimiter } from "../utils/sessionCreateLimiter.js";
 import {
@@ -189,6 +189,7 @@ export class DeepSeekClient {
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     const accumulator = new SseAccumulator();
+    const parser = new DeepSeekPatchParser();
     let parentMessageId: string | null = null;
     let content = "";
     let reasoning = "";
@@ -217,7 +218,7 @@ export class DeepSeekClient {
       const events = accumulator.push(raw);
       for (const event of events) {
         if (event.type === "update") {
-          const chunk = parseUpdateChunk(event.data);
+          const chunk = parser.apply(event.data);
           if (!chunk) continue;
           if (chunk.messageId) state.parentMessageId = chunk.messageId;
           if (chunk.parentMessageId) parentMessageId = chunk.parentMessageId;
@@ -233,7 +234,7 @@ export class DeepSeekClient {
     const trailing = accumulator.flush();
     for (const event of trailing) {
       if (event.type === "update") {
-        const chunk = parseUpdateChunk(event.data);
+        const chunk = parser.apply(event.data);
         if (chunk?.usage) usage = chunk.usage;
       }
     }
