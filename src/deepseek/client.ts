@@ -128,9 +128,9 @@ export class DeepSeekClient {
     // tool_call JSON. Max COMPLETION_GUARD_MAX_ATTEMPTS total attempts
     // (initial + retries). After exhausting retries, return whatever the
     // model gave (honest error / text answer).
-    let attempts = 0;
-    while (shouldRetry(hasTools, toolCall, output.content, output.reasoning, allowedNames) && attempts < COMPLETION_GUARD_MAX_ATTEMPTS) {
-      attempts++;
+    let retries = 0;
+    while (shouldRetry(hasTools, toolCall, output.content, output.reasoning, allowedNames) && retries < COMPLETION_GUARD_MAX_ATTEMPTS - 1) {
+      retries++;
       const retryPrompt = createToolRetryPrompt(allowedNames);
       output = await this.runCompletion(retryPrompt, state);
       const retryInspection = inspectToolCallFromOutput(output, allowedNames);

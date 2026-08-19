@@ -310,27 +310,6 @@ export function looksLikeFakeToolTrace(content: string, allowedToolNames: string
   return false;
 }
 
-// --- Final answer verification ---
-// After the model claims completion, we verify whether all user-requested
-// actions were actually executed via real tool_use/tool_result pairs.
-
-export interface PendingAction {
-  description: string;
-  fulfilled: boolean;
-}
-
-export interface FinalVerificationResult {
-  complete: boolean;
-  pendingActions: string[];
-}
-
-export function verifyFinalAnswer(
-  pendingActions: PendingAction[],
-): FinalVerificationResult {
-  const unfulfilled = pendingActions.filter(a => !a.fulfilled).map(a => a.description);
-  return { complete: unfulfilled.length === 0, pendingActions: unfulfilled };
-}
-
 export const COMPLETION_GUARD_MAX_ATTEMPTS = 3;
 
 function shouldRetryToolResponse(hasTools: boolean, output: { content?: string; reasoning?: string }, toolCall: CanonicalToolCall | null): boolean {

@@ -68,6 +68,39 @@ Prompt-only COMPLETION GUARD недостаточен. Live-test показал 
 
 291 тест (16 файлов), все проходят.
 
+## 2026-08-19 — Fix completion guard attempt semantics
+
+### Что сделано
+
+Две проблемы в runtime completion guard (commit `8fe929e`):
+
+1. **`verifyFinalAnswer()` — мёртвый код.** Функция добавлена в `toolParser.ts`,
+   но нигде не вызывается. Она требует `PendingAction[]` — список из описания
+   + fulfilled — а чтобы сформировать этот список из текста запроса пользователя,
+   нужен ненадёжный эвристический парсинг естественного языка. Интеграция
+   невозможна без фиктивного `PendingAction[]`. **Удалена** вместе с
+   интерфейсами `PendingAction`, `FinalVerificationResult`. Честное описание:
+   текущий runtime guard = fake-trace detector + bounded retry.
+
+2. **Off-by-one в лимите attempts.** `COMPLETION_GUARD_MAX_ATTEMPTS = 3` +
+   `attempts < 3` давали до 4 completion-запросов (initial + 3 retries).
+   **Исправлено:** `retries < COMPLETION_GUARD_MAX_ATTEMPTS - 1` (то есть
+   `retries < 2`), что даёт ровно **3 completion attempts TOTAL**
+   (initial + 2 retries). Переименовано `attempts` → `retries` для ясности.
+
+### Изменённые файлы
+
+- `src/tools/toolParser.ts` — удалены `PendingAction`, `FinalVerificationResult`,
+  `verifyFinalAnswer()`; `COMPLETION_GUARD_MAX_ATTEMPTS = 3` осталась.
+- `src/deepseek/client.ts` — while loop: `attempts` → `retries`;
+  условие `retries < COMPLETION_GUARD_MAX_ATTEMPTS - 1`.
+- `tests/unit/tools.test.ts` — удалены 4 теста `verifyFinalAnswer`;
+  тест `COMPLETION_GUARD_MAX_ATTEMPTS` теперь проверяет точное значение `3`.
+
+### Итого
+
+287 тестов (16 файлов), все проходят.
+
 ## 2026-08-19 — Harden multi-step tool completion
 
 ### Что сделано

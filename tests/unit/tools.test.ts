@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseToolInvocation, hasToolTag, createToolRetryPrompt, historicalToolInvocationText, toolResultText, looksLikeToolIntentText, looksLikeFakeToolTrace, verifyFinalAnswer, COMPLETION_GUARD_MAX_ATTEMPTS } from "../../src/tools/toolParser.js";
+import { parseToolInvocation, hasToolTag, createToolRetryPrompt, historicalToolInvocationText, toolResultText, looksLikeToolIntentText, looksLikeFakeToolTrace, COMPLETION_GUARD_MAX_ATTEMPTS } from "../../src/tools/toolParser.js";
 import { buildToolPrompt } from "../../src/tools/toolPrompt.js";
 import { ToolRetryTracker } from "../../src/tools/toolRetry.js";
 import { shouldRetry, buildToolUseIdMap } from "../../src/deepseek/client.js";
@@ -691,44 +691,8 @@ describe("shouldRetry with fake tool traces", () => {
   });
 });
 
-describe("verifyFinalAnswer", () => {
-  it("all actions fulfilled → complete", () => {
-    const result = verifyFinalAnswer([
-      { description: "create a.txt", fulfilled: true },
-      { description: "create b.txt", fulfilled: true },
-    ]);
-    expect(result.complete).toBe(true);
-    expect(result.pendingActions).toEqual([]);
-  });
-
-  it("some actions unfulfilled → not complete", () => {
-    const result = verifyFinalAnswer([
-      { description: "create a.txt", fulfilled: true },
-      { description: "create b.txt", fulfilled: false },
-    ]);
-    expect(result.complete).toBe(false);
-    expect(result.pendingActions).toEqual(["create b.txt"]);
-  });
-
-  it("all actions unfulfilled → not complete", () => {
-    const result = verifyFinalAnswer([
-      { description: "create a.txt", fulfilled: false },
-      { description: "create b.txt", fulfilled: false },
-    ]);
-    expect(result.complete).toBe(false);
-    expect(result.pendingActions).toEqual(["create a.txt", "create b.txt"]);
-  });
-
-  it("no actions → complete", () => {
-    const result = verifyFinalAnswer([]);
-    expect(result.complete).toBe(true);
-    expect(result.pendingActions).toEqual([]);
-  });
-});
-
 describe("COMPLETION_GUARD_MAX_ATTEMPTS", () => {
-  it("is a bounded constant (2-5)", () => {
-    expect(COMPLETION_GUARD_MAX_ATTEMPTS).toBeGreaterThanOrEqual(2);
-    expect(COMPLETION_GUARD_MAX_ATTEMPTS).toBeLessThanOrEqual(5);
+  it("equals 3 (initial + 2 retries)", () => {
+    expect(COMPLETION_GUARD_MAX_ATTEMPTS).toBe(3);
   });
 });
