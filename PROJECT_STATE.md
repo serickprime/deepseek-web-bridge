@@ -71,14 +71,14 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
 | 7. DeepSeek | pow (WASM), sseParser, updateParser, client | ✅ готово |
 | 8. Server | middleware, output-адаптеры, protocolStream, routes, server | ✅ готово |
 | 9. Entrypoint | app.ts, index.ts, start.ts | ✅ готово |
-| 10. Тесты | 16 файлов, 287 тестов | ✅ готово |
+| 10. Тесты | 16 файлов, 297 тестов | ✅ готово |
 | 11. Скрипты | cdp, auth, doctor, launcher, live | ✅ live-часть работает |
 | 12. Веб-интерфейс | Bridge Console на `GET /` (Mileo dark theme, two-panel, diagnostics, model picker) | ✅ готово |
 
 **Проверки сейчас:**
 - `npm run typecheck` — ✅ без ошибок.
 - `npm run build` — ✅ собирается.
-- `npm test` — ✅ 287/287.
+- `npm test` — ✅ 297/297.
 - `npm run auth` — ✅ окно Chrome открывается, захват работает (сеть + localStorage
   fallback).
 - `npm run doctor` — ✅ все 6/6 проверок проходят (auth, reachable, challenge,
@@ -295,8 +295,10 @@ _(все проверены)_
       заявить о выполнении (premature final answer) без фактического
       вызова всех нужных tools. **Prompt fix implemented** (rule 9-10)
       + **runtime completion guard implemented** (fake tool trace
-      detector + bounded retry, max 3 total attempts). Требуется
-      повторный post-/compact live-test.
+      detector + bounded retry, max 3 total attempts). Live-test
+      воспроизвёл формат `Tool: Bash\n{json}` — добавлен детектор
+      `looksLikeToolPrefixedFakeTrace()`. Требуется повторный
+      post-/compact live-test.
 
 ### Cross-platform Web UI (архитектурный план)
 

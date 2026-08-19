@@ -3,6 +3,50 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-19 — Handle Tool-prefixed fake tool traces
+
+### Root cause
+
+Live-test после `/compact` выявил новый формат fake trace. Модель выводит:
+
+```
+Tool: Bash
+{"command": "pwd", "description": "Check current working directory"}
+```
+
+Это НЕ настоящий tool_call JSON — это текстовый вывод, который bridge
+возвращает клиенту как финальный ответ. Старый детектор (`FAKE_TRACE_PATTERNS`)
+ловит `Bash:` (с двоеточием сразу), но не `Tool: Bash` (с префиксом `Tool:`).
+
+### Что сделано
+
+**`src/tools/toolParser.ts`:**
+- Добавлена `looksLikeToolPrefixedFakeTrace()` — детектор нового формата:
+  строка `Tool: <name>` (регистронезависимо) + следующая строка `{JSON}`.
+  Имя после `Tool:` сопоставляется с `allowedToolNames` (не хардкод).
+- `looksLikeFakeToolTrace()` вызывает `looksLikeToolPrefixedFakeTrace()` перед
+  проверкой `FAKE_TRACE_PATTERNS`.
+
+**`tests/unit/tools.test.ts` — 10 новых тестов:**
+
+- Tool-prefixed format (7):
+  1. `Tool: Bash\n{json}` → fake trace
+  2. `Tool: Read\n{json}` → fake trace
+  3. `Tool: Write\n{json}` → fake trace
+  4. Неизвестное имя → false
+  5. Обычный текст "The Tool: Bash integration" → false
+  6. Tool: без JSON на следующей строке → false
+  7. Регистронезависимость `tool: bash`
+
+- shouldRetry + Tool: prefixed (3):
+  8. `Tool: Bash\n{json}` → retry
+  9. `Tool: Read\n{json}` → retry
+  10. Настоящий tool_call → no retry
+
+### Итого
+
+297 тестов (16 файлов), все проходят.
+
 ## 2026-08-19 — Add runtime tool completion guard
 
 ### Root cause

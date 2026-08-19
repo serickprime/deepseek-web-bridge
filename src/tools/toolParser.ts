@@ -280,6 +280,24 @@ const FAKE_TRACE_PATTERNS: RegExp[] = [
   /^echo\s+\S/im,
 ];
 
+// Detect "Tool: <name>\n{...json...}" multi-line fake traces.
+// The tool name must match one of the allowed tools, and the next line
+// must start with '{' (JSON arguments).
+function looksLikeToolPrefixedFakeTrace(content: string, allowedToolNames: string[]): boolean {
+  const allowed = new Set(allowedToolNames.map(n => n.toLowerCase()));
+  const lines = content.split("\n");
+  for (let i = 0; i < lines.length - 1; i++) {
+    const line = lines[i]!.trim();
+    const m = /^Tool:\s*(\S+)/i.exec(line);
+    if (!m) continue;
+    const name = m[1]!.toLowerCase();
+    if (!allowed.has(name)) continue;
+    const next = lines[i + 1]!.trim();
+    if (next.startsWith("{")) return true;
+  }
+  return false;
+}
+
 export function looksLikeFakeToolTrace(content: string, allowedToolNames: string[]): boolean {
   if (allowedToolNames.length === 0) return false;
   const trimmed = content.trim();
@@ -292,6 +310,9 @@ export function looksLikeFakeToolTrace(content: string, allowedToolNames: string
       || lower === "ls" || lower === "cat" || lower === "mkdir";
   });
   if (!hasTools) return false;
+
+  // "Tool: <name>\n{json}" format — matches any allowed tool name
+  if (looksLikeToolPrefixedFakeTrace(trimmed, allowedToolNames)) return true;
 
   const lines = trimmed.split("\n");
   let matchCount = 0;

@@ -696,3 +696,60 @@ describe("COMPLETION_GUARD_MAX_ATTEMPTS", () => {
     expect(COMPLETION_GUARD_MAX_ATTEMPTS).toBe(3);
   });
 });
+
+describe("looksLikeFakeToolTrace — Tool: prefixed format", () => {
+  const TOOLS = ["Read", "Write", "Bash", "Edit"];
+
+  it("'Tool: Bash\\n{json}' is detected as fake trace", () => {
+    const text = 'Tool: Bash\n{"command":"pwd"}';
+    expect(looksLikeFakeToolTrace(text, TOOLS)).toBe(true);
+  });
+
+  it("'Tool: Read\\n{json}' is detected as fake trace", () => {
+    const text = 'Tool: Read\n{"file_path":"D:\\\\test\\\\foo.txt"}';
+    expect(looksLikeFakeToolTrace(text, TOOLS)).toBe(true);
+  });
+
+  it("'Tool: Write\\n{json}' is detected as fake trace", () => {
+    const text = 'Tool: Write\n{"file_path":"out.txt","content":"hello"}';
+    expect(looksLikeFakeToolTrace(text, TOOLS)).toBe(true);
+  });
+
+  it("unknown tool name → false", () => {
+    const text = 'Tool: Deploy\n{"target":"prod"}';
+    expect(looksLikeFakeToolTrace(text, TOOLS)).toBe(false);
+  });
+
+  it("normal text with 'Tool: Bash' in sentence → false", () => {
+    expect(looksLikeFakeToolTrace("The Tool: Bash integration is available", TOOLS)).toBe(false);
+  });
+
+  it("Tool: prefix without JSON next line → false", () => {
+    const text = 'Tool: Bash\nrun the command now';
+    expect(looksLikeFakeToolTrace(text, TOOLS)).toBe(false);
+  });
+
+  it("case-insensitive Tool: prefix", () => {
+    const text = 'tool: bash\n{"command":"ls"}';
+    expect(looksLikeFakeToolTrace(text, TOOLS)).toBe(true);
+  });
+});
+
+describe("shouldRetry with Tool: prefixed traces", () => {
+  const tools = ["Read", "Write", "Bash"];
+
+  it("Tool: Bash + JSON → retry", () => {
+    const text = 'Tool: Bash\n{"command":"pwd"}';
+    expect(shouldRetry(true, null, text, "", tools)).toBe(true);
+  });
+
+  it("Tool: Read + JSON → retry", () => {
+    const text = 'Tool: Read\n{"file_path":"a.txt"}';
+    expect(shouldRetry(true, null, text, "", tools)).toBe(true);
+  });
+
+  it("real tool_call → no retry", () => {
+    const text = 'Tool: Bash\n{"command":"pwd"}';
+    expect(shouldRetry(true, { name: "Bash", arguments: { command: "pwd" } }, text, "", tools)).toBe(false);
+  });
+});
