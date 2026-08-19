@@ -3,6 +3,32 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-19 — Live-test: path isolation confirmed
+
+### Что сделано
+
+- `PROJECT_STATE.md`: TODO про придуманные абсолютные пути закрыт (`[x]`).
+  Зафиксирован результат live-test: два параллельных сессии с разными cwd
+  (`D:\test CC NODE` и `D:\test 2`) создали файлы в своих каталогах без
+  смешивания. `Test-Path` подтвердил изоляцию.
+
+### Live-test (2026-08-19)
+
+| Параметр | Значение |
+| --- | --- |
+| Session A cwd | `D:\test CC NODE` |
+| Session A файл | `path-test-A.txt` = `AAA` |
+| Session A reported path | `/d/test CC NODE/path-test-A.txt` |
+| Session B cwd | `D:\test 2` |
+| Session B файл | `path-test-B.txt` = `BBB` |
+| Session B reported path | `/d/test 2/path-test-B.txt` |
+| Isolation check | `Test-Path "D:\test 2\path-test-A.txt"` → `False` |
+| Isolation check | `Test-Path "D:\test CC NODE\path-test-B.txt"` → `False` |
+
+### Runtime-код
+
+Не изменялся. Исправления — только в документации.
+
 ## 2026-08-19 — Harden tool path handling
 
 ### Что сделано

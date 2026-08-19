@@ -280,13 +280,16 @@ _(все проверены)_
       «сбросить и предложить npm run auth» реализовано: `sessionStore.reset()` +
       `lineage.removeByUpstreamKey()` + лог `auth_expired_session_reset`.
       14 offline-тестов (`authExpired401.test.ts`).
-- [~] DeepSeek иногда придумывает абсолютный путь (например
+- [x] DeepSeek иногда придумывает абсолютный путь (например
       `C:\Users\Mi\session-B.txt`) вместо использования cwd/относительного
       пути. **Prompt fix implemented**: добавлены PATH RULES в tool prompt
       (rule 8a-f: cwd = source of truth, запрет на изобретение путей,
       разрешение от cwd, проверка cwd через Bash, исключение явных путей
-      пользователя). 6 offline-тестов (`tools.test.ts`). Требуется
-      live-test двух разных cwd.
+      пользователя). 6 offline-тестов (`tools.test.ts`).
+      **Live-test (2026-08-19)**: session-A cwd=`D:\test CC NODE` создал
+      `path-test-A.txt`=AAA, session-B cwd=`D:\test 2` создал
+      `path-test-B.txt`=BBB. Файлы изолированы: `Test-Path` подтвердил
+      отсутствие смешивания. PowerShell-команды подтвердили пути.
 - [ ] После compaction на сложной multi-step задаче модель может
       заявить о выполнении (premature final answer) без фактического
       вызова всех нужных tools. Простые post-compact workflows работают.
