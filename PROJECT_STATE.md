@@ -272,8 +272,10 @@ _(все проверены)_
 - [x] Проверить `SESSION_ID_ENTROPY_BYTES`=16 (32 hex) — совпадает с тестом.
       `generateSessionId()` → `crypto.randomBytes(16).toString("hex")` → 32 hex chars.
       3 offline-теста (`sessions.test.ts`): константа=16, формат 32 hex, уникальность 100 ID.
-- [ ] Диагностика PoW: `maxAttempts=10_000_000` может быть медленным — при
-      живом тесте оценить время решения и при необходимости снизить.
+- [x] Диагностика PoW: `maxAttempts=10_000_000` — неактуальный TODO.
+      `runLegacySha3()` (complexity-based) никогда не вызывался: `solve()`
+      при `complexity > 0` сразу бросает ошибку, `difficulty > 0` идёт через WASM.
+      Мёртвый код удалён.
 - [x] Сброс удалённой сессии при 401/403 (есть в архитектуре) — на клиенте
       «сбросить и предложить npm run auth» реализовано: `sessionStore.reset()` +
       `lineage.removeByUpstreamKey()` + лог `auth_expired_session_reset`.

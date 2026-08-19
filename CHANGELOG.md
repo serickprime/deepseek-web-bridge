@@ -3,6 +3,20 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-19 — Remove unused legacy PoW solver
+
+### Что сделано
+
+- `src/deepseek/pow.ts`: удалён `runLegacySha3()` (private, 45 строк) —
+  мёртвый код, никогда не вызывался. `solve()` при `complexity > 0` сразу
+  бросает `POW_CHALLENGE_FAILED` с сообщением "Legacy complexity challenges
+  are no longer supported"; `difficulty > 0` идёт через `runWasmSolve()`.
+  TODO про `maxAttempts=10_000_000` закрыт как неактуальный.
+
+### Итого
+
+248 тестов (16 файлов), все проходят.
+
 ## 2026-08-19 — Verify SESSION_ID_ENTROPY_BYTES = 16 (32 hex)
 
 ### Что сделано

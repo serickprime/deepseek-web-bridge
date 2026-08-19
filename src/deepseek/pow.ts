@@ -159,52 +159,6 @@ export class PowSolver {
 
     throw new BridgeError("PoW WASM returned no solution.", { code: "POW_CHALLENGE_FAILED" });
   }
-
-  private async runLegacySha3(
-    wasmBytes: Uint8Array,
-    challenge: PowChallenge,
-  ): Promise<string> {
-    const wasmGlobal = globalThis as unknown as {
-      WebAssembly: {
-        instantiate(bytes: Uint8Array, imports: object): Promise<{
-          instance: {
-            exports: {
-              memory?: { buffer: ArrayBuffer };
-              sha3_256?: (ptr: number, len: number, out: number) => void;
-              malloc?: (size: number) => number;
-            };
-          };
-        }>;
-      };
-    };
-    const module = await wasmGlobal.WebAssembly.instantiate(wasmBytes, {});
-    const { exports } = module.instance;
-    const memory = exports.memory;
-    const sha3_256 = exports.sha3_256;
-    const malloc = exports.malloc;
-    if (!memory || !sha3_256 || !malloc) {
-      throw new BridgeError("PoW WASM does not export sha3_256/malloc.", { code: "WASM_COMPILE_FAILED" });
-    }
-    const view = new Uint8Array(memory.buffer);
-    const targetPrefix = "0".repeat(challenge.complexity);
-    let counter = 0;
-    const maxAttempts = 10_000_000;
-    while (counter < maxAttempts) {
-      const input = `${challenge.salt}${challenge.saltNumber}+${counter}`;
-      const inputBytes = new TextEncoder().encode(input);
-      const inPtr = malloc(inputBytes.length);
-      const outPtr = malloc(32);
-      view.set(inputBytes, inPtr);
-      sha3_256(inPtr, inputBytes.length, outPtr);
-      const digest = view.slice(outPtr, outPtr + 32);
-      const hex = [...digest].map(b => b.toString(16).padStart(2, "0")).join("");
-      if (hex.startsWith(targetPrefix)) {
-        return `${challenge.saltNumber}+${counter}`;
-      }
-      counter++;
-    }
-    throw new BridgeError("PoW not solved within attempt limit.", { code: "POW_CHALLENGE_FAILED" });
-  }
 }
 
 export function parseChallengePayload(body: unknown): PowChallenge | null {
