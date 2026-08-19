@@ -109,6 +109,11 @@ BETA-482, контекст. Простой post-compact workflow прошёл у
 **Оговорка**: на сложной multi-step задаче после compaction —
 premature final answer (модель заявила о создании файла, которого нет).
 
+### Live-тест: большие tool_result — подтверждено
+
+`large-result.txt` 18 500 байт прочитан через Read, цепочка
+продолжилась, создан `large-result-ok.txt`. PowerShell подтвердил.
+
 Подтверждено live-тестами Claude Code — полный workflow «кодирование через бридж»:
 
 - Claude Code понимает cwd.
