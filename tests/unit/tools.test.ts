@@ -137,6 +137,58 @@ describe("toolPrompt", () => {
     expect(prompt).not.toContain("Your entire response must be EXACTLY one JSON object");
   });
 
+  it("contains mandatory action-execution rule", () => {
+    const prompt = buildToolPrompt(tools);
+    expect(prompt).toContain("IMMEDIATELY return a tool_call JSON");
+  });
+
+  it("contains no-confirmation rule", () => {
+    const prompt = buildToolPrompt(tools);
+    expect(prompt).toMatch(/Do NOT ask for confirmation/i);
+  });
+
+  it("contains text-response-forbidden rule", () => {
+    const prompt = buildToolPrompt(tools);
+    expect(prompt).toMatch(/text response instead of a tool_call is FORBIDDEN/i);
+  });
+
+  it("contains no-explanation rule", () => {
+    const prompt = buildToolPrompt(tools);
+    expect(prompt).toMatch(/Do NOT explain what you are going to do/i);
+  });
+
+  it("contains no-command-as-text rule", () => {
+    const prompt = buildToolPrompt(tools);
+    expect(prompt).toMatch(/Do NOT show the command as plain text/i);
+  });
+
+  it("contains auto-continuation after tool_result", () => {
+    const prompt = buildToolPrompt(tools);
+    expect(prompt).toContain("After receiving a tool_result: automatically continue");
+    expect(prompt).toMatch(/call it immediately/i);
+  });
+
+  it("contains do-not-wait-for-user rule", () => {
+    const prompt = buildToolPrompt(tools);
+    expect(prompt).toMatch(/Do NOT wait for a new user message/i);
+  });
+
+  it("contains immediate-execution on confirmation phrases", () => {
+    const prompt = buildToolPrompt(tools);
+    expect(prompt).toContain("do it");
+    expect(prompt).toContain("execute");
+    expect(prompt).toContain("continue");
+    expect(prompt).toMatch(/execute via tool immediately/i);
+  });
+
+  it("contains forbidden phrase examples", () => {
+    const prompt = buildToolPrompt(tools);
+    expect(prompt).toContain("I will execute");
+    expect(prompt).toContain("Let me run");
+    expect(prompt).toContain("Use the command");
+    expect(prompt).toMatch(/ls \.\.\./);
+  });
+
   it("returns empty for no tools", () => {
     expect(buildToolPrompt([])).toBe("");
   });
