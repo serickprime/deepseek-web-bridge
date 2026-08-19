@@ -138,6 +138,23 @@ premature final answer (модель заявила о создании файл
 
 Все 5 пунктов «расхождения README с кодом» отмечены как [x] resolved.
 
+## 2026-08-19 (Cross-platform Web UI roadmap)
+
+Зафиксирован архитектурный план полноценной кроссплатформенной поддержки
+Web UI для Windows / macOS / Linux:
+
+- Определение ОС через `process.platform` (автоматически, без выбора
+  пользователем).
+- Будущий `GET /api/system` для capabilities (endpoint не реализовывать).
+- Folder picker: Windows (PowerShell), macOS (osascript), Linux (zenity).
+- CLI launch: Windows (Terminal), macOS (Terminal.app), Linux (обнаружение
+  терминального эмулятора).
+- Chrome auth: уже частично кроссплатформенный; macOS / Linux — live-test.
+- Web UI получает capabilities от backend, не определяет ОС через
+  user-agent.
+
+Добавлено в `PROJECT_STATE.md` и `docs/architecture.md`.
+
 Подтверждено live-тестами Claude Code — полный workflow «кодирование через бридж»:
 
 - Claude Code понимает cwd.

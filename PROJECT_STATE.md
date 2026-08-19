@@ -281,6 +281,67 @@ _(все проверены)_
       заявить о выполнении (premature final answer) без фактического
       вызова всех нужных tools. Простые post-compact workflows работают.
 
+### Cross-platform Web UI (архитектурный план)
+
+Цель: пользователь на Windows / macOS / Linux имеет одинаковый сценарий:
+`clone` → `npm install` → `npm run auth` → `npm start` → открыть
+`http://127.0.0.1:9655` → пользоваться Web UI без ручного выбора ОС.
+
+**Статус**: план. Runtime-код не реализуется до отдельного решения.
+
+#### 1. Определение ОС
+
+Backend определяет платформу через `process.platform`:
+- `win32` → Windows
+- `darwin` → macOS
+- `linux` → Linux
+
+Пользователь НЕ выбирает ОС вручную. Backend является source of truth.
+
+#### 2. System capabilities API (будущий endpoint)
+
+`GET /api/system` — возвращает capabilities текущей ОС:
+
+```json
+{
+  "platform": "darwin",
+  "folderPicker": true,
+  "claudeCodeLaunch": true,
+  "openCodeLaunch": true
+}
+```
+
+Endpoint сейчас не реализовывать.
+
+#### 3. Folder picker
+
+- **Windows**: PowerShell / `System.Windows.Forms` (текущий механизм).
+- **macOS**: системный picker через `osascript` / AppleScript.
+- **Linux**: `zenity` / `kdialog` или fallback на ручной ввод пути.
+
+Если picker недоступен — Web UI разрешает ручной ввод пути.
+
+#### 4. Запуск Claude Code / OpenCode
+
+- **Windows**: Windows Terminal / PowerShell (текущий механизм).
+- **macOS**: интерактивный CLI через `Terminal.app` или совместимый терминал.
+- **Linux**: обнаружение терминального эмулятора:
+  `x-terminal-emulator`, `gnome-terminal`, `konsole` и т.п.
+
+Не запускать интерактивный CLI невидимо в фоне при нажатии Launch в Web UI.
+
+#### 5. Chrome auth
+
+Chrome discovery уже частично кроссплатформенный (пути для Windows / Linux /
+macOS поддерживаются в `scripts/cdp.ts`). Полноценную поддержку macOS / Linux
+считать завершённой только после реальных live-тестов на этих ОС.
+
+#### 6. Web UI capabilities
+
+- Интерфейс получает capabilities от backend (`GET /api/system`).
+- Показывает доступные действия, скрывает / disable неподдерживаемые.
+- НЕ определяет платформу через browser user-agent.
+
 ## Как проверить работу после изменений
 
 ```

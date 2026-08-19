@@ -180,3 +180,29 @@ WASM, компиляцию, решение PoW, completion, SSE, reasoning, `res
 проверяет, что он вернулся.
 
 Обычные offline-тесты (`npm test`) не обращаются к аккаунту DeepSeek.
+
+## Cross-platform platform abstraction (план)
+
+Web UI должен работать одинаково на Windows, macOS и Linux.
+Backend определяет платформу через `process.platform` и предоставляет
+capabilities клиенту. Пользователь НЕ выбирает ОС вручную.
+
+### System capabilities API (будущий endpoint)
+
+`GET /api/system` вернёт JSON с platform, folderPicker, claudeCodeLaunch,
+openCodeLaunch. Endpoint сейчас не реализовывать.
+
+### Platform-specific компоненты
+
+| Компонент | Windows | macOS | Linux |
+| --- | --- | --- | --- |
+| Folder picker | PowerShell / WinForms | osascript / AppleScript | zenity / kdialog / fallback |
+| CLI launch | Windows Terminal / PowerShell | Terminal.app / совместимый | x-terminal-emulator / gnome-terminal / konsole |
+| Chrome auth | ✅ поддерживается | ✅ частично (live-test) | ✅ частично (live-test) |
+
+### Правила
+
+- Backend является source of truth для capabilities.
+- Web UI не определяет платформу через user-agent.
+- Интерактивный CLI не запускается невидимо в фоне.
+- Если picker недоступен — разрешается ручной ввод пути.
