@@ -24,6 +24,8 @@ import {
   historicalToolInvocationText,
   toolResultText,
   looksLikeToolIntentText,
+  looksLikeFakeToolTrace,
+  COMPLETION_GUARD_MAX_ATTEMPTS,
   buildUpstreamPrompt,
 } from "../tools/toolParser.js";
 
@@ -121,14 +123,18 @@ export class DeepSeekClient {
     const inspection = inspectToolCallFromOutput(output, allowedNames);
     let toolCall = inspection.toolCall;
 
-    // Retry when: (a) tools expected, no tool call found, content empty but reasoning exists;
-    // or (b) content looks like intent text describing an action instead of performing it.
-    if (shouldRetry(hasTools, toolCall, output.content, output.reasoning, allowedNames)) {
+    // Bounded completion guard loop: retry when model produces intent text,
+    // fake tool traces, or empty content with reasoning — instead of real
+    // tool_call JSON. Max COMPLETION_GUARD_MAX_ATTEMPTS total attempts
+    // (initial + retries). After exhausting retries, return whatever the
+    // model gave (honest error / text answer).
+    let attempts = 0;
+    while (shouldRetry(hasTools, toolCall, output.content, output.reasoning, allowedNames) && attempts < COMPLETION_GUARD_MAX_ATTEMPTS) {
+      attempts++;
       const retryPrompt = createToolRetryPrompt(allowedNames);
       output = await this.runCompletion(retryPrompt, state);
       const retryInspection = inspectToolCallFromOutput(output, allowedNames);
       toolCall = retryInspection.toolCall;
-      // If retry succeeded, clear content from first attempt (reasoning noise)
       if (toolCall) {
         output = { ...output, content: "", reasoning: "" };
       }
@@ -412,6 +418,7 @@ export function shouldRetry(hasTools: boolean, toolCall: unknown, content: strin
   if (!hasTools || toolCall) return false;
   if (content.trim() === "" && reasoning.trim() !== "") return true;
   if (content.trim() !== "" && looksLikeToolIntentText(content, allowedToolNames)) return true;
+  if (content.trim() !== "" && looksLikeFakeToolTrace(content, allowedToolNames)) return true;
   return false;
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseToolInvocation, hasToolTag, createToolRetryPrompt, historicalToolInvocationText, toolResultText, looksLikeToolIntentText } from "../../src/tools/toolParser.js";
+import { parseToolInvocation, hasToolTag, createToolRetryPrompt, historicalToolInvocationText, toolResultText, looksLikeToolIntentText, looksLikeFakeToolTrace, verifyFinalAnswer, COMPLETION_GUARD_MAX_ATTEMPTS } from "../../src/tools/toolParser.js";
 import { buildToolPrompt } from "../../src/tools/toolPrompt.js";
 import { ToolRetryTracker } from "../../src/tools/toolRetry.js";
 import { shouldRetry, buildToolUseIdMap } from "../../src/deepseek/client.js";
@@ -618,5 +618,117 @@ describe("shouldRetry with intent text", () => {
 
   it("empty content + no reasoning → no retry", () => {
     expect(shouldRetry(true, null, "", "", tools)).toBe(false);
+  });
+});
+
+describe("looksLikeFakeToolTrace", () => {
+  const TOOLS = ["Read", "Write", "Bash", "Edit"];
+
+  it("'Read file: ...' is detected as fake trace", () => {
+    expect(looksLikeFakeToolTrace("Read file: D:\\test\\foo.txt", TOOLS)).toBe(true);
+  });
+
+  it("'Write file: ...' is detected as fake trace", () => {
+    expect(looksLikeFakeToolTrace("Write file: C:\\Users\\out.txt", TOOLS)).toBe(true);
+  });
+
+  it("multiple Write/Read lines are detected", () => {
+    const text = [
+      "Read file: D:\\test CC NODE\\compact-guard-test\\does-not-exist.txt",
+      "Write file: D:\\test CC NODE\\compact-guard-test\\recovery.txt",
+      "Read file: D:\\test CC NODE\\compact-guard-test\\recovery.txt",
+    ].join("\n");
+    expect(looksLikeFakeToolTrace(text, TOOLS)).toBe(true);
+  });
+
+  it("normal text is NOT a fake trace", () => {
+    expect(looksLikeFakeToolTrace("The file was created successfully.", TOOLS)).toBe(false);
+  });
+
+  it("question text is NOT a fake trace", () => {
+    expect(looksLikeFakeToolTrace("What should I do next?", TOOLS)).toBe(false);
+  });
+
+  it("code block is NOT a fake trace", () => {
+    expect(looksLikeFakeToolTrace("```js\nconsole.log('hello');\n```", TOOLS)).toBe(false);
+  });
+
+  it("Bash: prefix is detected", () => {
+    expect(looksLikeFakeToolTrace("Bash: npm test", TOOLS)).toBe(true);
+  });
+
+  it("no tools available → always false", () => {
+    expect(looksLikeFakeToolTrace("Read file: foo.txt", [])).toBe(false);
+  });
+
+  it("very long text → false (>2000 chars)", () => {
+    const long = "Read file: foo.txt\n".repeat(200);
+    expect(looksLikeFakeToolTrace(long, TOOLS)).toBe(false);
+  });
+
+  it("empty text → false", () => {
+    expect(looksLikeFakeToolTrace("", TOOLS)).toBe(false);
+  });
+});
+
+describe("shouldRetry with fake tool traces", () => {
+  const tools = ["Read", "Write", "Bash"];
+
+  it("fake trace 'Read file: ...' + tools → retry", () => {
+    expect(shouldRetry(true, null, "Read file: D:\\test\\foo.txt", "", tools)).toBe(true);
+  });
+
+  it("fake trace 'Write file: ...' + tools → retry", () => {
+    expect(shouldRetry(true, null, "Write file: C:\\out.txt", "", tools)).toBe(true);
+  });
+
+  it("fake trace with real tool_call → no retry", () => {
+    expect(shouldRetry(true, { name: "Read", arguments: {} }, "Read file: foo.txt", "", tools)).toBe(false);
+  });
+
+  it("normal text + tools → no retry", () => {
+    expect(shouldRetry(true, null, "The task is complete.", "", tools)).toBe(false);
+  });
+});
+
+describe("verifyFinalAnswer", () => {
+  it("all actions fulfilled → complete", () => {
+    const result = verifyFinalAnswer([
+      { description: "create a.txt", fulfilled: true },
+      { description: "create b.txt", fulfilled: true },
+    ]);
+    expect(result.complete).toBe(true);
+    expect(result.pendingActions).toEqual([]);
+  });
+
+  it("some actions unfulfilled → not complete", () => {
+    const result = verifyFinalAnswer([
+      { description: "create a.txt", fulfilled: true },
+      { description: "create b.txt", fulfilled: false },
+    ]);
+    expect(result.complete).toBe(false);
+    expect(result.pendingActions).toEqual(["create b.txt"]);
+  });
+
+  it("all actions unfulfilled → not complete", () => {
+    const result = verifyFinalAnswer([
+      { description: "create a.txt", fulfilled: false },
+      { description: "create b.txt", fulfilled: false },
+    ]);
+    expect(result.complete).toBe(false);
+    expect(result.pendingActions).toEqual(["create a.txt", "create b.txt"]);
+  });
+
+  it("no actions → complete", () => {
+    const result = verifyFinalAnswer([]);
+    expect(result.complete).toBe(true);
+    expect(result.pendingActions).toEqual([]);
+  });
+});
+
+describe("COMPLETION_GUARD_MAX_ATTEMPTS", () => {
+  it("is a bounded constant (2-5)", () => {
+    expect(COMPLETION_GUARD_MAX_ATTEMPTS).toBeGreaterThanOrEqual(2);
+    expect(COMPLETION_GUARD_MAX_ATTEMPTS).toBeLessThanOrEqual(5);
   });
 });

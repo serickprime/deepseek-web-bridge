@@ -3,6 +3,71 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-19 — Add runtime tool completion guard
+
+### Root cause
+
+Prompt-only COMPLETION GUARD недостаточен. Live-test показал два типа ошибок:
+
+1. **Fake tool trace**: модель выводит текст `Read file: D:\...\foo.txt` вместо
+   настоящего tool_call JSON. Bridge не детектирует это как проблему и возвращает
+   текст клиенту как финальный ответ.
+2. **Premature final после цепочки tool_result**: модель заявляет о выполнении
+   всех шагов, когда один или более шагов реально не выполнены (нет tool_result).
+
+### Что сделано
+
+**`src/tools/toolParser.ts`:**
+- Добавлен `looksLikeFakeToolTrace()` — детектор псевдо-tool строк. Паттерны:
+  `Read file:`, `Write file:`, `Edit file:`, `Create file:`, `Delete file:`,
+  `Move/Rename file:`, `Run command:`, `Bash:`, `Command:`, `Exec:`,
+  `ls`, `cat`, `mkdir`, `echo` и др. Если текст ≤2000 символов и содержит ≥1
+  такую строку (или ≥2 при многострочности) при доступных tools — это fake trace.
+- Добавлен `verifyFinalAnswer()` — верификатор завершённости: проверяет список
+  pending actions (описание + fulfilled). Возвращает `{ complete, pendingActions }`.
+- Добавлена константа `COMPLETION_GUARD_MAX_ATTEMPTS = 3` — лимит retry.
+
+**`src/deepseek/client.ts`:**
+- `shouldRetry()` теперь также детектирует fake tool traces через
+  `looksLikeFakeToolTrace()`.
+- `complete()` заменён с однократного retry на bounded completion guard loop:
+  максимум `COMPLETION_GUARD_MAX_ATTEMPTS` попыток (initial + retries).
+  После исчерпания лимита — возвращается честный ответ/ошибка.
+
+### Новые тесты
+
+`tests/unit/tools.test.ts` — 19 новых offline-тестов:
+
+**looksLikeFakeToolTrace (10 тестов):**
+1. `Read file: ...` обнаруживается как fake trace
+2. `Write file: ...` обнаруживается как fake trace
+3. Несколько Write/Read строк обнаруживаются
+4. Обычный текст НЕ считается fake trace
+5. Вопрос НЕ считается fake trace
+6. Code block НЕ считается fake trace
+7. `Bash: ...` обнаруживается
+8. Нет tools → всегда false
+9. Очень длинный текст → false
+10. Пустой текст → false
+
+**shouldRetry + fake traces (4 теста):**
+11. Fake trace + tools → retry
+12. Fake trace + real tool_call → no retry
+13. Нормальный текст + tools → no retry
+
+**verifyFinalAnswer (4 теста):**
+14. Все действия fulfilled → complete
+15. Часть не fulfilled → not complete
+16. Все не fulfilled → not complete
+17. Нет actions → complete
+
+**COMPLETION_GUARD_MAX_ATTEMPTS (1 тест):**
+18. Константа в диапазоне 2–5
+
+### Итого
+
+291 тест (16 файлов), все проходят.
+
 ## 2026-08-19 — Harden multi-step tool completion
 
 ### Что сделано
@@ -22,7 +87,7 @@
 
 ### Новые тесты
 
-`tests/unit/tools.test.ts` — 15 offline-тестов для completion guard:
+`tests/unit/tools.test.ts` — 18 offline-тестов для completion guard:
 1. Секция COMPLETION GUARD присутствует.
 2. Секция FINAL ANSWER RULES присутствует.
 3. Финальный ответ только при ВСЕХ действиях.

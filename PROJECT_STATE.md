@@ -71,14 +71,14 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
 | 7. DeepSeek | pow (WASM), sseParser, updateParser, client | ✅ готово |
 | 8. Server | middleware, output-адаптеры, protocolStream, routes, server | ✅ готово |
 | 9. Entrypoint | app.ts, index.ts, start.ts | ✅ готово |
-| 10. Тесты | 16 файлов, 272 offline-теста | ✅ готово |
+| 10. Тесты | 16 файлов, 291 offline-тест | ✅ готово |
 | 11. Скрипты | cdp, auth, doctor, launcher, live | ✅ live-часть работает |
 | 12. Веб-интерфейс | Bridge Console на `GET /` (Mileo dark theme, two-panel, diagnostics, model picker) | ✅ готово |
 
 **Проверки сейчас:**
 - `npm run typecheck` — ✅ без ошибок.
 - `npm run build` — ✅ собирается.
-- `npm test` — ✅ 272/272.
+- `npm test` — ✅ 291/291.
 - `npm run auth` — ✅ окно Chrome открывается, захват работает (сеть + localStorage
   fallback).
 - `npm run doctor` — ✅ все 6/6 проверок проходят (auth, reachable, challenge,
@@ -293,9 +293,12 @@ _(все проверены)_
       отсутствие смешивания. PowerShell-команды подтвердили пути.
 - [~] После compaction на сложной multi-step задаче модель может
       заявить о выполнении (premature final answer) без фактического
-      вызова всех нужных tools. **Completion guard implemented**: добавлены
-      COMPLETION GUARD (rule 9) и FINAL ANSWER RULES (rule 10) в tool prompt.
-      15 offline-тестов (`tools.test.ts`). Требуется post-/compact live-test.
+      вызова всех нужных tools. **Prompt fix implemented** (rule 9-10)
+      + **runtime completion guard implemented**: fake tool trace
+      detector (`looksLikeFakeToolTrace`), bounded retry loop
+      (max 3 attempts), final answer verifier (`verifyFinalAnswer`).
+      19 offline-тестов (`tools.test.ts`). Требуется повторный
+      post-/compact live-test.
 
 ### Cross-platform Web UI (архитектурный план)
 

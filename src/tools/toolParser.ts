@@ -250,6 +250,89 @@ export function looksLikeToolIntentText(content: string, allowedToolNames: strin
   return ACTION_OBJECT_RE.test(trimmed);
 }
 
+// --- Fake tool trace detection ---
+// When tools are available, the model sometimes outputs text like
+// "Read file: D:\foo\bar.txt" instead of returning a real tool_call JSON.
+// This is NOT a valid final answer — it's a pseudo-tool trace that must
+// trigger a retry to force the model to emit actual tool_call JSON.
+
+const FAKE_TRACE_MAX_LENGTH = 2000;
+
+const FAKE_TRACE_PATTERNS: RegExp[] = [
+  /^read file:\s*\S/im,
+  /^write file:\s*\S/im,
+  /^edit file:\s*\S/im,
+  /^create file:\s*\S/im,
+  /^delete file:\s*\S/im,
+  /^move\/rename file:\s*\S/im,
+  /^rename file:\s*\S/im,
+  /^run command:\s*\S/im,
+  /^bash:\s*\S/im,
+  /^exec(?:ute)?:\s*\S/im,
+  /^command:\s*\S/im,
+  /^open file:\s*\S/im,
+  /^check file:\s*\S/im,
+  /^verify file:\s*\S/im,
+  /^list directory:\s*\S/im,
+  /^ls\s+\S/im,
+  /^cat\s+\S/im,
+  /^mkdir\s+\S/im,
+  /^echo\s+\S/im,
+];
+
+export function looksLikeFakeToolTrace(content: string, allowedToolNames: string[]): boolean {
+  if (allowedToolNames.length === 0) return false;
+  const trimmed = content.trim();
+  if (trimmed.length === 0 || trimmed.length > FAKE_TRACE_MAX_LENGTH) return false;
+
+  const hasTools = allowedToolNames.some(n => {
+    const lower = n.toLowerCase();
+    return lower === "read" || lower === "write" || lower === "bash"
+      || lower === "edit" || lower === "grep" || lower === "glob"
+      || lower === "ls" || lower === "cat" || lower === "mkdir";
+  });
+  if (!hasTools) return false;
+
+  const lines = trimmed.split("\n");
+  let matchCount = 0;
+  for (const line of lines) {
+    const l = line.trim();
+    if (!l) continue;
+    if (FAKE_TRACE_PATTERNS.some(p => p.test(l))) matchCount++;
+  }
+
+  if (matchCount >= 2) return true;
+
+  if (lines.length === 1) {
+    return FAKE_TRACE_PATTERNS.some(p => p.test(lines[0]!.trim()));
+  }
+
+  return false;
+}
+
+// --- Final answer verification ---
+// After the model claims completion, we verify whether all user-requested
+// actions were actually executed via real tool_use/tool_result pairs.
+
+export interface PendingAction {
+  description: string;
+  fulfilled: boolean;
+}
+
+export interface FinalVerificationResult {
+  complete: boolean;
+  pendingActions: string[];
+}
+
+export function verifyFinalAnswer(
+  pendingActions: PendingAction[],
+): FinalVerificationResult {
+  const unfulfilled = pendingActions.filter(a => !a.fulfilled).map(a => a.description);
+  return { complete: unfulfilled.length === 0, pendingActions: unfulfilled };
+}
+
+export const COMPLETION_GUARD_MAX_ATTEMPTS = 3;
+
 function shouldRetryToolResponse(hasTools: boolean, output: { content?: string; reasoning?: string }, toolCall: CanonicalToolCall | null): boolean {
   return !toolCall && hasTools
     && typeof output.content === "string" && output.content.trim() === ""
