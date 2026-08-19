@@ -3,6 +3,33 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-19 — Обработка истечения авторизации DeepSeek (401/403)
+
+### Что сделано
+
+- `src/deepseek/client.ts`: `ensureSession()`, `fetchChallenge()`, `runCompletion()` —
+  унифицированный вывод ошибок при HTTP 401/403 с кодами `DEEPSEEK_HTTP_401` /
+  `DEEPSEEK_HTTP_403` и единым сообщением «Run `npm run auth` and restart Bridge».
+- `src/sessions/lineage.ts`: новый метод `removeByUpstreamKey(key)` — удаляет все
+  связи lineage по upstreamKey и сохраняет в файл.
+- `src/api/handler.ts`: `CompletionHandler.run()` — в catch-блоке при `DEEPSEEK_HTTP_401`
+  или `DEEPSEEK_HTTP_403`: сброс сессии (`sessionStore.reset()`) + очистка lineage
+  (`lineage.removeByUpstreamKey()`), лог `auth_expired_session_reset`.
+
+### Тесты
+
+- `tests/unit/authExpired401.test.ts` — 14 offline-тестов:
+  1-2. ensureSession 401/403 → `DEEPSEEK_HTTP_401`/`DEEPSEEK_HTTP_403`.
+  3-4. fetchChallenge 401/403 → `DEEPSEEK_HTTP_401`/`DEEPSEEK_HTTP_403`.
+  5-7. complete 401/403 → correct code; other errors ≠ auth code.
+  8-9. LineageStore.removeByUpstreamKey — removes / no-op.
+  10-13. CompletionHandler — сброс сессии + lineage на 401/403, НЕ на 500.
+  14. Множественные callId для одного upstreamKey.
+
+### Итого
+
+245 тестов (16 файлов), все проходят.
+
 ## 2026-08-19 — Устранение утечек секретов в логах
 
 ### Что исправлено

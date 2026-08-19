@@ -59,6 +59,17 @@ export class LineageStore {
     await this.persist();
   }
 
+  async removeByUpstreamKey(upstreamKey: string): Promise<void> {
+    let changed = false;
+    for (const [callId, link] of this.links) {
+      if (link.upstreamKey === upstreamKey) {
+        this.links.delete(callId);
+        changed = true;
+      }
+    }
+    if (changed) await this.persist();
+  }
+
   private async persist(): Promise<void> {
     const payload: LinkFileShape = {
       version: LINK_VERSION,

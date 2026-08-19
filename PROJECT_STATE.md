@@ -71,14 +71,14 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
 | 7. DeepSeek | pow (WASM), sseParser, updateParser, client | ✅ готово |
 | 8. Server | middleware, output-адаптеры, protocolStream, routes, server | ✅ готово |
 | 9. Entrypoint | app.ts, index.ts, start.ts | ✅ готово |
-| 10. Тесты | 15 файлов, 231 offline-тест | ✅ готово |
+| 10. Тесты | 16 файлов, 245 offline-тестов | ✅ готово |
 | 11. Скрипты | cdp, auth, doctor, launcher, live | ✅ live-часть работает |
 | 12. Веб-интерфейс | Bridge Console на `GET /` (Mileo dark theme, two-panel, diagnostics, model picker) | ✅ готово |
 
 **Проверки сейчас:**
 - `npm run typecheck` — ✅ без ошибок.
 - `npm run build` — ✅ собирается.
-- `npm test` — ✅ 231/231.
+- `npm test` — ✅ 245/245.
 - `npm run auth` — ✅ окно Chrome открывается, захват работает (сеть + localStorage
   fallback).
 - `npm run doctor` — ✅ все 6/6 проверок проходят (auth, reachable, challenge,
@@ -272,8 +272,10 @@ _(все проверены)_
 - [ ] Проверить `SESSION_ID_ENTROPY_BYTES`=16 (32 hex) — совпадает с тестом.
 - [ ] Диагностика PoW: `maxAttempts=10_000_000` может быть медленным — при
       живом тесте оценить время решения и при необходимости снизить.
-- [ ] Сброс удалённой сессии при 401/403 (есть в архитектуре) — на клиенте
-      «сбросить и предложить npm run auth» реализовано только ошибкой.
+- [x] Сброс удалённой сессии при 401/403 (есть в архитектуре) — на клиенте
+      «сбросить и предложить npm run auth» реализовано: `sessionStore.reset()` +
+      `lineage.removeByUpstreamKey()` + лог `auth_expired_session_reset`.
+      14 offline-тестов (`authExpired401.test.ts`).
 - [ ] DeepSeek иногда придумывает абсолютный путь (например
       `C:\Users\Mi\session-B.txt`) вместо использования cwd/относительного
       пути. Изолированное наблюдение при параллельных сессиях.

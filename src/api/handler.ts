@@ -72,52 +72,61 @@ export class CompletionHandler {
 
     const turn = 0;
     return this.mutex.withLock(upstreamKey, async () => {
-      await deepseek.ensureSession(state);
-      const toolNames = buildToolNames(request.tools);
-      stream.start();
-      const result = await deepseek.complete(request, state);
-      if (!result.toolCall && result.content) {
-        stream.push({ type: "content", text: result.content });
-      }
-      sessionStore.appendHistory(state, {
-        role: "assistant",
-        content: result.content,
-        messageId: state.parentMessageId ?? undefined,
-      });
-      if (result.toolCall && toolNames.has(result.toolCall.name)) {
-        const id = `call_${Math.random().toString(36).slice(2, 10)}`;
-        const call: CanonicalToolCall = {
-          id,
-          type: "function",
-          name: result.toolCall.name,
-          arguments: result.toolCall.args,
-        };
-        stream.push({ type: "tool_use", toolCall: call });
-        await lineage.record(id, upstreamKey);
-        if (callId && callId !== id) {
-          await lineage.record(callId, upstreamKey);
+      try {
+        await deepseek.ensureSession(state);
+        const toolNames = buildToolNames(request.tools);
+        stream.start();
+        const result = await deepseek.complete(request, state);
+        if (!result.toolCall && result.content) {
+          stream.push({ type: "content", text: result.content });
+        }
+        sessionStore.appendHistory(state, {
+          role: "assistant",
+          content: result.content,
+          messageId: state.parentMessageId ?? undefined,
+        });
+        if (result.toolCall && toolNames.has(result.toolCall.name)) {
+          const id = `call_${Math.random().toString(36).slice(2, 10)}`;
+          const call: CanonicalToolCall = {
+            id,
+            type: "function",
+            name: result.toolCall.name,
+            arguments: result.toolCall.args,
+          };
+          stream.push({ type: "tool_use", toolCall: call });
+          await lineage.record(id, upstreamKey);
+          if (callId && callId !== id) {
+            await lineage.record(callId, upstreamKey);
+          }
+          stream.finish();
+          return {
+            result: {
+              content: result.content,
+              toolCalls: [{ id, type: "function" as const, name: result.toolCall.name, arguments: result.toolCall.args }],
+              usage: result.usage,
+            },
+            upstreamKey,
+            streamed: true,
+          };
         }
         stream.finish();
         return {
           result: {
             content: result.content,
-            toolCalls: [{ id, type: "function" as const, name: result.toolCall.name, arguments: result.toolCall.args }],
+            toolCalls: [],
             usage: result.usage,
           },
           upstreamKey,
           streamed: true,
         };
+      } catch (error) {
+        if (error instanceof BridgeError && (error.code === "DEEPSEEK_HTTP_401" || error.code === "DEEPSEEK_HTTP_403")) {
+          sessionStore.reset(upstreamKey);
+          await lineage.removeByUpstreamKey(upstreamKey);
+          logger.warn("auth_expired_session_reset", { code: error.code, status: error.status });
+        }
+        throw error;
       }
-      stream.finish();
-      return {
-        result: {
-          content: result.content,
-          toolCalls: [],
-          usage: result.usage,
-        },
-        upstreamKey,
-        streamed: true,
-      };
     });
   }
 }

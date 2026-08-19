@@ -71,6 +71,12 @@ export class DeepSeekClient {
     if (state.chatSessionId) return;
     const body = JSON.stringify({});
     const res = await this.fetch(SESSION_CREATE_PATH, { method: "POST", body }, null);
+    if (res.status === 401 || res.status === 403) {
+      throw new BridgeError(
+        `DeepSeek authorization expired (HTTP ${res.status}). Run \`npm run auth\` and restart Bridge.`,
+        { code: res.status === 401 ? "DEEPSEEK_HTTP_401" : "DEEPSEEK_HTTP_403", status: res.status },
+      );
+    }
     if (!res.ok) {
       throw new BridgeError(`DeepSeek session creation HTTP ${res.status}`, { code: "UPSTREAM_ERROR", status: res.status });
     }
@@ -164,7 +170,7 @@ export class DeepSeekClient {
     );
     if (res.status === 401 || res.status === 403) {
       throw new BridgeError(
-        `DeepSeek rejected auth (HTTP ${res.status}). Run \`npm run auth\`.`,
+        `DeepSeek authorization expired (HTTP ${res.status}). Run \`npm run auth\` and restart Bridge.`,
         { code: res.status === 401 ? "DEEPSEEK_HTTP_401" : "DEEPSEEK_HTTP_403", status: res.status },
       );
     }
@@ -312,6 +318,12 @@ export class DeepSeekClient {
   private async fetchChallenge(): Promise<ReturnType<typeof parseChallengePayload> & { expireAt: number }> {
     const body = JSON.stringify({ target_path: COMPLETION_PATH });
     const res = await this.fetch(CHALLENGE_PATH, { method: "POST", body }, null);
+    if (res.status === 401 || res.status === 403) {
+      throw new BridgeError(
+        `DeepSeek authorization expired (HTTP ${res.status}). Run \`npm run auth\` and restart Bridge.`,
+        { code: res.status === 401 ? "DEEPSEEK_HTTP_401" : "DEEPSEEK_HTTP_403", status: res.status },
+      );
+    }
     const json = (await res.json()) as Record<string, unknown>;
     const challenge = parseChallengePayload(json);
     if (!challenge) {
