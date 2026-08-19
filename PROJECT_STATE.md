@@ -175,6 +175,39 @@ Web API (`chat.deepseek.com`) ненадёжно для tool calling.
 **Ключевое**: `deepseek-chat` и `deepseek-reasoner` deprecated (с 2026-07-24).
 Текущие модели: `deepseek-v4-flash` и `deepseek-v4-pro`.
 
+## Стабильная live-точка — 2026-08-19
+
+**Commit:** `676f8d8`
+
+Подтверждено live-тестами Claude Code:
+
+- Claude Code получает правильный cwd из system prompt.
+- `tool_use` блоки реально выполняются Claude Code (Bash, Read, Write, Grep, Glob).
+- `tool_result` возвращается обратно в DeepSeek через tool_result continuation.
+- `parent_message_id` (number) корректно передаётся между запросами.
+- Создание файлов через tool работает.
+- Несколько последовательных tool-вызовов в одном запросе работают.
+- После `tool_result` модель автоматически продолжает выполнение.
+- Финальный ответ после инструментов приходит нормально.
+- Anthropic SSE lifecycle корректен: `message_start` → `content_block_start`
+  → `content_block_delta` → `content_block_stop` → `message_delta` → `message_stop`.
+- Tool use: `content_block_start` с `input: {}`, `input_json_delta`,
+  `stop_reason: tool_use`.
+- Raw tool JSON не попадает в text block.
+- `DeepSeekPatchParser` корректно продолжает bare `{v:"text"}` через
+  persisted `currentPath`/`currentOp` без собственных p/o полей.
+
+### Области, ещё не проверенные live-тестами
+
+Не являются багами — просто не проверялись:
+
+- Редактирование существующего кода (Edit tool).
+- Цепочки 5+ последовательных tool-вызовов.
+- Обработка ошибок tool execution (tool_result с `is_error: true`).
+- Несколько параллельных Claude Code сессий к одному бриджу.
+- Большие `tool_result` (>10 000 символов).
+- Сохранение контекста в длинных сессиях (10+ exchanges).
+
 ## Известные пробелы и TODO
 
 Отсортировано по приоритету.
