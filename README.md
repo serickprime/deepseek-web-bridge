@@ -20,22 +20,38 @@ OpenAI-совместимых клиентов.
 Node.js ставьте LTS-версией с [официального сайта](https://nodejs.org/en/download).
 Chrome скачайте с [официальной страницы](https://www.google.com/chrome/download-chrome).
 
-## Как скачать и запустить (Windows)
+## Установка и запуск
 
-1. Скачайте проект (кнопка **Code → Download ZIP**) и распакуйте, например, в `D:\AI\DeepSeekBridge`.
-   Не распаковывайте в `C:\Program Files`.
-2. Дважды нажмите `START_DEEPSEEK.cmd`.
-3. Дождитесь открытия панели `http://127.0.0.1:9655/setup`.
+```bash
+git clone https://github.com/serickprime/deepseek-web-bridge.git
+cd deepseek-web-bridge
+npm install
+npm run auth       # первый вход (см. раздел «Авторизация»)
+npm run doctor     # диагностика — убедитесь, что все проверки пройдены
+npm start          # запуск сервера на http://127.0.0.1:9655
+```
 
-## Первый вход в DeepSeek
+Альтернатива — текстовое меню:
 
-1. В панели нажмите **Войти в DeepSeek**.
-2. В отдельном окне Chrome войдите в свой аккаунт. CAPTCHA и 2FA проходите сами.
-3. Отправьте в DeepSeek короткое сообщение (например `ok`) и дождитесь ответа.
-4. Вернитесь в терминал и нажмите Enter.
+```bash
+npm run ui
+```
 
-Bridge сохранит данные сессии в `data/auth.json`. Логин и пароль не сохраняются,
-token и cookies в терминале не показываются.
+Оно предложит: `[1]` авторизация, `[2]` диагностика, `[3]` запуск сервера, `[4]` выход.
+
+## Авторизация
+
+```bash
+npm run auth
+```
+
+Скрипт откроет Chrome через CDP (Chrome DevTools Protocol) и перейдёт на
+`chat.deepseek.com`. Войдите в свой аккаунт (CAPTCHA и 2FA — вручную).
+**После входа отправьте любое сообщение** (например `ok`) — это генерирует
+заголовок `x-hif-leim`, необходимый для API.
+
+Скрипт перехватит токен и cookies из запросов к DeepSeek API, проверит их
+и сохранит в `data/auth.json` (права `0600`). Логин и пароль не сохраняются.
 
 ## Запуск Claude Code
 
@@ -48,20 +64,24 @@ claude --model deepseek-reasoner
 
 `local-key` здесь — локальное служебное значение, не ключ вашего аккаунта DeepSeek.
 
+Также можно запустить Claude Code через Bridge Console (`GET /` в браузере) —
+выберите модель, рабочую директорию и нажмите Launch.
+
 ## Запуск OpenCode
 
-Панель предлагает готовый `opencode.json`. Ручной запуск из папки Bridge:
+OpenCode подключается к Bridge как к OpenAI-совместимому серверу:
 
 ```powershell
-$env:OPENCODE_CONFIG=(Resolve-Path ".\opencode.json")
-opencode --model deepseek-web/deepseek-reasoner
+$env:OPENAI_API_BASE="http://127.0.0.1:9655/v1"
+$env:OPENAI_API_KEY="local-key"
+opencode --model deepseek-chat
 ```
 
 ## Другой OpenAI-совместимый клиент
 
 ```
 Base URL: http://127.0.0.1:9655/v1
-Model:    deepseek-chat или другой доступный режим
+Model:    deepseek-chat или deepseek-reasoner
 API key:  local-key (если клиент требует что-то указать)
 ```
 
@@ -69,18 +89,25 @@ API key:  local-key (если клиент требует что-то указа
 
 | Команда | Что делает |
 | --- | --- |
-| `npm run auth` | повторить вход в DeepSeek в отдельном Chrome |
-| `npm run doctor` | полная диагностика DeepSeek Web (делает реальный короткий запрос) |
+| `npm run auth` | вход в DeepSeek через Chrome CDP (откроется браузер) |
+| `npm run doctor` | полная диагностика (auth, reachable, challenge, PoW, completion) |
+| `npm run ui` | текстовое меню: авторизация → диагностика → запуск |
 | `npm test` | offline-тесты без обращения к DeepSeek |
-| `npm run test:live` | ручная live-проверка с вашим аккаунтом |
-| `npm run typecheck` | проверка типов |
+| `npm run test:live` | live-проверка с вашим аккаунтом (требует запущенный сервер) |
+| `npm run typecheck` | проверка типов TypeScript |
+| `npm start` | запуск Bridge-сервера |
 
 ## Модели
 
-`GET /v1/models` показывает только те режимы, которые подтверждены как рабочие.
-Базовый набор: `deepseek-chat`, `deepseek-reasoner`, `deepseek-chat-search`,
-`deepseek-reasoner-search`, `deepseek-v4-flash`, `deepseek-v4-pro`, `deepseek-expert`.
-Доступность проверяется на лету.
+`GET /v1/models` возвращает статический список:
+
+| Model ID | Описание |
+| --- | --- |
+| `deepseek-chat` | DeepSeek Chat |
+| `deepseek-reasoner` | DeepSeek Reasoner |
+
+Клиент (Claude Code / OpenCode) указывает модель при подключении.
+Список моделей обновляется в коде при добавлении новых рабочих режимов.
 
 ## Документация
 
@@ -88,9 +115,7 @@ API key:  local-key (если клиент требует что-то указа
 - [Журнал изменений](CHANGELOG.md)
 - [Инструкция для ИИ-агентов](AGENTS.md)
 - [Архитектура](docs/architecture.md)
-- [Протоколы](docs/protocols.md)
-- [Диагностика](docs/troubleshooting.md)
-- [Live-проверка](docs/live-validation.md)
+- [Модель угроз](docs/threat-model.md)
 - [Безопасность](SECURITY.md)
 
 ## Лицензия

@@ -114,6 +114,30 @@ premature final answer (модель заявила о создании файл
 `large-result.txt` 18 500 байт прочитан через Read, цепочка
 продолжилась, создан `large-result-ok.txt`. PowerShell подтвердил.
 
+## 2026-08-19 (README аудит и синхронизация с реализацией)
+
+### Исправления README
+
+Полный аудит README против фактического содержимого репозитория.
+Все утверждения, не соответствующие коду, исправлены:
+
+- **Установка**: удалены ссылки на `START_DEEPSEEK.cmd` и `/setup`-панель.
+  Описаны реальные шаги: `npm install` → `npm run auth` → `npm run doctor`
+  → `npm start`. Добавлено упоминание `npm run ui` (текстовое меню).
+- **Авторизация**: описание заменено на реальный процесс через Chrome CDP:
+  перехват токена/cookies из запросов, проверка, сохранение в `data/auth.json`.
+- **OpenCode**: удалено утверждение «панель предлагает готовый opencode.json».
+  Приведён ручной пример подключения через `OPENAI_API_BASE`.
+- **Документация**: удалены битые ссылки на `docs/protocols.md`,
+  `docs/troubleshooting.md`, `docs/live-validation.md`. Оставлены только
+  реально существующие документы. Добавлена ссылка на `docs/threat-model.md`.
+- **Модели**: описание `/v1/models` исправлено: статический список
+  (`deepseek-chat`, `deepseek-reasoner`), без обещания runtime-probe.
+
+### Закрытые Priority 2 пункты (PROJECT_STATE.md)
+
+Все 5 пунктов «расхождения README с кодом» отмечены как [x] resolved.
+
 Подтверждено live-тестами Claude Code — полный workflow «кодирование через бридж»:
 
 - Claude Code понимает cwd.
