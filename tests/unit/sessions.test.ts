@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { SessionManager } from "../../src/auth/sessionManager.js";
+import { generateSessionId } from "../../src/auth/session.js";
 import type { SessionMap } from "../../src/auth/session.js";
 import type { SessionStorage } from "../../src/auth/storage.js";
 import { SessionStore } from "../../src/sessions/sessionStore.js";
 import { KeyedMutex } from "../../src/sessions/mutex.js";
 import { LineageStore } from "../../src/sessions/lineage.js";
 import { extractToolUseIdFromMessages } from "../../src/api/handler.js";
+import { SESSION_ID_ENTROPY_BYTES } from "../../src/config/constants.js";
 import type { CanonicalRequest } from "../../src/api/canonical.js";
 
 class MemoryStorage implements SessionStorage {
@@ -45,6 +47,23 @@ describe("SessionManager", () => {
     const second = new SessionManager(storage, { ttlMs: 60_000 });
     await second.init();
     expect(second.getSession(session.sessionId)).not.toBeNull();
+  });
+});
+
+describe("generateSessionId", () => {
+  it("SESSION_ID_ENTROPY_BYTES is 16", () => {
+    expect(SESSION_ID_ENTROPY_BYTES).toBe(16);
+  });
+
+  it("produces 32-character hex string from 16 random bytes", () => {
+    const id = generateSessionId();
+    expect(id).toHaveLength(32);
+    expect(id).toMatch(/^[0-9a-f]{32}$/);
+  });
+
+  it("produces unique IDs on successive calls", () => {
+    const ids = new Set(Array.from({ length: 100 }, () => generateSessionId()));
+    expect(ids.size).toBe(100);
   });
 });
 

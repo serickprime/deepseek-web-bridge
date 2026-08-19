@@ -3,6 +3,20 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-19 — Verify SESSION_ID_ENTROPY_BYTES = 16 (32 hex)
+
+### Что сделано
+
+- `tests/unit/sessions.test.ts` — 3 новых offline-теста для `generateSessionId()`:
+  1. `SESSION_ID_ENTROPY_BYTES === 16`.
+  2. `generateSessionId()` возвращает 32 hex-символа (`/^[0-9a-f]{32}$/`).
+  3. 100 последовательных вызовов — все уникальны.
+- `PROJECT_STATE.md` — TODO «Проверить SESSION_ID_ENTROPY_BYTES=16 (32 hex)» закрыт.
+
+### Итого
+
+248 тестов (16 файлов), все проходят.
+
 ## 2026-08-19 — Обработка истечения авторизации DeepSeek (401/403)
 
 ### Что сделано
