@@ -253,8 +253,18 @@ export function looksLikeToolIntentText(content: string, allowedToolNames: strin
 export interface CurrentToolCycleEvidence {
   currentUserText: string;
   hasCurrentToolResult: boolean;
+  hasSuccessfulCurrentToolResult: boolean;
+  hasFailedCurrentToolResult: boolean;
   requiresEnvironmentToolResult: boolean;
+  requiresActionToolResult: boolean;
+  requiredActionKinds: ExternalActionKind[];
+  fulfilledActionKinds: ExternalActionKind[];
+  missingActionKinds: ExternalActionKind[];
+  failedToolNames: string[];
+  hasUnavailableToolFailure: boolean;
 }
+
+export type ExternalActionKind = "file_mutation" | "command_execution" | "launch" | "dependency_install";
 
 const INFORMATIONAL_PREFIXES = [
   "что такое ",
@@ -262,6 +272,7 @@ const INFORMATIONAL_PREFIXES = [
   "как работает ",
   "как использовать ",
   "как пользоваться ",
+  "как ",
   "объясни ",
   "расскажи ",
   "зачем ",
@@ -270,6 +281,7 @@ const INFORMATIONAL_PREFIXES = [
   "what does ",
   "how does ",
   "how do i use ",
+  "how to ",
   "explain ",
   "describe ",
   "why ",
@@ -307,26 +319,164 @@ export function looksLikeEnvironmentDataRequest(content: string, allowedToolName
   return hasShell && commandExecution;
 }
 
+function inferExternalActionKinds(content: string, allowedToolNames: string[]): ExternalActionKind[] {
+  if (allowedToolNames.length === 0) return [];
+  const trimmed = content.trim();
+  if (!trimmed) return [];
+  const normalized = trimmed.toLowerCase().replace(/\s+/g, " ");
+  if (INFORMATIONAL_PREFIXES.some(prefix => normalized.startsWith(prefix))) return [];
+
+  const hasShell = hasToolMatching(allowedToolNames, /bash|shell|powershell|terminal|command|exec/);
+  const hasFileWriter = hasToolMatching(allowedToolNames, /write|edit|create|delete|remove|rename|move|copy/)
+    || hasShell;
+  const hasLauncher = hasShell || hasToolMatching(allowedToolNames, /browser|open|launch/);
+  const kinds = new Set<ExternalActionKind>();
+
+  const externalTarget = /файл|папк|каталог|проект|лендинг|сайт|страниц|програм|скрипт|конфиг|документ|зависимост|пакет|\b[\w.-]+\.[a-z0-9_-]{1,16}\b|file|folder|directory|project|landing|website|site|page|program|script|config|document|dependency|package/i.test(trimmed);
+  const fileMutation = /созда\S*|сделай|сохран\S*|запиш\S*|измен\S*|отредактир\S*|удал\S*|переимен\S*|перемест\S*|скопир\S*|create|make|build|save|write|modify|change|edit|delete|remove|rename|move|copy/i.test(trimmed);
+  if (hasFileWriter && externalTarget && fileMutation) kinds.add("file_mutation");
+
+  const install = /установ\S*|добав\S*\s+(?:зависимост|пакет)|install|add (?:the )?(?:dependency|package)/i.test(trimmed);
+  if (hasShell && install) kinds.add("dependency_install");
+
+  const commandExecution = /выполн\S*(?:\s+команд\S*)?|запуст\S*\s+команд\S*|run (?:the )?command|execute (?:the )?command/i.test(trimmed);
+  const launch = !commandExecution
+    && /запуст\S*|открой\S*|подними\S*(?:\s+(?:сайт|сервер|приложен))?|launch|start|open|serve/i.test(trimmed);
+  if (hasLauncher && launch) kinds.add("launch");
+
+  if (hasShell && commandExecution) kinds.add("command_execution");
+
+  return [...kinds];
+}
+
+export function looksLikeExternalActionRequest(content: string, allowedToolNames: string[]): boolean {
+  return inferExternalActionKinds(content, allowedToolNames).length > 0;
+}
+
+function toolArgumentText(toolCall: CanonicalToolCall): string {
+  try {
+    return JSON.stringify(toolCall.arguments);
+  } catch {
+    return "";
+  }
+}
+
+function fulfilledKindsForTool(toolCall: CanonicalToolCall): ExternalActionKind[] {
+  const name = toolCall.name.toLowerCase();
+  const args = toolArgumentText(toolCall);
+  const kinds = new Set<ExternalActionKind>();
+  const isShell = /bash|shell|powershell|terminal|command|exec/.test(name);
+
+  if (/write|edit|create|delete|remove|rename|move|copy/.test(name)) {
+    kinds.add("file_mutation");
+  }
+  if (/browser|open|launch/.test(name)) kinds.add("launch");
+  if (/install|package/.test(name)) kinds.add("dependency_install");
+  if (isShell) {
+    kinds.add("command_execution");
+    if (/>>?|\b(?:tee|touch|mkdir|rm|mv|cp|del|copy|move|remove-item|new-item|set-content|add-content|out-file)\b/i.test(args)) {
+      kinds.add("file_mutation");
+    }
+    if (/\b(?:start|open|xdg-open|explorer|start-process|invoke-item)\b|\bpython(?:3)?\s+-m\s+http\.server\b|\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:start|dev|preview)\b|\bnpx\s+(?:vite|serve|http-server)\b|\b(?:node|python|python3)\s+[^;\r\n]+/i.test(args)) {
+      kinds.add("launch");
+    }
+    if (/\b(?:npm|pnpm|yarn|bun)\s+(?:install|add)\b|\bpip(?:3)?\s+install\b|\b(?:brew|apt(?:-get)?|dnf|yum)\s+install\b/i.test(args)) {
+      kinds.add("dependency_install");
+    }
+  }
+  return [...kinds];
+}
+
+function emptyCurrentToolCycleEvidence(): CurrentToolCycleEvidence {
+  return {
+    currentUserText: "",
+    hasCurrentToolResult: false,
+    hasSuccessfulCurrentToolResult: false,
+    hasFailedCurrentToolResult: false,
+    requiresEnvironmentToolResult: false,
+    requiresActionToolResult: false,
+    requiredActionKinds: [],
+    fulfilledActionKinds: [],
+    missingActionKinds: [],
+    failedToolNames: [],
+    hasUnavailableToolFailure: false,
+  };
+}
+
 export function inspectCurrentToolCycle(
   messages: CanonicalMessage[],
   allowedToolNames: string[],
 ): CurrentToolCycleEvidence {
-  const currentInput = [...messages].reverse().find(message => message.role === "user" || message.role === "tool");
-  if (!currentInput) {
-    return { currentUserText: "", hasCurrentToolResult: false, requiresEnvironmentToolResult: false };
+  let currentUserIndex = -1;
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index]!;
+    const hasText = message.parts.some(part => part.type === "text" && Boolean(part.text?.trim()));
+    const hasToolResult = message.parts.some(part => part.type === "tool_result");
+    if (message.role === "user" && hasText && !hasToolResult) {
+      currentUserIndex = index;
+      break;
+    }
   }
-  const currentUserText = currentInput.parts
+  if (currentUserIndex < 0) return emptyCurrentToolCycleEvidence();
+
+  const currentUserText = messages[currentUserIndex]!.parts
     .filter(part => part.type === "text")
     .map(part => part.text ?? "")
     .filter(Boolean)
     .join("\n");
-  const hasCurrentToolResult = currentInput.parts.some(part => part.type === "tool_result" && Boolean(part.toolResult));
+  const currentMessages = messages.slice(currentUserIndex + 1);
+  const currentToolCalls = new Map<string, CanonicalToolCall>();
+  for (const message of currentMessages) {
+    for (const part of message.parts) {
+      if (part.type === "tool_use" && part.toolCall?.id) currentToolCalls.set(part.toolCall.id, part.toolCall);
+    }
+  }
+
+  let hasCurrentToolResult = false;
+  let hasSuccessfulCurrentToolResult = false;
+  let hasFailedCurrentToolResult = false;
+  const fulfilledActionKinds = new Set<ExternalActionKind>();
+  const failedToolNames = new Set<string>();
+  for (const message of currentMessages) {
+    for (const part of message.parts) {
+      if (part.type !== "tool_result" || !part.toolResult) continue;
+      const toolCall = currentToolCalls.get(part.toolResult.toolUseId);
+      if (!toolCall) continue;
+      hasCurrentToolResult = true;
+      if (part.toolResult.isError) {
+        hasFailedCurrentToolResult = true;
+        failedToolNames.add(toolCall.name);
+        continue;
+      }
+      hasSuccessfulCurrentToolResult = true;
+      for (const kind of fulfilledKindsForTool(toolCall)) fulfilledActionKinds.add(kind);
+    }
+  }
+
+  const requiredActionKinds = inferExternalActionKinds(currentUserText, allowedToolNames);
+  const missingActionKinds = requiredActionKinds.filter(kind => !fulfilledActionKinds.has(kind));
   return {
     currentUserText,
     hasCurrentToolResult,
-    requiresEnvironmentToolResult: !hasCurrentToolResult
+    hasSuccessfulCurrentToolResult,
+    hasFailedCurrentToolResult,
+    requiresEnvironmentToolResult: !hasSuccessfulCurrentToolResult
       && looksLikeEnvironmentDataRequest(currentUserText, allowedToolNames),
+    requiresActionToolResult: missingActionKinds.length > 0,
+    requiredActionKinds,
+    fulfilledActionKinds: [...fulfilledActionKinds],
+    missingActionKinds,
+    failedToolNames: [...failedToolNames],
+    hasUnavailableToolFailure: [...failedToolNames].some(name => name.toLowerCase() === "artifact"),
   };
+}
+
+const ACTION_SUCCESS_PATTERNS = /(?:готово|сделано|создал[аио]?|создан[аоы]?|изменил[аио]?|измен[её]н[аоы]?|удалил[аио]?|удал[её]н[аоы]?|запустил[аио]?|запущен[аоы]?|открыл[аио]?|открыт[аоы]?|установил[аио]?|установлен[аоы]?|выполнил[аио]?|выполнен[аоы]?|сохранил[аио]?|сохран[её]н[аоы]?|\b(?:done|created|modified|changed|deleted|removed|launched|started|opened|installed|executed|completed|saved)\b)/i;
+const NEGATED_ACTION_SUCCESS = /(?:^|[\s:;,.-])не\s+(?:был(?:а|о|и)?\s+)?(?:готово|сделано|создан[аоы]?|измен[её]н[аоы]?|удал[её]н[аоы]?|запущен[аоы]?|открыт[аоы]?|установлен[аоы]?|выполнен[аоы]?|сохран[её]н[аоы]?)|\bnot\s+(?:been\s+)?(?:done|created|modified|changed|deleted|removed|launched|started|opened|installed|executed|completed|saved)\b/gi;
+
+export function looksLikeActionSuccessClaim(content: string): boolean {
+  const withoutNegatedClaims = content.replace(NEGATED_ACTION_SUCCESS, "");
+  return ACTION_SUCCESS_PATTERNS.test(withoutNegatedClaims);
 }
 
 // --- Fake tool trace detection ---
@@ -444,18 +594,46 @@ function shouldRetryFencedToolResponse(hasTools: boolean, toolCall: CanonicalToo
     && inspection.reason === "invalid_json";
 }
 
-export function createToolRetryPrompt(allowedNames: string[]): string {
-  return [
-    "Your previous response did NOT execute any tool.",
+export interface ToolRetryPromptContext {
+  unavailableToolNames?: string[];
+  failedToolNames?: string[];
+  missingActionKinds?: ExternalActionKind[];
+}
+
+export function createToolRetryPrompt(
+  allowedNames: string[],
+  context: ToolRetryPromptContext = {},
+): string {
+  const unavailable = context.unavailableToolNames ?? [];
+  const lines = [
+    "Your previous text did NOT execute any tool or establish successful completion of every requested action.",
     "You must not invent or simulate cwd, files, directory listings, command output, or tool results.",
-    "For a request about the real environment, return a real tool_call JSON now.",
+    "A failed tool_result (is_error=true) is evidence of failure, not successful completion.",
+  ];
+  if (unavailable.some(name => name.toLowerCase() === "artifact")) {
+    lines.push(
+      "Artifact is unavailable through this Bridge session and cannot be used.",
+      "The Artifact failure did not create, save, launch, or open anything.",
+      "Do not claim success. Recover with ordinary available Claude Code tools such as Write, Edit, or Bash.",
+    );
+  }
+  if ((context.failedToolNames ?? []).length > 0) {
+    lines.push(`Failed tools in the current cycle: ${JSON.stringify(context.failedToolNames)}`);
+  }
+  if ((context.missingActionKinds ?? []).length > 0) {
+    lines.push(`Still-unverified action kinds: ${JSON.stringify(context.missingActionKinds)}`);
+  }
+  lines.push(
+    "For a request about the real environment or an external action, return a real tool_call JSON now.",
     "Output ONLY the JSON envelope below — nothing else:",
     '{"tool_call":{"name":"TOOL_NAME","arguments":{}}}',
     `Allowed tool names: ${JSON.stringify(allowedNames)}`,
     "No reasoning. No explanations. No Markdown. No text before or after.",
-    "A final answer is allowed only after the client sends a real tool_result in the current tool cycle.",
-    "If no tool is needed, output only your final text answer.",
-  ].join("\n");
+    "A success final answer is allowed only after the client sends a real tool_result marked successful in the current tool cycle for every requested action.",
+    "If recovery is impossible after a real failure, report the failure honestly and do not claim the action succeeded.",
+    "If no external action or environment data is requested, output only your final text answer.",
+  );
+  return lines.join("\n");
 }
 
 // --- Historical tool invocation text for upstream ---
@@ -474,9 +652,9 @@ export function sanitizedToolInvocationText(name: string, callId: string): strin
   return `[Historical Tool Action — already executed/requested in the past.\nDO NOT execute this action again unless the CURRENT user request explicitly asks for it.]\ntool_name: ${JSON.stringify(String(name || "unknown"))}\ncall_id: ${JSON.stringify(String(callId || "unknown"))}\n[End Historical Tool Action]`;
 }
 
-export function toolResultText(name: string, callId: string, result: unknown): string {
+export function toolResultText(name: string, callId: string, result: unknown, isError = false): string {
   const content = typeof result === "string" ? result : JSON.stringify(result ?? {});
-  return `[Tool Result]\nname: ${name || "unknown"}\ncall_id: ${callId || "unknown"}\nresult:\n${content}`;
+  return `[Tool Result]\nname: ${name || "unknown"}\ncall_id: ${callId || "unknown"}\nstatus: ${isError ? "error" : "success"}\nis_error: ${isError}\nresult:\n${content}`;
 }
 
 // --- OpenAI message text builder (reference from FreeDeepseekAPI) ---
@@ -516,7 +694,7 @@ function anthropicMessageText(message: Record<string, unknown>, session: { toolC
     if (b.type === "tool_use") return sanitizedToolInvocationText(String(b.name || ""), String(b.id || ""));
     if (b.type === "tool_result") {
       const callId = String(b.tool_use_id || "");
-      return toolResultText(sessionToolName(session, callId), callId, b.content);
+      return toolResultText(sessionToolName(session, callId), callId, b.content, b.is_error === true);
     }
     return "";
   }).filter(Boolean).join("\n");

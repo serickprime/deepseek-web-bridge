@@ -16,7 +16,7 @@ import type { UpstreamSessionState } from "../sessions/sessionStore.js";
 import { PowSolver, parseChallengePayload } from "./pow.js";
 import { parseSseBlock, SseAccumulator } from "./sseParser.js";
 import { DeepSeekPatchParser } from "./updateParser.js";
-import { buildToolPrompt } from "../tools/toolPrompt.js";
+import { buildToolPrompt, selectBridgeTools } from "../tools/toolPrompt.js";
 import { SessionCreateLimiter } from "../utils/sessionCreateLimiter.js";
 import {
   inspectToolCallFromOutput,
@@ -25,6 +25,7 @@ import {
   toolResultText,
   looksLikeToolIntentText,
   looksLikeFakeToolTrace,
+  looksLikeActionSuccessClaim,
   inspectCurrentToolCycle,
   type CurrentToolCycleEvidence,
   COMPLETION_GUARD_MAX_ATTEMPTS,
@@ -159,8 +160,9 @@ export class DeepSeekClient {
   ): Promise<CompletionResult> {
     this.assertAuthGeneration(authGeneration);
     const modelSelection = resolveModelSelection(request.model, request.reasoning, request.search);
-    const toolPrompt = buildToolPrompt(request.tools);
-    const allowedNames = request.tools.map(t => t.name);
+    const toolSelection = selectBridgeTools(request.tools);
+    const toolPrompt = buildToolPrompt(toolSelection.available);
+    const allowedNames = toolSelection.available.map(t => t.name);
     const hasTools = allowedNames.length > 0;
     const guardEvidence = inspectCurrentToolCycle(request.messages, allowedNames);
 
@@ -176,7 +178,11 @@ export class DeepSeekClient {
     let retries = 0;
     while (shouldRetry(hasTools, toolCall, output.content, output.reasoning, allowedNames, guardEvidence) && retries < COMPLETION_GUARD_MAX_ATTEMPTS - 1) {
       retries++;
-      const retryPrompt = createToolRetryPrompt(allowedNames);
+      const retryPrompt = createToolRetryPrompt(allowedNames, {
+        unavailableToolNames: toolSelection.unavailableNames,
+        failedToolNames: guardEvidence.failedToolNames,
+        missingActionKinds: guardEvidence.missingActionKinds,
+      });
       output = await this.runCompletion(retryPrompt, state, authGeneration, modelSelection);
       const retryInspection = inspectToolCallFromOutput(output, allowedNames);
       toolCall = retryInspection.toolCall;
@@ -189,10 +195,13 @@ export class DeepSeekClient {
       this.options.logger.warn("completion_guard_rejected", {
         attempts: retries + 1,
         requires_environment_tool_result: guardEvidence.requiresEnvironmentToolResult,
+        requires_action_tool_result: guardEvidence.requiresActionToolResult,
         has_current_tool_result: guardEvidence.hasCurrentToolResult,
+        has_successful_current_tool_result: guardEvidence.hasSuccessfulCurrentToolResult,
+        has_failed_current_tool_result: guardEvidence.hasFailedCurrentToolResult,
       });
       throw new BridgeError(
-        "DeepSeek did not produce a real tool call. Environment data was not verified, so no fabricated command or file result was returned.",
+        "DeepSeek did not produce the required real tool call. The requested environment data or external action was not successfully verified, so no fabricated success result was returned.",
         { code: "TOOL_CALL_REQUIRED", status: 502, retryable: true },
       );
     }
@@ -365,6 +374,7 @@ export class DeepSeekClient {
             toolName,
             toolUseId,
             part.toolResult?.content ?? "",
+            part.toolResult?.isError === true,
           ));
         }
       }
@@ -488,8 +498,16 @@ export function shouldRetry(
   evidence?: CurrentToolCycleEvidence,
 ): boolean {
   if (!hasTools || toolCall) return false;
-  if (evidence?.hasCurrentToolResult) return false;
-  if (evidence?.requiresEnvironmentToolResult) return true;
+  if (evidence?.requiresEnvironmentToolResult || evidence?.requiresActionToolResult) {
+    if (evidence.hasUnavailableToolFailure) return true;
+    if (!evidence.hasFailedCurrentToolResult) return true;
+    if (content.trim() === "" && reasoning.trim() !== "") return true;
+    if (content.trim() !== "" && looksLikeActionSuccessClaim(content)) return true;
+    if (content.trim() !== "" && looksLikeToolIntentText(content, allowedToolNames)) return true;
+    if (content.trim() !== "" && looksLikeFakeToolTrace(content, allowedToolNames)) return true;
+    return false;
+  }
+  if (evidence?.hasSuccessfulCurrentToolResult) return false;
   if (content.trim() === "" && reasoning.trim() !== "") return true;
   if (content.trim() !== "" && looksLikeToolIntentText(content, allowedToolNames)) return true;
   if (content.trim() !== "" && looksLikeFakeToolTrace(content, allowedToolNames)) return true;
@@ -497,7 +515,7 @@ export function shouldRetry(
 }
 
 export function buildToolNames(tools: CanonicalTool[]): Set<string> {
-  return new Set(tools.map(tool => tool.name));
+  return new Set(selectBridgeTools(tools).available.map(tool => tool.name));
 }
 
 export function toolsToCanonical(tools: CanonicalTool[]): CanonicalTool[] {

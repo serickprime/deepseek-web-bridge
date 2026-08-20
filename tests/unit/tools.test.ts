@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { parseToolInvocation, hasToolTag, createToolRetryPrompt, historicalToolInvocationText, sanitizedToolInvocationText, toolResultText, looksLikeToolIntentText, looksLikeFakeToolTrace, looksLikeEnvironmentDataRequest, inspectCurrentToolCycle, COMPLETION_GUARD_MAX_ATTEMPTS, buildUpstreamPrompt } from "../../src/tools/toolParser.js";
-import { buildToolPrompt } from "../../src/tools/toolPrompt.js";
+import { parseToolInvocation, hasToolTag, createToolRetryPrompt, historicalToolInvocationText, sanitizedToolInvocationText, toolResultText, looksLikeToolIntentText, looksLikeFakeToolTrace, looksLikeEnvironmentDataRequest, looksLikeExternalActionRequest, looksLikeActionSuccessClaim, inspectCurrentToolCycle, COMPLETION_GUARD_MAX_ATTEMPTS, buildUpstreamPrompt } from "../../src/tools/toolParser.js";
+import { buildToolPrompt, selectBridgeTools } from "../../src/tools/toolPrompt.js";
 import { ToolRetryTracker } from "../../src/tools/toolRetry.js";
 import { DeepSeekClient, shouldRetry, buildToolUseIdMap } from "../../src/deepseek/client.js";
 import type { CanonicalMessage, CanonicalRequest } from "../../src/api/canonical.js";
@@ -228,6 +228,40 @@ describe("toolPrompt", () => {
   });
 });
 
+describe("Claude Code Bridge tool availability", () => {
+  const tools = [
+    { name: "Artifact", description: "Create a claude.ai artifact", inputSchema: {} },
+    { name: "Skill", description: "Load a skill", inputSchema: {} },
+    { name: "Write", description: "Write a file", inputSchema: {} },
+    { name: "Edit", description: "Edit a file", inputSchema: {} },
+    { name: "Bash", description: "Run a command", inputSchema: {} },
+  ];
+
+  it("removes Artifact from the actual DeepSeek allowlist and prompt", () => {
+    const selection = selectBridgeTools(tools);
+    expect(selection.available.map(tool => tool.name)).toEqual(["Skill", "Write", "Edit", "Bash"]);
+    expect(selection.unavailableNames).toEqual(["Artifact"]);
+    const prompt = buildToolPrompt(tools);
+    expect(prompt).not.toContain("- Artifact");
+    expect(prompt).toContain("- Skill");
+    expect(prompt).toContain("- Write");
+    expect(prompt).toContain("- Edit");
+    expect(prompt).toContain("- Bash");
+  });
+
+  it("explains the Artifact fallback only in the retry prompt", () => {
+    const prompt = createToolRetryPrompt(["Skill", "Write", "Edit", "Bash"], {
+      unavailableToolNames: ["Artifact"],
+      failedToolNames: ["Artifact"],
+      missingActionKinds: ["file_mutation", "launch"],
+    });
+    expect(prompt).toMatch(/Artifact is unavailable through this Bridge session/i);
+    expect(prompt).toMatch(/did not create, save, launch, or open anything/i);
+    expect(prompt).toMatch(/Write, Edit, or Bash/i);
+    expect(prompt).not.toMatch(/Allowed tool names:.*Artifact/i);
+  });
+});
+
 describe("toolPrompt — completion guard rules", () => {
   const tools = [
     { name: "Read", description: "Read a file", inputSchema: { type: "object", properties: { file_path: { type: "string" } } } },
@@ -341,7 +375,16 @@ describe("historical format", () => {
     const text = toolResultText("Read", "call_123", "file contents here");
     expect(text).toContain("[Tool Result]");
     expect(text).toContain("Read");
+    expect(text).toContain("status: success");
+    expect(text).toContain("is_error: false");
     expect(text).toContain("file contents here");
+  });
+
+  it("preserves failed tool_result status for the upstream model", () => {
+    const text = toolResultText("Artifact", "call_failed", "login required", true);
+    expect(text).toContain("status: error");
+    expect(text).toContain("is_error: true");
+    expect(text).toContain("login required");
   });
 });
 
@@ -864,6 +907,149 @@ describe("fabricated environment execution guard", () => {
   });
 });
 
+describe("external action completion integrity", () => {
+  const tools = ["Skill", "Write", "Edit", "Bash"];
+
+  function cycle(
+    prompt: string,
+    calls: Array<{ id: string; name: string; arguments: Record<string, unknown>; error?: boolean; result?: string }> = [],
+  ): CanonicalMessage[] {
+    const messages: CanonicalMessage[] = [{ role: "user", parts: [{ type: "text", text: prompt }] }];
+    for (const call of calls) {
+      messages.push({
+        role: "assistant",
+        parts: [{
+          type: "tool_use",
+          toolCall: { id: call.id, type: "function", name: call.name, arguments: call.arguments },
+        }],
+      });
+      messages.push({
+        role: "user",
+        parts: [{
+          type: "tool_result",
+          toolResult: { toolUseId: call.id, content: call.result ?? "ok", isError: call.error },
+        }],
+      });
+    }
+    return messages;
+  }
+
+  it("detects create plus launch as two distinct required actions", () => {
+    const prompt = "сделай небольшой красивый лендинг на произвольную тему и потом запусти его";
+    expect(looksLikeExternalActionRequest(prompt, tools)).toBe(true);
+    expect(inspectCurrentToolCycle(cycle(prompt), tools).requiredActionKinds).toEqual(["file_mutation", "launch"]);
+  });
+
+  it("treats an explicit command as execution rather than a program launch", () => {
+    const evidence = inspectCurrentToolCycle(cycle("запусти команду echo ok"), tools);
+    expect(evidence.requiredActionKinds).toEqual(["command_execution"]);
+  });
+
+  it.each([
+    "как создать файл?",
+    "что делает Bash?",
+    "как запустить HTML?",
+    "что такое Artifact?",
+  ])("does not require a tool for informational question: %s", prompt => {
+    expect(looksLikeExternalActionRequest(prompt, tools)).toBe(false);
+    expect(inspectCurrentToolCycle(cycle(prompt), tools).requiresActionToolResult).toBe(false);
+  });
+
+  it("rejects text-only success for create index.html", () => {
+    const evidence = inspectCurrentToolCycle(cycle("создай index.html"), tools);
+    expect(evidence.missingActionKinds).toEqual(["file_mutation"]);
+    expect(shouldRetry(true, null, "Готово, index.html создан.", "", tools, evidence)).toBe(true);
+  });
+
+  it("allows final text after a successful Write result", () => {
+    const evidence = inspectCurrentToolCycle(cycle("создай index.html", [{
+      id: "call_write", name: "Write", arguments: { file_path: "index.html", content: "<html></html>" },
+    }]), tools);
+    expect(evidence.fulfilledActionKinds).toContain("file_mutation");
+    expect(evidence.requiresActionToolResult).toBe(false);
+    expect(shouldRetry(true, null, "index.html создан.", "", tools, evidence)).toBe(false);
+  });
+
+  it("accepts successful Bash redirection as real file mutation evidence", () => {
+    const evidence = inspectCurrentToolCycle(cycle("создай index.html", [{
+      id: "call_bash_write", name: "Bash", arguments: { command: "cat > index.html <<'EOF'\n<html></html>\nEOF" },
+    }]), tools);
+    expect(evidence.fulfilledActionKinds).toContain("file_mutation");
+    expect(evidence.missingActionKinds).toEqual([]);
+  });
+
+  it("does not count an Artifact error as completing create or launch", () => {
+    const prompt = "сделай лендинг и потом запусти его";
+    const evidence = inspectCurrentToolCycle(cycle(prompt, [{
+      id: "call_artifact",
+      name: "Artifact",
+      arguments: { type: "html" },
+      error: true,
+      result: "Artifacts need a claude.ai login",
+    }]), tools);
+    expect(evidence.hasFailedCurrentToolResult).toBe(true);
+    expect(evidence.hasSuccessfulCurrentToolResult).toBe(false);
+    expect(evidence.hasUnavailableToolFailure).toBe(true);
+    expect(evidence.missingActionKinds).toEqual(["file_mutation", "launch"]);
+    expect(shouldRetry(true, null, "Создал лендинг, сохранил index.html и открыл его.", "", tools, evidence)).toBe(true);
+  });
+
+  it("forbids a success final after a failed Bash result", () => {
+    const evidence = inspectCurrentToolCycle(cycle("запусти сайт", [{
+      id: "call_failed", name: "Bash", arguments: { command: "npm run dev" }, error: true, result: "command failed",
+    }]), tools);
+    expect(evidence.fulfilledActionKinds).not.toContain("launch");
+    expect(shouldRetry(true, null, "Готово, сайт запущен.", "", tools, evidence)).toBe(true);
+    expect(shouldRetry(true, null, "Запуск завершился с ошибкой; сайт не был запущен.", "", tools, evidence)).toBe(false);
+  });
+
+  it("requires a real execution result before claiming a site was launched", () => {
+    const missing = inspectCurrentToolCycle(cycle("запусти сайт"), tools);
+    expect(missing.missingActionKinds).toEqual(["launch"]);
+    expect(shouldRetry(true, null, "Сайт открыт в браузере.", "", tools, missing)).toBe(true);
+
+    const completed = inspectCurrentToolCycle(cycle("запусти сайт", [{
+      id: "call_server", name: "Bash", arguments: { command: "python -m http.server 8123" }, result: "Serving HTTP" ,
+    }]), tools);
+    expect(completed.fulfilledActionKinds).toContain("launch");
+    expect(shouldRetry(true, null, "Сайт запущен.", "", tools, completed)).toBe(false);
+  });
+
+  it("does not allow a successful Write result to stand in for a requested launch", () => {
+    const evidence = inspectCurrentToolCycle(cycle("создай index.html и запусти сайт", [{
+      id: "call_write", name: "Write", arguments: { file_path: "index.html", content: "ok" },
+    }]), tools);
+    expect(evidence.fulfilledActionKinds).toContain("file_mutation");
+    expect(evidence.missingActionKinds).toEqual(["launch"]);
+    expect(shouldRetry(true, null, "Готово: файл создан и сайт запущен.", "", tools, evidence)).toBe(true);
+  });
+
+  it("allows final only after both create and launch have successful results", () => {
+    const evidence = inspectCurrentToolCycle(cycle("создай index.html и запусти сайт", [
+      { id: "call_write", name: "Write", arguments: { file_path: "index.html", content: "ok" } },
+      { id: "call_server", name: "Bash", arguments: { command: "python -m http.server 8123" }, result: "Serving HTTP" },
+    ]), tools);
+    expect(evidence.missingActionKinds).toEqual([]);
+    expect(shouldRetry(true, null, "Готово: файл создан и сайт запущен.", "", tools, evidence)).toBe(false);
+  });
+
+  it("does not use a historical successful result as current action evidence", () => {
+    const messages = cycle("старый запрос: создай old.html", [{
+      id: "call_old", name: "Write", arguments: { file_path: "old.html", content: "old" },
+    }]);
+    messages.push({ role: "assistant", parts: [{ type: "text", text: "Старый ответ" }] });
+    messages.push({ role: "user", parts: [{ type: "text", text: "создай index.html" }] });
+    const evidence = inspectCurrentToolCycle(messages, tools);
+    expect(evidence.hasCurrentToolResult).toBe(false);
+    expect(evidence.missingActionKinds).toEqual(["file_mutation"]);
+  });
+
+  it("recognizes success claims without treating negated failures as success", () => {
+    expect(looksLikeActionSuccessClaim("Готово, файл создан и сайт запущен.")).toBe(true);
+    expect(looksLikeActionSuccessClaim("Ошибка: файл не был создан, сайт не был запущен.")).toBe(false);
+  });
+});
+
 describe("DeepSeekClient environment completion guard", () => {
   const bashTool = {
     name: "Bash",
@@ -1028,6 +1214,103 @@ describe("DeepSeekClient environment completion guard", () => {
     expect(result.content).toBe(answer);
     expect(result.toolCall).toBeUndefined();
     expect(runCompletion).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("DeepSeekClient action completion guard", () => {
+  const actionTools = [
+    { name: "Artifact", description: "Create an artifact", inputSchema: {} },
+    { name: "Skill", description: "Load a skill", inputSchema: {} },
+    { name: "Write", description: "Write a file", inputSchema: { type: "object", properties: { file_path: { type: "string" }, content: { type: "string" } } } },
+    { name: "Edit", description: "Edit a file", inputSchema: {} },
+    { name: "Bash", description: "Run a command", inputSchema: { type: "object", properties: { command: { type: "string" } } } },
+  ];
+
+  function actionRequest(messages: CanonicalMessage[]): CanonicalRequest {
+    return {
+      model: "deepseek-v4-flash",
+      stream: false,
+      system: "cwd: D:/landing-live",
+      messages,
+      tools: actionTools,
+    };
+  }
+
+  function actionClient(outputs: string[]) {
+    const client = new DeepSeekClient({
+      baseUrl: "https://example.com",
+      auth: { token: "test-token", cookie: "test-cookie" },
+      sessionManager: {} as never,
+      solver: {} as never,
+      logger: { info: () => {}, warn: () => {}, error: () => {} } as never,
+      redactor: { addSecret: () => {}, redactText: (text: string) => text } as never,
+      timeoutMs: 10_000,
+      maxRetries: 0,
+    });
+    const queue = [...outputs];
+    const runCompletion = vi.fn(async (_prompt: string, _state: UpstreamSessionState, _authGeneration: number) => ({
+      content: queue.shift() ?? "",
+      reasoning: "",
+      parentMessageId: null,
+    }));
+    Object.defineProperty(client, "runCompletion", { value: runCompletion });
+    return { client, runCompletion };
+  }
+
+  function actionState(): UpstreamSessionState {
+    return { chatSessionId: "action-session", parentMessageId: null, history: [], updatedAt: 0 };
+  }
+
+  it("filters Artifact at the root and retries with a supported tool", async () => {
+    const { client, runCompletion } = actionClient([
+      '{"tool_call":{"name":"Artifact","arguments":{"type":"html"}}}',
+      '{"tool_call":{"name":"Write","arguments":{"file_path":"index.html","content":"<html></html>"}}}',
+    ]);
+    const result = await client.complete(actionRequest([{
+      role: "user",
+      parts: [{ type: "text", text: "создай index.html" }],
+    }]), actionState());
+
+    expect(result.toolCall?.name).toBe("Write");
+    expect(runCompletion).toHaveBeenCalledTimes(2);
+    expect(runCompletion.mock.calls[0]?.[0]).not.toContain("- Artifact");
+    expect(runCompletion.mock.calls[0]?.[0]).toContain("- Skill");
+    expect(runCompletion.mock.calls[0]?.[0]).toContain("- Write");
+    expect(runCompletion.mock.calls[1]?.[0]).toMatch(/Artifact is unavailable through this Bridge session/i);
+  });
+
+  it("rejects repeated text-only success for a requested action", async () => {
+    const falseSuccess = "Готово, index.html создан.";
+    const { client, runCompletion } = actionClient([falseSuccess, falseSuccess, falseSuccess]);
+    await expect(client.complete(actionRequest([{
+      role: "user",
+      parts: [{ type: "text", text: "создай index.html" }],
+    }]), actionState())).rejects.toMatchObject({ code: "TOOL_CALL_REQUIRED", status: 502 });
+    expect(runCompletion).toHaveBeenCalledTimes(COMPLETION_GUARD_MAX_ATTEMPTS);
+  });
+
+  it("retries fabricated success after an Artifact error", async () => {
+    const { client, runCompletion } = actionClient([
+      "Создал лендинг, index.html сохранён и открыт в браузере.",
+      '{"tool_call":{"name":"Write","arguments":{"file_path":"index.html","content":"<html></html>"}}}',
+    ]);
+    const result = await client.complete(actionRequest([
+      { role: "user", parts: [{ type: "text", text: "создай лендинг и запусти его" }] },
+      { role: "assistant", parts: [{
+        type: "tool_use",
+        toolCall: { id: "call_artifact", type: "function", name: "Artifact", arguments: { type: "html" } },
+      }] },
+      { role: "user", parts: [{
+        type: "tool_result",
+        toolResult: { toolUseId: "call_artifact", content: "Artifacts need a claude.ai login", isError: true },
+      }] },
+    ]), actionState());
+
+    expect(result.toolCall?.name).toBe("Write");
+    expect(runCompletion).toHaveBeenCalledTimes(2);
+    expect(runCompletion.mock.calls[0]?.[0]).toContain("status: error");
+    expect(runCompletion.mock.calls[0]?.[0]).toContain("is_error: true");
+    expect(runCompletion.mock.calls[1]?.[0]).toMatch(/Artifact failure did not create/i);
   });
 });
 

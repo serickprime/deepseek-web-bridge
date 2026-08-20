@@ -1,9 +1,30 @@
 import type { CanonicalTool } from "../api/canonical.js";
 
-export function buildToolPrompt(tools: CanonicalTool[]): string {
-  if (tools.length === 0) return "";
+const UNAVAILABLE_BRIDGE_TOOLS = new Set(["artifact"]);
 
-  const safe = tools.slice(0, 32).map(t => ({
+export interface BridgeToolSelection {
+  available: CanonicalTool[];
+  unavailableNames: string[];
+}
+
+export function selectBridgeTools(tools: CanonicalTool[]): BridgeToolSelection {
+  const available: CanonicalTool[] = [];
+  const unavailableNames: string[] = [];
+  for (const tool of tools) {
+    if (UNAVAILABLE_BRIDGE_TOOLS.has(tool.name.toLowerCase())) {
+      unavailableNames.push(tool.name);
+    } else {
+      available.push(tool);
+    }
+  }
+  return { available, unavailableNames };
+}
+
+export function buildToolPrompt(tools: CanonicalTool[]): string {
+  const { available } = selectBridgeTools(tools);
+  if (available.length === 0) return "";
+
+  const safe = available.slice(0, 32).map(t => ({
     name: t.name,
     description: (t.description ?? "").slice(0, 1000),
     parameters: t.inputSchema ?? {},
@@ -89,6 +110,8 @@ export function buildToolPrompt(tools: CanonicalTool[]): string {
     "   D) NEVER write \"created\", \"read\", \"verified\", \"done\", \"written\"",
     "      or similar claims unless the corresponding tool_result exists",
     "      in this turn's conversation.",
+    "      A failed tool_result (is_error=true) is evidence of failure,",
+    "      never evidence that the requested action was completed.",
     "   E) Compact summaries are context only — they do NOT prove that any",
     "      specific tool was executed. Verify with a real tool_result or",
     "      explicitly state what was and was not done.",
@@ -116,5 +139,5 @@ export function buildToolPrompt(tools: CanonicalTool[]): string {
 }
 
 export function buildToolNames(tools: CanonicalTool[]): Set<string> {
-  return new Set(tools.map(tool => tool.name));
+  return new Set(selectBridgeTools(tools).available.map(tool => tool.name));
 }

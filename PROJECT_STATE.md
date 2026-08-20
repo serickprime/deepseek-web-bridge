@@ -13,6 +13,9 @@
 OpenAI Chat Completions, OpenAI Responses и Anthropic Messages. Основные клиенты:
 Claude Code, OpenCode, любой OpenAI-совместимый SDK.
 
+**Текущий активный фокус:** надёжность tool calling для Claude Code. Изменения
+OpenCode в этой итерации deferred и не являются текущим приоритетом.
+
 Проект использует **неофициальные** внутренние маршруты веб-сайта DeepSeek
 (`/api/v0/chat/completion`), требует PoW (sha3 через WASM) и живую авторизованную
 сессию. DeepSeek может менять внутренние API — проект рассчитан на периодическое
@@ -77,14 +80,14 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
 | 7. DeepSeek | pow (WASM), sseParser, updateParser, client | ✅ готово |
 | 8. Server | middleware, output-адаптеры, protocolStream, routes, server | ✅ готово |
 | 9. Entrypoint | app.ts, index.ts, start.ts | ✅ готово |
-| 10. Тесты | 25 файлов, 418 тестов | ✅ готово |
+| 10. Тесты | 25 файлов, 440 тестов | ✅ готово |
 | 11. Скрипты | desktopStart, cdp, auth, doctor, launcher, live, real-OS platform smoke | ✅ live-часть работает |
 | 12. Веб-интерфейс | Bridge Console на `GET /` (Mileo dark theme, two-panel, diagnostics, model picker) | ✅ готово |
 
 **Проверки сейчас:**
 - `npm run typecheck` — ✅ без ошибок.
 - `npm run build` — ✅ собирается.
-- `npm test` — ✅ 418/418.
+- `npm test` — ✅ 440/440.
 - `npm run test:platform` — ✅ локально на Windows: real process/platform,
   `buildConfig`, Bridge HTTP, Unicode cwd и env propagation без DeepSeek auth.
 - `npm run auth` / Web UI AUTH — ✅ Bearer захватывается из сети, HIF читается из
@@ -226,6 +229,36 @@ Production live-test текущей V4-интеграции 2026-08-20 подт�
 реальный Flash completion вернул `OPENCODE-LIVE-517` (exit code 0). Глобальный
 OpenCode config не изменялся.
 
+### Claude Code action completion integrity — 2026-08-20
+
+- `Artifact` исключён из фактического DeepSeek tool allowlist/prompt как
+  недоступный через Bridge/`ANTHROPIC_AUTH_TOKEN`. Остальные tools, включая
+  `Skill`, `Read`, `Write`, `Edit` и `Bash`, остаются доступными.
+- Guard находит последний текстовый user request, рассматривает только
+  последующие коррелированные `tool_use`/`tool_result` и различает success/error.
+  Historical results и compact/history не являются evidence нового action.
+- Для file mutation, command execution, launch и dependency install нужны
+  соответствующие успешные results. Create и launch проверяются раздельно;
+  successful Write не доказывает launch. Bash redirection может подтвердить
+  file creation, а `start`/`open`/server command — launch.
+- `is_error:true` явно передаётся DeepSeek как `status:error` и не выполняет
+  action requirement. Ложный success после failed/missing result получает
+  bounded retry; честный failure разрешён. Artifact retry предлагает перейти
+  к доступным Write/Edit/Bash и не включает Artifact в allowed names.
+- Offline: 22 новых regression cases, итого 440/440 tests. Корневые тесты через
+  `DeepSeekClient.complete()` подтверждают реальную фильтрацию initial prompt,
+  retry после Artifact error и rejection text-only «готово».
+- Production live, исходный prompt «сделай небольшой красивый лендинг на
+  произвольную тему и потом запусти его»: `Write(index.html)` success →
+  `Bash(start index.html)` success → final. Artifact не вызывался; Skill был
+  доступен, но модель его не выбрала. `index.html` существует (14 951 байт),
+  содержит HTML/body; Chrome открыл окно с title
+  `MindfulSpace — медитация и осознанность`.
+- Failure live: `Bash(false)` возвращал `is_error:true`; модель не заявила
+  «готово»/успех. Она повторила failed call пять раз и завершила пустым final;
+  защита от ложного success подтверждена, но model-side повторение одинаковой
+  ошибки не считается исправленным этой итерацией.
+
 ## Стабильная live-точка — 2026-08-20
 
 Подтверждено live-тестами Claude Code (полный workflow «кодирование через бридж»):
@@ -308,6 +341,15 @@ OpenCode config не изменялся.
   маршрутизируются через `tool_use` blocks.
   **Ограничение**: модель не всегда генерирует чистый JSON — парсер
   извлекает JSON из текста, retry помогает при неверном формате.
+- [x] **Claude Code action completion integrity** — `Artifact` отфильтрован как
+      недоступный Bridge tool; failed/current/historical results разделены;
+      create, mutation, execution, launch и install требуют соответствующего
+      successful evidence текущего canonical cycle. Live landing workflow
+      прошёл Write → result → Bash launch → result → final без Artifact.
+- [ ] **Повтор одинакового failed tool call** — failure live-test не дал ложного
+      success, но DeepSeek повторил `Bash(false)` пять раз перед пустым final.
+      Возможный отдельный bounded repeated-failure guard требует собственного
+      дизайна/live-test и не входит в текущий action-integrity scope.
 
 ### Приоритет 2 (расхождения README с кодом) — все закрыты
 

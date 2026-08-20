@@ -3,6 +3,50 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-20 — Claude Code action completion integrity
+
+- Runtime root cause воспроизведён до изменения: `Artifact` попадал в DeepSeek
+  tool prompt/allowlist, а `inspectCurrentToolCycle()` выбирал последний
+  `tool_result` вместо исходного user action. Любой result, включая
+  `is_error:true`, выставлял `hasCurrentToolResult:true`; `shouldRetry()` сразу
+  разрешал final и не проверял, что create/launch действительно выполнены.
+- `src/tools/toolPrompt.ts` — exact tool `Artifact` теперь исключается из
+  фактического Bridge allowlist и initial prompt. Рабочие Claude Code tools
+  `Skill`, `Read`, `Write`, `Edit`, `Bash` и остальные не фильтруются. Prompt
+  отдельно закрепляет, что failed result является доказательством ошибки, а не
+  успеха.
+- `src/tools/toolParser.ts`, `src/deepseek/client.ts` — action guard строит
+  evidence только после последнего текстового user request, коррелирует
+  `tool_use`/`tool_result` по id и различает successful/failed results. Для
+  file mutation, command execution, launch и dependency install требуются
+  соответствующие successful results; historical/compact results не учитываются.
+  Create и launch — отдельные требования: успешный Write не доказывает запуск.
+- Bash `cat > index.html`/redirection считается file-mutation evidence;
+  `start`/`open`, HTTP server и dev-server команды — launch evidence. Failed
+  Bash/Artifact не выполняют ни одно требование. Честный failure разрешён, но
+  success claim без необходимого evidence получает bounded retry/rejection.
+- Failed canonical results теперь сериализуются upstream с явными
+  `status:error` и `is_error:true`. Artifact retry объясняет, что tool недоступен
+  через Bridge, ничего не создал/не открыл, и предлагает обычные доступные
+  Claude Code tools; `Artifact` не возвращается в allowed names.
+- `tests/unit/tools.test.ts` — 22 новых regressions: Artifact filtering,
+  сохранение Skill/Write/Edit/Bash, error serialization, create/launch evidence,
+  Write и Bash redirection, failed Bash/Artifact, historical result,
+  informational questions и корневое поведение `DeepSeekClient.complete()`.
+- Production live-test в пустом
+  `D:\test CC NODE\action-integrity-live-20260820` с исходным prompt выполнил
+  `Write(index.html)` → successful result → `Bash(start index.html)` → successful
+  result → final. Artifact не вызывался; Skill/Write/Edit/Bash оставались
+  доступны. Независимая проверка: `index.html` = 14 951 байт, HTML/body есть,
+  Chrome открыл видимое окно `MindfulSpace — медитация и осознанность`.
+- Failure live-test `Bash(false)` вернул `is_error:true`; ложных «готово» или
+  success claim не было. Модель повторила failed command пять раз и завершила
+  пустым final — повторение не объявляется исправленным и остаётся наблюдаемым
+  model-side ограничением.
+- OpenCode provider/launcher/tool behavior не изменялись: текущий активный фокус
+  — Claude Code tool reliability, OpenCode для этой итерации deferred.
+- Итого: 25 test files, 440 tests.
+
 ## 2026-08-20 — Current DeepSeek V4 Web models
 
 - До изменения runtime через dedicated Chrome/CDP перехвачены реальные запросы
