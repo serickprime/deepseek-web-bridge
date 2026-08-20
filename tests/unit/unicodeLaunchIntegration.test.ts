@@ -42,7 +42,9 @@ describe("launchProcess Unicode cwd integration", () => {
       await new Promise(resolve => setTimeout(resolve, 50));
     }
 
-    expect(await fs.promises.readFile(resultFile, "utf8")).toBe(cwd);
+    const reportedCwd = await fs.promises.readFile(resultFile, "utf8");
+    expect(await fs.promises.realpath(reportedCwd)).toBe(await fs.promises.realpath(cwd));
+    expect(path.basename(reportedCwd)).toBe(path.basename(cwd));
     expect(events).toContain(`Working directory: ${cwd}`);
     await Promise.race([
       childClosed,

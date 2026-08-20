@@ -405,7 +405,9 @@ Windows/macOS/Linux runner. Это real-OS CI, но не desktop GUI live-test.
       проверяет наличие `osascript`/Terminal.app, production POSIX runner и
       POSIX quoting; Linux — реальное обнаружение terminal transport и
       capability=false при его отсутствии. Smoke не читает auth, не запускает
-      DeepSeek/Claude/OpenCode и не делает broad process kill.
+      DeepSeek/Claude/OpenCode и не делает broad process kill. Path identity
+      учитывает реальные OS aliases (`RUNNER~1` на Windows, `/private/var` на
+      macOS), одновременно отдельно проверяя неизменный Unicode basename.
 - [x] Реализовать `GET /api/system` и UI capabilities. Windows возвращает
       picker/Claude/OpenCode launch `true`; macOS launch = `true` только при
       наличии `osascript` + Terminal.app; Linux launch = `true` только при наличии

@@ -23,6 +23,12 @@
 - Smoke не читает реальные credentials, не логирует placeholder token values,
   не обращается к DeepSeek, не запускает Claude/OpenCode, не делает broad kill и
   удаляет только собственные временные файлы/processes.
+- Первый real-OS CI run выявил и исправил portability самих проверок:
+  Windows 8.3 path alias и macOS `/var` → `/private/var` теперь сравниваются по
+  canonical filesystem identity при отдельной точной проверке Unicode basename;
+  Windows launcher unit tests явно inject `platform: "win32"`, а picker tests
+  больше не открывают настоящий GUI. Actions обновлены до Node-24-based v5,
+  проект при этом по-прежнему тестируется на Node.js 20.
 - `README.md`, `PROJECT_STATE.md` — явно разделены unit/platform-mocked,
   real-OS CI и desktop GUI live-test. CI не объявляется GUI-проверкой;
   настоящие macOS/Linux picker/interactive terminal/SHUTDOWN live-тесты остаются TODO.

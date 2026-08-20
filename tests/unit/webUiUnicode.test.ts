@@ -98,7 +98,7 @@ describe("launcher Unicode cwd", () => {
     vi.spyOn(fs, "existsSync").mockReturnValue(true);
     vi.mocked(childProcess.spawn).mockReturnValue(child as never);
 
-    const launched = launch(cwd, "deepseek-reasoner", vi.fn());
+    const launched = launch(cwd, "deepseek-reasoner", vi.fn(), { platform: "win32" });
 
     expect(launched).toBe(child);
     expect(vi.mocked(childProcess.spawn).mock.calls[0]?.[2]).toMatchObject({ cwd });

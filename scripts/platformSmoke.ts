@@ -99,7 +99,8 @@ function runChild(command: string, args: string[], options: SpawnOptions): Promi
 
 async function readChildResult(file: string, expectedCwd: string): Promise<void> {
   const result = JSON.parse(await readFile(file, "utf8")) as ChildResult;
-  assert.equal(result.cwd, expectedCwd, "child process received a different cwd");
+  assert.equal(await realpath(result.cwd), expectedCwd, "child process received a different filesystem cwd");
+  assert.equal(path.basename(result.cwd), path.basename(expectedCwd), "Unicode cwd basename was changed");
   assert.ok(result.cwd.includes("Проекты Test folder ёжик"), "Unicode cwd was not preserved");
   for (const key of ENV_KEYS) {
     assert.equal(result.env[key], BRIDGE_ENV[key], `${key} was not propagated exactly`);

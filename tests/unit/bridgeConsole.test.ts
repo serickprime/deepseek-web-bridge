@@ -123,29 +123,17 @@ describe("stopLaunchedProcesses", () => {
 });
 
 describe("pickFolder", () => {
-  it("returns supported=false on non-Windows", async () => {
-    const origPlatform = process.platform;
-    Object.defineProperty(process, "platform", { value: "linux", configurable: true });
-    try {
-      const result = await pickFolder();
-      expect(result.supported).toBe(false);
-      expect(result.path).toBeNull();
-      expect(result.cancelled).toBe(false);
-    } finally {
-      Object.defineProperty(process, "platform", { value: origPlatform, configurable: true });
-    }
+  it("returns supported=false on an unsupported platform", async () => {
+    const result = await pickFolder({ platform: "freebsd" });
+    expect(result.supported).toBe(false);
+    expect(result.path).toBeNull();
+    expect(result.cancelled).toBe(false);
   });
 
-  it("returns supported=false on darwin", async () => {
-    const origPlatform = process.platform;
-    Object.defineProperty(process, "platform", { value: "darwin", configurable: true });
-    try {
-      const result = await pickFolder();
-      expect(result.supported).toBe(false);
-      expect(result.path).toBeNull();
-      expect(result.cancelled).toBe(false);
-    } finally {
-      Object.defineProperty(process, "platform", { value: origPlatform, configurable: true });
-    }
+  it("returns supported=false on Linux when no picker utility exists", async () => {
+    const result = await pickFolder({ platform: "linux", commandAvailable: async () => false });
+    expect(result.supported).toBe(false);
+    expect(result.path).toBeNull();
+    expect(result.cancelled).toBe(false);
   });
 });
