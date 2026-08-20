@@ -592,6 +592,12 @@ export interface PickFolderResult {
   supported: boolean;
 }
 
+function normalizePickedPath(selected: string): string {
+  if (fs.existsSync(selected)) return selected;
+  const repaired = Buffer.from(selected, "latin1").toString("utf8");
+  return !repaired.includes("\uFFFD") && fs.existsSync(repaired) ? repaired : selected;
+}
+
 export async function pickFolder(): Promise<PickFolderResult> {
   if (process.platform !== "win32") return { path: null, cancelled: false, supported: false };
 
@@ -602,7 +608,7 @@ export async function pickFolder(): Promise<PickFolderResult> {
     "$f = New-Object System.Windows.Forms.FolderBrowserDialog",
     "$f.Description = 'Select working directory'",
     "$f.ShowNewFolderButton = $true",
-    "if ($f.ShowDialog() -eq 'OK') { Write-Output $f.SelectedPath }",
+    "if ($f.ShowDialog() -eq 'OK') { [Console]::WriteLine([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($f.SelectedPath))) }",
   ].join("; ");
 
   return new Promise<PickFolderResult>((resolve) => {
@@ -615,9 +621,10 @@ export async function pickFolder(): Promise<PickFolderResult> {
       stdout.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, "utf8"));
     });
     child.on("close", () => {
-      const trimmed = Buffer.concat(stdout).toString("utf8").trim();
-      if (trimmed) {
-        resolve({ path: trimmed, cancelled: false, supported: true });
+      const encoded = Buffer.concat(stdout).toString("ascii").trim();
+      if (encoded) {
+        const selected = Buffer.from(encoded, "base64").toString("utf8");
+        resolve({ path: normalizePickedPath(selected), cancelled: false, supported: true });
       } else {
         resolve({ path: null, cancelled: true, supported: true });
       }

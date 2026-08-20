@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import fs from "node:fs";
+import path from "node:path";
+import os from "node:os";
 
 vi.mock("node:child_process", async (importOriginal) => {
   const actual = await importOriginal() as Record<string, unknown>;
@@ -41,8 +43,8 @@ describe("Windows folder picker UTF-8", () => {
     const child = fakeChild();
     vi.mocked(childProcess.spawn).mockReturnValue(child as never);
     const expected = "D:\\Проекты\\Тестовая папка\\ёжик";
-    const encoded = Buffer.from(expected + "\r\n", "utf8");
-    const splitAt = encoded.indexOf(Buffer.from("ё", "utf8")) + 1;
+    const encoded = Buffer.from(Buffer.from(expected, "utf8").toString("base64") + "\r\n", "ascii");
+    const splitAt = Math.floor(encoded.length / 2);
 
     try {
       const resultPromise = pickFolder();
@@ -57,8 +59,31 @@ describe("Windows folder picker UTF-8", () => {
       expect(spawnArgs?.[1]).toContain("-STA");
       expect(String(spawnArgs?.[1])).toContain("[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)");
       expect(String(spawnArgs?.[1])).toContain("$OutputEncoding = [Console]::OutputEncoding");
+      expect(String(spawnArgs?.[1])).toContain("ToBase64String");
     } finally {
       Object.defineProperty(process, "platform", { value: originalPlatform, configurable: true });
+    }
+  });
+
+  it("repairs a mojibake FolderBrowserDialog path only when the repaired directory exists", async () => {
+    const originalPlatform = process.platform;
+    Object.defineProperty(process, "platform", { value: "win32", configurable: true });
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), "bridge-picker-"));
+    const expected = path.join(root, "Тестовая папка ёжик");
+    await fs.promises.mkdir(expected);
+    const mojibake = Buffer.from(expected, "utf8").toString("latin1");
+    const child = fakeChild();
+    vi.mocked(childProcess.spawn).mockReturnValue(child as never);
+
+    try {
+      const resultPromise = pickFolder();
+      child.stdout.end(Buffer.from(Buffer.from(mojibake, "utf8").toString("base64") + "\r\n", "ascii"));
+      child.emit("close", 0);
+
+      await expect(resultPromise).resolves.toEqual({ path: expected, cancelled: false, supported: true });
+    } finally {
+      Object.defineProperty(process, "platform", { value: originalPlatform, configurable: true });
+      await fs.promises.rm(root, { recursive: true, force: true });
     }
   });
 });

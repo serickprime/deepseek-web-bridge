@@ -71,14 +71,14 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
 | 7. DeepSeek | pow (WASM), sseParser, updateParser, client | ✅ готово |
 | 8. Server | middleware, output-адаптеры, protocolStream, routes, server | ✅ готово |
 | 9. Entrypoint | app.ts, index.ts, start.ts | ✅ готово |
-| 10. Тесты | 18 файлов, 326 тестов | ✅ готово |
+| 10. Тесты | 19 файлов, 328 тестов | ✅ готово |
 | 11. Скрипты | cdp, auth, doctor, launcher, live | ✅ live-часть работает |
 | 12. Веб-интерфейс | Bridge Console на `GET /` (Mileo dark theme, two-panel, diagnostics, model picker) | ✅ готово |
 
 **Проверки сейчас:**
 - `npm run typecheck` — ✅ без ошибок.
 - `npm run build` — ✅ собирается.
-- `npm test` — ✅ 326/326.
+- `npm test` — ✅ 328/328.
 - `npm run auth` — ✅ окно Chrome открывается, захват работает (сеть + localStorage
   fallback).
 - `npm run doctor` — ✅ все 6/6 проверок проходят (auth, reachable, challenge,
@@ -140,7 +140,8 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
   чёрный фон (#020101), красные акценты (#FD1000), two-panel layout
   (Connection + Session), статусные LED-точки, model picker из `/v1/models`,
   Working Directory input с реальным folder picker (PowerShell FolderBrowserDialog,
-  явный UTF-8 для Unicode Windows paths, 3-состоятельный: path/cancelled/unsupported),
+  UTF-8/Base64 transport и filesystem-validated mojibake fallback для Unicode
+  Windows paths, 3-состоятельный: path/cancelled/unsupported),
   кнопки запуска Claude Code / OpenCode, кнопки LOGOUT (локально удаляет auth + profile,
   не останавливая Bridge/CLI) и отдельная SHUTDOWN (останавливает tracked CLI,
   auth Chrome и Bridge), toggleable diagnostics terminal с имитацией проверок,
@@ -347,8 +348,13 @@ _(все проверены)_
 **Статус**: первая Windows/auth-lifecycle итерация реализована. macOS/Linux picker
 и `GET /api/system` остаются планом следующей итерации.
 
-- [x] Windows FolderBrowserDialog явно выводит UTF-8; Node собирает bytes и явно
-      декодирует UTF-8. Unicode `cwd` без преобразований передаётся launcher-ам.
+- [x] Windows FolderBrowserDialog передаёт UTF-8 path через ASCII Base64; Node
+      явно декодирует UTF-8 и исправляет реально наблюдавшийся Latin-1 mojibake
+      только когда восстановленный каталог существует. **Runtime live-test
+      (2026-08-20)**: `/bridge/pick-folder` и browser `#workdir` получили точно
+      `D:\Проекты\Тестовая папка ёжик`; Web UI `/bridge/launch` передал тот же
+      `workDir`, а реальный child probe и `cmd.exe → claude.exe` подтвердили exact
+      `process.cwd()`. Windows Terminal открыл живой Claude Code.
 - [x] LOGOUT отделён от SHUTDOWN: локальные DeepSeek credentials/profile и runtime
       account state очищаются, Bridge и запущенные CLI остаются работать.
       **Runtime live-test (2026-08-20)**: до LOGOUT `/health` = 200 и auth-status =

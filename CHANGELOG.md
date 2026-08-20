@@ -3,6 +3,45 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-20 — Fix Unicode working directory launch on Windows
+
+### Runtime reproduction и root cause
+
+- На Windows создана и выбрана через настоящий `FolderBrowserDialog` папка
+  `D:\Проекты\Тестовая папка ёжик`. До исправления системное дерево показывало
+  правильное имя, но `POST /bridge/pick-folder` возвращал mojibake
+  (`D:\Ð...`): `FolderBrowserDialog.SelectedPath` в текущем Windows
+  PowerShell/.NET runtime уже содержал UTF-8 bytes как Latin-1 code points.
+- Повреждённый путь не существовал; обратное Latin-1 bytes → UTF-8
+  преобразование давало точный существующий каталог. Поэтому одной настройки
+  `[Console]::OutputEncoding = UTF-8` было недостаточно.
+
+### Исправление
+
+- `src/server/actions.ts` — picker передаёт путь как ASCII Base64 от явных
+  UTF-8 bytes. Node декодирует Base64 и UTF-8; узкий mojibake fallback применяется
+  только если исходный path не существует, восстановленный path существует и
+  декодирование не содержит replacement characters. Корректные пути не меняются.
+- `launchProcess()` не изменялся: отдельный реальный child probe и production
+  Claude Code подтвердили, что `spawn(..., { shell: true, cwd })` на этом Windows
+  runtime сохраняет Unicode `cwd` без искажения.
+
+### Live-проверка и тесты
+
+- Реальный Web UI click вызвал `POST /bridge/pick-folder` →
+  `{"path":"D:\\Проекты\\Тестовая папка ёжик"}`; browser JS записал в
+  `#workdir` ту же строку с UTF-8 hex
+  `443a5cd09fd180d0bed0b5d0bad182d18b5cd0a2d0b5d181d182d0bed0b2d0b0d18f20d0bfd0b0d0bfd0bad0b020d191d0b6d0b8d0ba`.
+- Реальный Web UI launch отправил `{"tool":"claude","workDir":"D:\\Проекты\\Тестовая папка ёжик","model":"deepseek-chat"}`.
+  Windows PEB подтвердил exact cwd для запущенных `cmd.exe` и `claude.exe`:
+  `D:\Проекты\Тестовая папка ёжик\`; Windows Terminal открыл живую вкладку
+  Claude Code.
+- `tests/unit/webUiUnicode.test.ts` — regression для реально наблюдавшегося
+  mojibake и filesystem-validated восстановления.
+- `tests/unit/unicodeLaunchIntegration.test.ts` — настоящий child-process test:
+  Unicode workDir → `launchProcess()` → child записывает `process.cwd()` → exact match.
+- Итого: 19 test files, 328 tests.
+
 ## 2026-08-20 — Fix Web UI logout runtime behavior
 
 ### Root cause и исправление
