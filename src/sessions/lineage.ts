@@ -70,6 +70,15 @@ export class LineageStore {
     if (changed) await this.persist();
   }
 
+  async clear(): Promise<void> {
+    this.links.clear();
+    if (this.file === ":memory:") return;
+
+    const raw = await readJsonIfExists(this.file);
+    if (!isRecord(raw) || !Array.isArray(raw.links)) return;
+    await writeJsonAtomic(this.file, { ...raw, links: [] }, 0o600).catch(() => undefined);
+  }
+
   private async persist(): Promise<void> {
     const payload: LinkFileShape = {
       version: LINK_VERSION,

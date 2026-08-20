@@ -350,11 +350,11 @@ select.f-inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xml
   };
 
   window.doLogout=function(){
-    if(!confirm("Logout from DeepSeek and stop the Bridge?"))return;
+    if(!confirm("Logout from DeepSeek?"))return;
     fetch("/bridge/logout",{method:"POST",headers:{"content-type":"application/json"},body:"{}"})
-      .then(function(r){return r.json();}).then(function(d){
-        document.body.innerHTML='<div style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:var(--m);color:var(--txt)"><div style="text-align:center"><div style="font-size:18px;margin-bottom:12px">'+(d.message||"Logged out. Bridge stopped.")+'</div><div style="color:var(--txt-m);font-size:13px">You can close this tab.</div></div></div>';
-      }).catch(function(){showToast("Logout failed","error");});
+      .then(function(r){return r.json().then(function(d){if(!r.ok)throw new Error(d.message||"Logout failed");return d;});}).then(function(){
+        showToast("Logged out","success");updateHealth();updateAuthLed();
+      }).catch(function(e){showToast(e.message||"Logout failed","error");});
   };
 
   window.doShutdown=function(){

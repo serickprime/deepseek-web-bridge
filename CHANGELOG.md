@@ -3,6 +3,45 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-20 — Web UI auth lifecycle and Unicode Windows paths
+
+### Исправления
+
+- `src/server/actions.ts` — Windows FolderBrowserDialog теперь задаёт
+  `[Console]::OutputEncoding` и `$OutputEncoding` как UTF-8 без BOM. Node собирает
+  stdout как bytes и явно декодирует единый UTF-8 buffer, поэтому кириллические
+  пути (включая разрыв многобайтного символа между chunks) не искажаются.
+- `src/deepseek/client.ts`, `src/app.ts`, `src/api/handler.ts` — credentials стали
+  заменяемым runtime-состоянием `DeepSeekClient`: `setAuth()` немедленно применяет
+  новый token/cookie/hif, `clearAuth()` блокирует upstream-запросы без остановки
+  Bridge. Auth-generation guard не позволяет завершившемуся после смены аккаунта
+  старому запросу записать старый `chatSessionId` или lineage.
+- `src/sessions/sessionStore.ts`, `src/sessions/lineage.ts` — account-bound upstream
+  state очищается при LOGOUT и перед установкой новых credentials. Очистка lineage
+  сохраняет соседние `sessions` и прочие поля общего `sessions.json`; файл целиком
+  не удаляется.
+- `src/server/routes.ts`, `src/server/landingPage.ts` — LOGOUT теперь удаляет только
+  локальные DeepSeek credentials и dedicated Chrome profile, очищает runtime auth,
+  показывает toast `Logged out` и обновляет status indicators. Bridge и запущенные
+  через Web UI Claude Code/OpenCode продолжают работать; `process.exit()` не
+  вызывается. Confirmation: `Logout from DeepSeek?`.
+- SHUTDOWN остаётся отдельным действием: останавливает только tracked Claude Code /
+  OpenCode, активный auth Chrome, HTTP server и Node process. `auth.json` не
+  удаляется, посторонние CLI-процессы не затрагиваются.
+- `buildApp()` теперь может поднять Bridge без исходного `auth.json`, чтобы Web UI
+  AUTH был доступен и после локального logout; успешный `/bridge/auth` применяет
+  captured credentials до отправки успешного SSE result, без рестарта.
+- macOS/Linux picker и `GET /api/system` не реализовывались в этой итерации.
+
+### Тесты
+
+- Добавлено 11 offline regression-тестов: UTF-8 кириллического Windows path,
+  exact Unicode `cwd` для обоих launcher-ов, UI Logout semantics, runtime auth
+  clear/swap, установка credentials после `/bridge/auth`, отклонение in-flight
+  результата старого аккаунта, очистка state/lineage без потери `sessions.json`,
+  разделение LOGOUT/SHUTDOWN и сохранение credentials при SHUTDOWN.
+- Итого: `npm run typecheck` ✅, `npm test` ✅ (325/325), `npm run build` ✅.
+
 ## 2026-08-20 — Successful post-compact live tests
 
 Проведены два live-теста Claude Code после настоящего `/compact`.

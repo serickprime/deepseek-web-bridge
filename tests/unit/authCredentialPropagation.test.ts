@@ -59,7 +59,7 @@ describe("Auth credential propagation through DeepSeekClient", () => {
         sessionManager: {} as never,
         solver: { solve: async () => ({ answer: 1, signature: "s", algorithm: "a", salt: "", challenge: "" }) } as never,
         logger: { info: () => {}, warn: () => {}, error: () => {} } as never,
-        redactor: { redactText: (t: string) => t } as never,
+        redactor: { addSecret: () => {}, redactText: (t: string) => t } as never,
         timeoutMs: 10_000,
         maxRetries: 0,
       });
@@ -87,7 +87,7 @@ describe("Auth credential propagation through DeepSeekClient", () => {
         sessionManager: {} as never,
         solver: { solve: async () => ({ answer: 1, signature: "s", algorithm: "a", salt: "", challenge: "" }) } as never,
         logger: { info: () => {}, warn: () => {}, error: () => {} } as never,
-        redactor: { redactText: (t: string) => t } as never,
+        redactor: { addSecret: () => {}, redactText: (t: string) => t } as never,
         timeoutMs: 10_000,
         maxRetries: 0,
       });
@@ -95,6 +95,93 @@ describe("Auth credential propagation through DeepSeekClient", () => {
       await client.ensureSession(state);
       expect(capturedHeaders["x-hif-leim"]).toBe("legacy_leim_value");
       expect(capturedHeaders["x-hif-dliq"]).toBe("legacy_dliq_value");
+    } finally {
+      mock.restore();
+    }
+  });
+
+  it("clears runtime auth without stopping the client", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const { DeepSeekClient } = await import("../../src/deepseek/client.js");
+    const client = new DeepSeekClient({
+      baseUrl: "https://example.com",
+      auth: { token: "old_token_123", cookie: "old_cookie_123" },
+      sessionManager: {} as never,
+      solver: { solve: async () => ({ answer: 1, signature: "s", algorithm: "a", salt: "", challenge: "" }) } as never,
+      logger: { info: () => {}, warn: () => {}, error: () => {} } as never,
+      redactor: { addSecret: () => {}, redactText: (t: string) => t } as never,
+      timeoutMs: 10_000,
+      maxRetries: 0,
+    });
+
+    client.clearAuth();
+    expect(client.hasAuth()).toBe(false);
+    await expect(client.ensureSession({ chatSessionId: null, parentMessageId: null, history: [], updatedAt: 0 }))
+      .rejects.toMatchObject({ code: "AUTH_MISSING", status: 401 });
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  it("uses newly captured credentials after logout without a restart", async () => {
+    let capturedHeaders: Record<string, string> = {};
+    const mock = mockFetch(async (_url, init) => {
+      capturedHeaders = (init?.headers ?? {}) as Record<string, string>;
+      return new Response(JSON.stringify({ data: { biz_data: { chat_session: { id: "sess_new" } } } }), { status: 200 });
+    });
+
+    try {
+      const { DeepSeekClient } = await import("../../src/deepseek/client.js");
+      const client = new DeepSeekClient({
+        baseUrl: "https://example.com",
+        auth: { token: "old_token_123", cookie: "old_cookie_123" },
+        sessionManager: {} as never,
+        solver: { solve: async () => ({ answer: 1, signature: "s", algorithm: "a", salt: "", challenge: "" }) } as never,
+        logger: { info: () => {}, warn: () => {}, error: () => {} } as never,
+        redactor: { addSecret: () => {}, redactText: (t: string) => t } as never,
+        timeoutMs: 10_000,
+        maxRetries: 0,
+      });
+
+      client.clearAuth();
+      client.setAuth({ token: "new_token_456", cookie: "new_cookie_456", hifLeim: "new_hif_456" });
+      await client.ensureSession({ chatSessionId: null, parentMessageId: null, history: [], updatedAt: 0 });
+
+      expect(capturedHeaders.authorization).toBe("Bearer new_token_456");
+      expect(capturedHeaders.cookie).toBe("new_cookie_456");
+      expect(capturedHeaders["x-hif-leim"]).toBe("new_hif_456");
+      expect(JSON.stringify(capturedHeaders)).not.toContain("old_token_123");
+    } finally {
+      mock.restore();
+    }
+  });
+
+  it("rejects an in-flight old-account session result after credentials change", async () => {
+    let resolveFetch!: (response: Response) => void;
+    const mock = mockFetch(async () => new Promise<Response>(resolve => { resolveFetch = resolve; }));
+
+    try {
+      const { DeepSeekClient } = await import("../../src/deepseek/client.js");
+      const client = new DeepSeekClient({
+        baseUrl: "https://example.com",
+        auth: { token: "old_token_123", cookie: "old_cookie_123" },
+        sessionManager: {} as never,
+        solver: { solve: async () => ({ answer: 1, signature: "s", algorithm: "a", salt: "", challenge: "" }) } as never,
+        logger: { info: () => {}, warn: () => {}, error: () => {} } as never,
+        redactor: { addSecret: () => {}, redactText: (t: string) => t } as never,
+        timeoutMs: 10_000,
+        maxRetries: 0,
+      });
+      const state = { chatSessionId: null, parentMessageId: null, history: [], updatedAt: 0 };
+      const oldGeneration = client.getAuthGeneration();
+      const pending = client.ensureSession(state, oldGeneration);
+      await vi.waitFor(() => expect(resolveFetch).toBeTypeOf("function"));
+
+      client.clearAuth();
+      client.setAuth({ token: "new_token_456", cookie: "new_cookie_456" });
+      resolveFetch(new Response(JSON.stringify({ data: { biz_data: { chat_session: { id: "old_session" } } } }), { status: 200 }));
+
+      await expect(pending).rejects.toMatchObject({ code: "SESSION_CONFLICT", status: 409 });
+      expect(state.chatSessionId).toBeNull();
     } finally {
       mock.restore();
     }

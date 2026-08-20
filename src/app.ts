@@ -4,6 +4,7 @@ import { FileSessionStorage } from "./auth/storage.js";
 import { SessionManager } from "./auth/sessionManager.js";
 import { PowSolver } from "./deepseek/pow.js";
 import { DeepSeekClient } from "./deepseek/client.js";
+import type { AuthCredentials } from "./deepseek/client.js";
 import { CompletionHandler } from "./api/handler.js";
 import { SessionStore } from "./sessions/sessionStore.js";
 import { LineageStore } from "./sessions/lineage.js";
@@ -38,6 +39,14 @@ function loadAuthFile(file: string): AuthFileShape {
   }
 }
 
+export async function resetUpstreamAccountState(
+  sessionStore: SessionStore,
+  lineage: LineageStore,
+): Promise<void> {
+  sessionStore.clear();
+  await lineage.clear();
+}
+
 export function buildApp(): AppHandle {
   const config = buildConfig();
   const redactor = new Redactor();
@@ -50,12 +59,6 @@ export function buildApp(): AppHandle {
     : typeof authData.hif_dliq === "string" ? authData.hif_dliq : undefined;
   const hifLeim = typeof authData.hifLeim === "string" ? authData.hifLeim
     : typeof authData.hif_leim === "string" ? authData.hif_leim : undefined;
-
-  if (!token && !cookie) {
-    throw new Error(
-      `No credentials found in ${config.authFile}. Run \`npm run auth\` first.`,
-    );
-  }
 
   for (const secret of collectAuthSecrets({ token, cookie, hif_dliq: hifDliq ?? "", hif_leim: hifLeim ?? "" })) {
     redactor.addSecret(secret);
@@ -73,7 +76,7 @@ export function buildApp(): AppHandle {
 
   const deepseek = new DeepSeekClient({
     baseUrl: config.baseUrl,
-    auth: { token, cookie, hifDliq, hifLeim },
+    auth: token || cookie ? { token, cookie, hifDliq, hifLeim } : null,
     sessionManager,
     solver,
     logger,
@@ -100,6 +103,14 @@ export function buildApp(): AppHandle {
       { id: "deepseek-reasoner", object: "model", owned_by: "deepseek" },
     ],
     ready: () => sessionManager.listSessions().length >= 0,
+    setRuntimeAuth: async (auth: AuthCredentials) => {
+      await resetUpstreamAccountState(sessionStore, lineage);
+      deepseek.setAuth(auth);
+    },
+    clearRuntimeAuth: async () => {
+      deepseek.clearAuth();
+      await resetUpstreamAccountState(sessionStore, lineage);
+    },
   };
 
   const server = new BridgeServer({

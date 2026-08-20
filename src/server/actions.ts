@@ -198,11 +198,13 @@ export async function runAuthSSE(
     remoteDebugPort: CDP_PORT,
     chromePath: config.chromePath,
   });
+  trackAuthProcess(child);
 
   let conn: CdpConnection | null = null;
 
   const cleanup = () => {
     if (conn) { try { conn.close(); } catch {} }
+    activeAuthProcesses.delete(child);
     try { child.kill(); } catch {}
   };
 
@@ -309,7 +311,6 @@ export async function runAuthSSE(
         fs.mkdirSync(path.dirname(config.authFile), { recursive: true });
         await writeJsonAtomic(config.authFile, auth, 0o600);
 
-        send({ type: "result", step: "auth", ok: true, message: "Auth saved" });
         cleanup();
         return auth;
       }
@@ -538,6 +539,7 @@ export function launchOpenCode(workDir: string, model: string, send: (event: Act
 /* ── PROCESS TRACKING ── */
 
 const launchedProcesses: Set<ChildProcess> = new Set();
+const activeAuthProcesses: Set<ChildProcess> = new Set();
 
 export function trackProcess(child: ChildProcess | null): void {
   if (child) {
@@ -546,18 +548,40 @@ export function trackProcess(child: ChildProcess | null): void {
   }
 }
 
+async function stopTrackedChild(child: ChildProcess): Promise<void> {
+  const pid = child.pid;
+  if (pid && process.platform === "win32") {
+    await new Promise<void>((resolve) => {
+      const killer = spawn("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore" });
+      killer.once("close", () => resolve());
+      killer.once("error", () => resolve());
+    });
+  } else {
+    child.kill("SIGTERM");
+  }
+}
+
 export async function stopLaunchedProcesses(): Promise<void> {
   for (const child of launchedProcesses) {
     try {
-      const pid = child.pid;
-      if (pid && process.platform === "win32") {
-        spawn("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore" });
-      } else {
-        child.kill("SIGTERM");
-      }
+      await stopTrackedChild(child);
     } catch { /* best effort */ }
   }
   launchedProcesses.clear();
+}
+
+export function trackAuthProcess(child: ChildProcess): void {
+  activeAuthProcesses.add(child);
+  child.on("close", () => { activeAuthProcesses.delete(child); });
+}
+
+export async function stopActiveAuthChrome(): Promise<void> {
+  for (const child of activeAuthProcesses) {
+    try {
+      await stopTrackedChild(child);
+    } catch { /* best effort */ }
+  }
+  activeAuthProcesses.clear();
 }
 
 /* ── FOLDER PICKER ── */
@@ -572,6 +596,8 @@ export async function pickFolder(): Promise<PickFolderResult> {
   if (process.platform !== "win32") return { path: null, cancelled: false, supported: false };
 
   const ps = [
+    "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)",
+    "$OutputEncoding = [Console]::OutputEncoding",
     "Add-Type -AssemblyName System.Windows.Forms",
     "$f = New-Object System.Windows.Forms.FolderBrowserDialog",
     "$f.Description = 'Select working directory'",
@@ -580,14 +606,16 @@ export async function pickFolder(): Promise<PickFolderResult> {
   ].join("; ");
 
   return new Promise<PickFolderResult>((resolve) => {
-    const child = spawn("powershell", ["-NoProfile", "-Command", ps], {
+    const child = spawn("powershell", ["-NoProfile", "-STA", "-Command", ps], {
       stdio: ["ignore", "pipe", "ignore"],
       shell: false,
     });
-    let stdout = "";
-    child.stdout?.on("data", (chunk: Buffer) => { stdout += chunk.toString(); });
+    const stdout: Buffer[] = [];
+    child.stdout?.on("data", (chunk: Buffer | string) => {
+      stdout.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, "utf8"));
+    });
     child.on("close", () => {
-      const trimmed = stdout.trim();
+      const trimmed = Buffer.concat(stdout).toString("utf8").trim();
       if (trimmed) {
         resolve({ path: trimmed, cancelled: false, supported: true });
       } else {
@@ -603,13 +631,13 @@ export async function pickFolder(): Promise<PickFolderResult> {
 export async function performLogout(): Promise<{ ok: boolean; message: string }> {
   const config = buildConfig();
   try {
-    if (fs.existsSync(config.authFile)) {
-      fs.rmSync(config.authFile, { force: true });
-    }
     if (fs.existsSync(config.chromeProfile)) {
       fs.rmSync(config.chromeProfile, { recursive: true, force: true });
     }
-    return { ok: true, message: "Logged out. Bridge stopped." };
+    if (fs.existsSync(config.authFile)) {
+      fs.rmSync(config.authFile, { force: true });
+    }
+    return { ok: true, message: "Logged out" };
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : String(error) };
   }

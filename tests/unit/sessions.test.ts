@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { SessionManager } from "../../src/auth/sessionManager.js";
 import { generateSessionId } from "../../src/auth/session.js";
 import type { SessionMap } from "../../src/auth/session.js";
@@ -9,6 +12,7 @@ import { LineageStore } from "../../src/sessions/lineage.js";
 import { extractToolUseIdFromMessages } from "../../src/api/handler.js";
 import { SESSION_ID_ENTROPY_BYTES } from "../../src/config/constants.js";
 import type { CanonicalRequest } from "../../src/api/canonical.js";
+import { resetUpstreamAccountState } from "../../src/app.js";
 
 class MemoryStorage implements SessionStorage {
   private map: SessionMap = {};
@@ -121,6 +125,48 @@ describe("LineageStore", () => {
   it("returns undefined for unknown call_id", async () => {
     const lineage = new LineageStore(":memory:");
     expect(lineage.getUpstreamKey("unknown")).toBeUndefined();
+  });
+
+  it("clears old upstream state and lineage during an account swap", async () => {
+    const sessions = new SessionStore();
+    const state = sessions.getOrCreate("old-account-session");
+    state.chatSessionId = "old-deepseek-chat";
+    state.parentMessageId = 123;
+    const lineage = new LineageStore(":memory:");
+    await lineage.record("old-call", "old-account-session");
+
+    await resetUpstreamAccountState(sessions, lineage);
+
+    expect(sessions.get("old-account-session")).toBeUndefined();
+    expect(lineage.getUpstreamKey("old-call")).toBeUndefined();
+  });
+
+  it("clears persisted lineage without deleting sessions.json sibling data", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "bridge-lineage-clear-"));
+    const file = join(dir, "sessions.json");
+    const savedSession = {
+      sessionId: "local-session",
+      sidCookie: "local-cookie",
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    await writeFile(file, JSON.stringify({
+      version: 1,
+      sessions: [savedSession],
+      links: [{ callId: "old-call", upstreamKey: "old-upstream", createdAt: Date.now() }],
+    }));
+
+    try {
+      const lineage = new LineageStore(file);
+      await lineage.init();
+      await lineage.clear();
+      const persisted = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
+
+      expect(persisted.sessions).toEqual([savedSession]);
+      expect(persisted.links).toEqual([]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
 

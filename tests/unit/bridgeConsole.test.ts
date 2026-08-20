@@ -4,6 +4,7 @@ import { mkdtemp, rm, mkdir, writeFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { spawn, type ChildProcess } from "node:child_process";
 import { performLogout, stopLaunchedProcesses, trackProcess, pickFolder } from "../../src/server/actions.js";
+import { LANDING_PAGE_HTML } from "../../src/server/landingPage.js";
 
 const PUBLIC_ASSETS_DIR = resolve(process.cwd(), "public");
 
@@ -44,6 +45,14 @@ describe("Static asset path resolution", () => {
   it("encoded path traversal is blocked", () => {
     const { resolved } = resolveAssetPath("/assets/..%2F..%2Fetc/passwd");
     expect(resolved.startsWith(PUBLIC_ASSETS_DIR)).toBe(true);
+  });
+});
+
+describe("Logout UI", () => {
+  it("keeps Logout separate from Shutdown and refreshes status indicators", () => {
+    expect(LANDING_PAGE_HTML).toContain('confirm("Logout from DeepSeek?")');
+    expect(LANDING_PAGE_HTML).toContain('showToast("Logged out","success");updateHealth();updateAuthLed();');
+    expect(LANDING_PAGE_HTML).toContain('fetch("/bridge/shutdown"');
   });
 });
 

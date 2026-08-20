@@ -8,7 +8,7 @@ import {
 } from "../config/constants.js";
 import { BridgeError } from "../utils/errors.js";
 import type { Logger } from "../utils/logger.js";
-import type { Redactor } from "../utils/redaction.js";
+import { collectAuthSecrets, type Redactor } from "../utils/redaction.js";
 import { estimateTokenCount } from "../utils/tokenEstimate.js";
 import type { CanonicalMessage, CanonicalRequest, CanonicalTool } from "../api/canonical.js";
 import type { SessionManager } from "../auth/sessionManager.js";
@@ -38,7 +38,7 @@ export interface AuthCredentials {
 
 export interface DeepSeekClientOptions {
   baseUrl: string;
-  auth: AuthCredentials;
+  auth: AuthCredentials | null;
   sessionManager: SessionManager;
   solver: PowSolver;
   logger: Logger;
@@ -64,15 +64,54 @@ const MAX_COMPLETIONS = 2;
 
 export class DeepSeekClient {
   private readonly sessionLimiter = new SessionCreateLimiter();
+  private readonly options: DeepSeekClientOptions;
+  private auth: AuthCredentials | null = null;
+  private authGeneration = 0;
 
-  constructor(private readonly options: DeepSeekClientOptions) {}
+  constructor(options: DeepSeekClientOptions) {
+    this.options = { ...options, auth: null };
+    if (options.auth) this.setAuth(options.auth);
+  }
 
-  async ensureSession(state: UpstreamSessionState): Promise<void> {
+  setAuth(auth: AuthCredentials): void {
+    this.auth = { ...auth };
+    this.authGeneration++;
+    for (const secret of collectAuthSecrets(auth as unknown as Record<string, unknown>)) {
+      this.options.redactor.addSecret(secret);
+    }
+  }
+
+  clearAuth(): void {
+    this.auth = null;
+    this.authGeneration++;
+  }
+
+  hasAuth(): boolean {
+    return this.auth !== null;
+  }
+
+  getAuthGeneration(): number {
+    return this.authGeneration;
+  }
+
+  private assertAuthGeneration(expected: number): void {
+    if (expected !== this.authGeneration) {
+      throw new BridgeError("DeepSeek credentials changed while the request was running. Retry the request.", {
+        code: "SESSION_CONFLICT",
+        status: 409,
+        retryable: true,
+      });
+    }
+  }
+
+  async ensureSession(state: UpstreamSessionState, authGeneration = this.authGeneration): Promise<void> {
+    this.assertAuthGeneration(authGeneration);
     if (state.chatSessionId) return;
     await this.sessionLimiter.acquire();
+    this.assertAuthGeneration(authGeneration);
     if (state.chatSessionId) return;
     const body = JSON.stringify({});
-    const res = await this.fetch(SESSION_CREATE_PATH, { method: "POST", body }, null);
+    const res = await this.fetch(SESSION_CREATE_PATH, { method: "POST", body }, null, authGeneration);
     if (res.status === 401 || res.status === 403) {
       throw new BridgeError(
         `DeepSeek authorization expired (HTTP ${res.status}). Run \`npm run auth\` and restart Bridge.`,
@@ -105,6 +144,7 @@ export class DeepSeekClient {
     if (typeof id !== "string" || !id) {
       throw new BridgeError("Session creation returned no id.", { code: "UPSTREAM_ERROR" });
     }
+    this.assertAuthGeneration(authGeneration);
     state.chatSessionId = id;
   }
 
@@ -112,13 +152,15 @@ export class DeepSeekClient {
     request: CanonicalRequest,
     state: UpstreamSessionState,
     callbacks: CompletionCallbacks = {},
+    authGeneration = this.authGeneration,
   ): Promise<CompletionResult> {
+    this.assertAuthGeneration(authGeneration);
     const toolPrompt = buildToolPrompt(request.tools);
     const allowedNames = request.tools.map(t => t.name);
     const hasTools = allowedNames.length > 0;
 
     const upstreamPrompt = this.buildPrompt(request, toolPrompt);
-    let output = await this.runCompletion(upstreamPrompt, state);
+    let output = await this.runCompletion(upstreamPrompt, state, authGeneration);
 
     const inspection = inspectToolCallFromOutput(output, allowedNames);
     let toolCall = inspection.toolCall;
@@ -132,7 +174,7 @@ export class DeepSeekClient {
     while (shouldRetry(hasTools, toolCall, output.content, output.reasoning, allowedNames) && retries < COMPLETION_GUARD_MAX_ATTEMPTS - 1) {
       retries++;
       const retryPrompt = createToolRetryPrompt(allowedNames);
-      output = await this.runCompletion(retryPrompt, state);
+      output = await this.runCompletion(retryPrompt, state, authGeneration);
       const retryInspection = inspectToolCallFromOutput(output, allowedNames);
       toolCall = retryInspection.toolCall;
       if (toolCall) {
@@ -144,6 +186,7 @@ export class DeepSeekClient {
       callbacks.onToolCall?.(toolCall.name, toolCall.arguments as Record<string, unknown>);
     }
 
+    this.assertAuthGeneration(authGeneration);
     return {
       parentMessageId: state.parentMessageId,
       content: toolCall ? "" : output.content,
@@ -155,6 +198,7 @@ export class DeepSeekClient {
   private async runCompletion(
     prompt: string,
     state: UpstreamSessionState,
+    authGeneration: number,
   ): Promise<{ content: string; reasoning: string; parentMessageId: number | null; usage?: CompletionResult["usage"] }> {
     const payload = {
       chat_session_id: state.chatSessionId,
@@ -167,12 +211,13 @@ export class DeepSeekClient {
       messages: [],
       additional_input: {},
     };
-    const challenge = await this.fetchChallenge();
+    const challenge = await this.fetchChallenge(authGeneration);
     const solution = await this.options.solver.solve(challenge);
     const res = await this.fetch(
       COMPLETION_PATH,
       { method: "POST", body: JSON.stringify(payload) },
       solution,
+      authGeneration,
     );
     if (res.status === 401 || res.status === 403) {
       throw new BridgeError(
@@ -314,9 +359,9 @@ export class DeepSeekClient {
     });
   }
 
-  private async fetchChallenge(): Promise<ReturnType<typeof parseChallengePayload> & { expireAt: number }> {
+  private async fetchChallenge(authGeneration: number): Promise<ReturnType<typeof parseChallengePayload> & { expireAt: number }> {
     const body = JSON.stringify({ target_path: COMPLETION_PATH });
-    const res = await this.fetch(CHALLENGE_PATH, { method: "POST", body }, null);
+    const res = await this.fetch(CHALLENGE_PATH, { method: "POST", body }, null, authGeneration);
     if (res.status === 401 || res.status === 403) {
       throw new BridgeError(
         `DeepSeek authorization expired (HTTP ${res.status}). Run \`npm run auth\` and restart Bridge.`,
@@ -335,8 +380,17 @@ export class DeepSeekClient {
     path: string,
     init: { method: string; body?: string },
     solution: { answer: number; signature: string; algorithm: string; salt: string; challenge: string } | null,
+    authGeneration = this.authGeneration,
   ): Promise<Response> {
-    const { baseUrl, auth, timeoutMs, maxRetries, logger, redactor } = this.options;
+    this.assertAuthGeneration(authGeneration);
+    const { baseUrl, timeoutMs, maxRetries, logger, redactor } = this.options;
+    const auth = this.auth;
+    if (!auth || (!auth.token && !auth.cookie)) {
+      throw new BridgeError("DeepSeek credentials are not configured. Use AUTH in Bridge Console.", {
+        code: "AUTH_MISSING",
+        status: 401,
+      });
+    }
     const headers: Record<string, string> = {
       "content-type": "application/json",
       ...CLIENT_HEADERS,
@@ -360,6 +414,7 @@ export class DeepSeekClient {
     }
     let lastError: unknown;
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      this.assertAuthGeneration(authGeneration);
       if (attempt > 0) {
         await new Promise(resolve => setTimeout(resolve, 250 * 2 ** attempt));
       }
@@ -372,6 +427,7 @@ export class DeepSeekClient {
           body: init.body,
           signal: controller.signal,
         });
+        this.assertAuthGeneration(authGeneration);
         return res;
       } catch (error) {
         lastError = error;
@@ -381,7 +437,7 @@ export class DeepSeekClient {
           attempt: attempt + 1,
           retryable,
         });
-        if (!retryable) break;
+        if (!retryable) throw error;
       } finally {
         clearTimeout(timer);
       }

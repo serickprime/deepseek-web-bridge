@@ -44,6 +44,10 @@ export class SessionStore {
     this.states.delete(key);
   }
 
+  clear(): void {
+    this.states.clear();
+  }
+
   appendHistory(state: UpstreamSessionState, entry: ChatEntry): void {
     state.history.push(entry);
     this.enforceLimits(state);

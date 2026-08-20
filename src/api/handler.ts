@@ -71,12 +71,13 @@ export class CompletionHandler {
     });
 
     const turn = 0;
+    const authGeneration = deepseek.getAuthGeneration?.() ?? 0;
     return this.mutex.withLock(upstreamKey, async () => {
       try {
-        await deepseek.ensureSession(state);
+        await deepseek.ensureSession(state, authGeneration);
         const toolNames = buildToolNames(request.tools);
         stream.start();
-        const result = await deepseek.complete(request, state);
+        const result = await deepseek.complete(request, state, {}, authGeneration);
         if (!result.toolCall && result.content) {
           stream.push({ type: "content", text: result.content });
         }

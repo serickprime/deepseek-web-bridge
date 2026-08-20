@@ -14,8 +14,9 @@ import { toResponses } from "./outputResponses.js";
 import { ProtocolStream } from "./protocolStream.js";
 import type { SessionManager } from "../auth/sessionManager.js";
 import type { Redactor } from "../utils/redaction.js";
+import type { AuthCredentials } from "../deepseek/client.js";
 import { LANDING_PAGE_HTML } from "./landingPage.js";
-import { runAuthSSE, runDoctorSSE, runDiagnosticsSSE, checkAuthStatus, launchClaudeCode, launchOpenCode, writeSSE, endSSE, pickFolder, performLogout, stopLaunchedProcesses, type ActionEvent } from "./actions.js";
+import { runAuthSSE, runDoctorSSE, runDiagnosticsSSE, checkAuthStatus, launchClaudeCode, launchOpenCode, writeSSE, endSSE, pickFolder, performLogout, stopLaunchedProcesses, stopActiveAuthChrome, type ActionEvent } from "./actions.js";
 
 export interface RouteContext {
   security: SecurityOptions;
@@ -26,6 +27,8 @@ export interface RouteContext {
   models: Array<{ id: string; object: string; owned_by: string }>;
   ready: () => boolean;
   gracefulStop?: () => Promise<void>;
+  setRuntimeAuth?: (auth: AuthCredentials) => Promise<void> | void;
+  clearRuntimeAuth?: () => Promise<void> | void;
 }
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
@@ -265,7 +268,11 @@ export function routes(ctx: RouteContext): Array<{
             endSSE(res);
             return;
           }
-          await runAuthSSE(send);
+          const auth = await runAuthSSE(send);
+          if (auth) {
+            await ctx.setRuntimeAuth?.(auth);
+            send({ type: "result", step: "auth", ok: true, message: "Auth saved" });
+          }
         } catch (error) {
           send({ type: "error", message: error instanceof Error ? error.message : String(error) });
         }
@@ -357,17 +364,14 @@ export function routes(ctx: RouteContext): Array<{
       method: "POST",
       path: "/bridge/logout",
       handler: async (_req, res) => {
-        await stopLaunchedProcesses();
+        await stopActiveAuthChrome();
         const result = await performLogout();
         if (!result.ok) {
           sendJson(res, 500, result);
           return;
         }
+        await ctx.clearRuntimeAuth?.();
         sendJson(res, 200, result);
-        setTimeout(async () => {
-          await ctx.gracefulStop?.();
-          process.exit(0);
-        }, 500);
       },
     },
     {
@@ -376,9 +380,13 @@ export function routes(ctx: RouteContext): Array<{
       handler: async (_req, res) => {
         sendJson(res, 200, { ok: true, message: "Bridge stopped." });
         await stopLaunchedProcesses();
+        await stopActiveAuthChrome();
         setTimeout(async () => {
-          await ctx.gracefulStop?.();
-          process.exit(0);
+          try {
+            await ctx.gracefulStop?.();
+          } finally {
+            process.exit(0);
+          }
         }, 500);
       },
     },

@@ -900,7 +900,7 @@ describe("DeepSeekClient prompt construction — stale action replay prevention"
           }),
         } as never,
         logger: { info: () => {}, warn: () => {}, error: () => {} } as never,
-        redactor: { redactText: (text: string) => text } as never,
+        redactor: { addSecret: () => {}, redactText: (text: string) => text } as never,
         timeoutMs: 10_000,
         maxRetries: 0,
       });

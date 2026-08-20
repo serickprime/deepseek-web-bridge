@@ -71,14 +71,14 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
 | 7. DeepSeek | pow (WASM), sseParser, updateParser, client | ✅ готово |
 | 8. Server | middleware, output-адаптеры, protocolStream, routes, server | ✅ готово |
 | 9. Entrypoint | app.ts, index.ts, start.ts | ✅ готово |
-| 10. Тесты | 16 файлов, 314 тестов | ✅ готово |
+| 10. Тесты | 17 файлов, 325 тестов | ✅ готово |
 | 11. Скрипты | cdp, auth, doctor, launcher, live | ✅ live-часть работает |
 | 12. Веб-интерфейс | Bridge Console на `GET /` (Mileo dark theme, two-panel, diagnostics, model picker) | ✅ готово |
 
 **Проверки сейчас:**
 - `npm run typecheck` — ✅ без ошибок.
 - `npm run build` — ✅ собирается.
-- `npm test` — ✅ 314/314.
+- `npm test` — ✅ 325/325.
 - `npm run auth` — ✅ окно Chrome открывается, захват работает (сеть + localStorage
   fallback).
 - `npm run doctor` — ✅ все 6/6 проверок проходят (auth, reachable, challenge,
@@ -120,8 +120,11 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
   ProtocolStream вместо null), `/health`, `/readyz`, `/v1/models`,
   `/v1/sessions` (CRUD), `/v1/chat/completions`, `/v1/responses`,
   `/v1/messages`, `/bridge/pick-folder`, `/bridge/logout`, `/bridge/shutdown`.
-  `/bridge/logout` при ошибке удаления файлов отдаёт 500 и не завершает процесс;
-  при успехе вызывает `gracefulStop()` → `process.exit(0)`.
+  `/bridge/logout` — локальный выход из DeepSeek: удаляет `auth.json` и dedicated
+  Chrome profile, очищает runtime auth и account-bound upstream state/lineage,
+  но оставляет HTTP Bridge и запущенные через Web UI Claude Code/OpenCode работать.
+  `/bridge/shutdown` останавливает только tracked CLI-процессы, активный auth Chrome,
+  HTTP-сервер и затем Node process; credentials не удаляются.
   `RouteContext.gracefulStop` прокидывается из `AppHandle.stop`.
   **ProtocolStream.start()** — вызывается из CompletionHandler перед
   `stream.push()`, отправляет `message_start` для Anthropic streaming;
@@ -135,10 +138,10 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
   чёрный фон (#020101), красные акценты (#FD1000), two-panel layout
   (Connection + Session), статусные LED-точки, model picker из `/v1/models`,
   Working Directory input с реальным folder picker (PowerShell FolderBrowserDialog,
-  3-состоятельный: path/cancelled/unsupported),
-  кнопки запуска Claude Code / OpenCode, кнопки LOGOUT (удаляет auth + profile
-  и останавливает Bridge) и SHUTDOWN (останавливает только tracked процессы
-  и Bridge), toggleable diagnostics terminal с имитацией проверок,
+  явный UTF-8 для Unicode Windows paths, 3-состоятельный: path/cancelled/unsupported),
+  кнопки запуска Claude Code / OpenCode, кнопки LOGOUT (локально удаляет auth + profile,
+  не останавливая Bridge/CLI) и отдельная SHUTDOWN (останавливает tracked CLI,
+  auth Chrome и Bridge), toggleable diagnostics terminal с имитацией проверок,
   toast notifications. Статические файлы `GET /assets/*` (PNG, CSS, JS) с
   path-traversal protection. Публичные пути: `/`, `/health`, `/readyz`,
   `/assets/*` (GET).
@@ -148,6 +151,9 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
   `__proto__`/`prototype`/`constructor`.
   `checkAuthStatus()` и diagnostics передают `x-hif-leim`/`x-hif-dliq` из auth.json
   (camelCase + legacy fallback) во все upstream-запросы.
+  `DeepSeekClient` поддерживает runtime `setAuth()`/`clearAuth()`; успешный Web UI
+  AUTH применяет новые credentials без рестарта. Generation guard отклоняет
+  завершившиеся после смены аккаунта старые upstream-запросы.
 - Скрипты: `auth` (CDP, читает hif_leim из localStorage), `doctor` (6 последовательных
   чеков + реальный completion-запрос), `launcher` (меню), `live/run` (smoke-тест).
 
@@ -336,7 +342,20 @@ _(все проверены)_
 `clone` → `npm install` → `npm run auth` → `npm start` → открыть
 `http://127.0.0.1:9655` → пользоваться Web UI без ручного выбора ОС.
 
-**Статус**: план. Runtime-код не реализуется до отдельного решения.
+**Статус**: первая Windows/auth-lifecycle итерация реализована. macOS/Linux picker
+и `GET /api/system` остаются планом следующей итерации.
+
+- [x] Windows FolderBrowserDialog явно выводит UTF-8; Node собирает bytes и явно
+      декодирует UTF-8. Unicode `cwd` без преобразований передаётся launcher-ам.
+- [x] LOGOUT отделён от SHUTDOWN: локальные DeepSeek credentials/profile и runtime
+      account state очищаются, Bridge и запущенные CLI остаются работать.
+- [x] AUTH после LOGOUT обновляет credentials работающего `DeepSeekClient` без
+      рестарта; старые upstream state/lineage очищаются безопасно без удаления
+      соседних данных `sessions.json`.
+- [x] SHUTDOWN сохраняет `auth.json`, останавливает только tracked CLI, активный
+      auth Chrome, HTTP server и Node process.
+- [ ] Реализовать и live-проверить macOS/Linux folder picker.
+- [ ] Реализовать `GET /api/system` и UI capabilities.
 
 #### 1. Определение ОС
 

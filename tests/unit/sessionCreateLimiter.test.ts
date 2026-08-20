@@ -48,7 +48,7 @@ function fakeOptions(): DeepSeekClientOptions {
     sessionManager: {} as never,
     solver: { solve: async () => ({ answer: 1, signature: "s", algorithm: "a", salt: "", challenge: "" }) } as never,
     logger: { info: () => {}, warn: () => {}, error: () => {} } as never,
-    redactor: { redactText: (t: string) => t } as never,
+    redactor: { addSecret: () => {}, redactText: (t: string) => t } as never,
     timeoutMs: 10_000,
     maxRetries: 0,
   };
