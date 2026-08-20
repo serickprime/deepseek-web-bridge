@@ -23,7 +23,7 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
 Рабочая цепочка «из коробки»:
 
 1. `npm run auth` — открыть Chrome, войти в DeepSeek (вручную, CAPTCHA/2FA),
-   сохранить `data/auth.json` (token + cookie + hif-заголовки, права 0600).
+   сохранить `data/auth.json` (token + cookie + опциональные hif-заголовки, права 0600).
 2. `npm run doctor` — все проверки зелёные (auth, доступность, PoW, session,
    completion SSE).
 3. `npm start` — сервер на `http://127.0.0.1:9655`.
@@ -71,16 +71,16 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
 | 7. DeepSeek | pow (WASM), sseParser, updateParser, client | ✅ готово |
 | 8. Server | middleware, output-адаптеры, protocolStream, routes, server | ✅ готово |
 | 9. Entrypoint | app.ts, index.ts, start.ts | ✅ готово |
-| 10. Тесты | 19 файлов, 328 тестов | ✅ готово |
+| 10. Тесты | 20 файлов, 331 тест | ✅ готово |
 | 11. Скрипты | cdp, auth, doctor, launcher, live | ✅ live-часть работает |
 | 12. Веб-интерфейс | Bridge Console на `GET /` (Mileo dark theme, two-panel, diagnostics, model picker) | ✅ готово |
 
 **Проверки сейчас:**
 - `npm run typecheck` — ✅ без ошибок.
 - `npm run build` — ✅ собирается.
-- `npm test` — ✅ 328/328.
-- `npm run auth` — ✅ окно Chrome открывается, захват работает (сеть + localStorage
-  fallback).
+- `npm test` — ✅ 331/331.
+- `npm run auth` / Web UI AUTH — ✅ Bearer захватывается из сети, HIF читается из
+  localStorage при наличии; отсутствие HIF допустимо только после успешной upstream-верификации.
 - `npm run doctor` — ✅ все 6/6 проверок проходят (auth, reachable, challenge,
   pow solved, completion SSE parsed, completion content).
 - `npm run test:live` — ✅ все проверки проходят (health, models, chat/completions,
@@ -126,7 +126,8 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
   Для удаления используется async `fs.promises.rm`: на Windows с Node 24.12
   `fs.rmSync` молча не удалял targets под кириллическим путём репозитория.
   `/bridge/shutdown` останавливает только tracked CLI-процессы, активный auth Chrome,
-  HTTP-сервер и затем Node process; credentials не удаляются.
+  HTTP-сервер и затем Node process; credentials не удаляются. Активный AUTH сначала
+  отменяется внутренним AbortController, чтобы graceful stop не ожидал открытый SSE бесконечно.
   `RouteContext.gracefulStop` прокидывается из `AppHandle.stop`.
   **ProtocolStream.start()** — вызывается из CompletionHandler перед
   `stream.push()`, отправляет `message_start` для Anthropic streaming;
@@ -153,7 +154,7 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
   loopback, ограничение глубины/размера tool аргументов, защита от
   `__proto__`/`prototype`/`constructor`.
   `checkAuthStatus()` и diagnostics передают `x-hif-leim`/`x-hif-dliq` из auth.json
-  (camelCase + legacy fallback) во все upstream-запросы.
+  при наличии (camelCase + legacy fallback) во все upstream-запросы.
   `DeepSeekClient` поддерживает runtime `setAuth()`/`clearAuth()`; успешный Web UI
   AUTH применяет новые credentials без рестарта. Generation guard отклоняет
   завершившиеся после смены аккаунта старые upstream-запросы.
@@ -363,9 +364,18 @@ _(все проверены)_
       `auth.json` и dedicated Chrome profile отсутствуют, `GET /` = 200.
 - [x] AUTH после LOGOUT обновляет credentials работающего `DeepSeekClient` без
       рестарта; старые upstream state/lineage очищаются безопасно без удаления
-      соседних данных `sessions.json`.
+      соседних данных `sessions.json`. **Runtime live-test (2026-08-20)**:
+      `AUTH → completion → LOGOUT → AUTH → completion` прошёл на одном Node PID
+      `19944`; completions вернули точные маркеры `AUTH1-FINAL-731` и
+      `AUTH2-FINAL-482`, после повторного AUTH создан новый upstream key.
 - [x] SHUTDOWN сохраняет `auth.json`, останавливает только tracked CLI, активный
-      auth Chrome, HTTP server и Node process.
+      auth Chrome, HTTP server и Node process. **Runtime live-test (2026-08-20)**:
+      tracked `cmd.exe → claude.exe` и Node PID `19944` завершились, посторонний
+      Claude PID `6472` остался жив, `auth.json` сохранился без изменения. После
+      запуска нового Bridge (PID `23236`) auth сразу был valid, а real completion
+      вернул `RESTART-FINAL-963` без повторного AUTH. Отдельный production probe
+      на порту 9656 подтвердил edge case: SHUTDOWN отменил активный AUTH, завершил
+      Node PID `13880` и все 11 процессов dedicated auth Chrome; HTTP закрылся.
 - [ ] Реализовать и live-проверить macOS/Linux folder picker.
 - [ ] Реализовать `GET /api/system` и UI capabilities.
 

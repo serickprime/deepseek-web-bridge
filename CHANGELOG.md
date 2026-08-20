@@ -3,6 +3,46 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-20 — Verify Web UI auth lifecycle and shutdown
+
+### Runtime root causes и исправления
+
+- `src/server/actions.ts`, `scripts/auth.ts` — актуальный DeepSeek после реального
+  входа передавал Bearer, но не создавал `hif_leim_cached` и не отправлял
+  `x-hif-leim`. Web UI AUTH ошибочно требовал HIF до запуска upstream verification,
+  поэтому fallback был логически недостижим. Теперь HIF по-прежнему подхватывается
+  из сети/localStorage при наличии, но Bearer + cookie сохраняются без HIF только
+  после успешного `POST /api/v0/chat_session/create`.
+- `src/server/actions.ts` — SHUTDOWN при активном `/bridge/auth` закрывал HTTP listener
+  и Chrome, но Node оставался жив: graceful server close ожидал незавершённый AUTH
+  SSE, а auth-loop не получал сигнал отмены. Активные AUTH теперь регистрируют
+  внутренний AbortController; SHUTDOWN отменяет цикл до graceful stop.
+
+### Live-проверка
+
+- Полный `AUTH → completion → LOGOUT → AUTH → completion` прошёл без рестарта на
+  одном Node PID `19944`. Оба real DeepSeek completion вернули точные маркеры
+  `AUTH1-FINAL-731` и `AUTH2-FINAL-482`.
+- LOGOUT вернул 200; тот же PID продолжил работать, `/health` = 200,
+  auth-status = `valid:false`, `auth.json` и dedicated profile отсутствовали.
+  После второго AUTH auth-status снова стал `valid:true`, `auth.json` появился,
+  а completion использовал новый upstream key. Очистка `chatSessionId`/lineage и
+  auth-generation guard сопоставлены с существующими offline regression-тестами.
+- SHUTDOWN завершил Node PID `19944` и только tracked `cmd.exe → claude.exe`;
+  посторонний Claude PID `6472` остался жив. HTTP перестал отвечать, `auth.json`
+  сохранился с тем же timestamp. После запуска Bridge на PID `23236` auth сразу
+  был valid, real completion вернул `RESTART-FINAL-963` без повторного AUTH.
+- Отдельный production probe на порту 9656 воспроизвёл SHUTDOWN во время открытого
+  AUTH: Node PID `13880` завершился, 11 процессов dedicated auth Chrome закрылись,
+  HTTP перестал отвечать; основной Bridge на 9655 продолжил работать.
+
+### Тесты
+
+- `tests/unit/webUiAuthCapture.test.ts` — 3 regression-теста: HIF из localStorage
+  при отсутствии сетевого header, verified Bearer/cookie без HIF и отмена активного
+  AUTH при SHUTDOWN.
+- Итого: 20 test files, 331 test.
+
 ## 2026-08-20 — Fix Unicode working directory launch on Windows
 
 ### Runtime reproduction и root cause

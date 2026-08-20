@@ -199,6 +199,8 @@ export async function runAuthSSE(
     chromePath: config.chromePath,
   });
   trackAuthProcess(child);
+  const authController = new AbortController();
+  activeAuthControllers.add(authController);
 
   let conn: CdpConnection | null = null;
 
@@ -208,9 +210,9 @@ export async function runAuthSSE(
     try { child.kill(); } catch {}
   };
 
-  if (signal) {
-    signal.addEventListener("abort", () => { cleanup(); }, { once: true });
-  }
+  const abortCleanup = () => { cleanup(); };
+  signal?.addEventListener("abort", abortCleanup, { once: true });
+  authController.signal.addEventListener("abort", abortCleanup, { once: true });
 
   try {
     await waitForDebugger(CDP_PORT, 20_000);
@@ -258,9 +260,20 @@ export async function runAuthSSE(
 
     const deadline = Date.now() + 5 * 60 * 1000;
     while (Date.now() < deadline) {
-      if (signal?.aborted) { cleanup(); return null; }
+      if (signal?.aborted || authController.signal.aborted) { cleanup(); return null; }
 
-      if (captured.token && captured.hifLeim) {
+      if (captured.token && !captured.hifLeim) {
+        try {
+          const lsResult = await conn.send("Runtime.evaluate", {
+            expression: `localStorage.getItem("hif_leim_cached")`,
+            returnByValue: true,
+          });
+          const lsVal = (lsResult.result as { value?: string })?.value;
+          if (lsVal) captured.hifLeim = lsVal.replace(/^"|"$/g, "");
+        } catch {}
+      }
+
+      if (captured.token) {
         send({ type: "progress", step: "auth", message: "Credentials captured, finalizing..." });
         await new Promise(resolve => setTimeout(resolve, 3000));
         const fullCookie = await getFullCookie(conn);
@@ -324,6 +337,10 @@ export async function runAuthSSE(
     send({ type: "error", step: "auth", message: error instanceof Error ? error.message : String(error) });
     cleanup();
     return null;
+  } finally {
+    signal?.removeEventListener("abort", abortCleanup);
+    authController.signal.removeEventListener("abort", abortCleanup);
+    activeAuthControllers.delete(authController);
   }
 }
 
@@ -540,6 +557,7 @@ export function launchOpenCode(workDir: string, model: string, send: (event: Act
 
 const launchedProcesses: Set<ChildProcess> = new Set();
 const activeAuthProcesses: Set<ChildProcess> = new Set();
+const activeAuthControllers: Set<AbortController> = new Set();
 
 export function trackProcess(child: ChildProcess | null): void {
   if (child) {
@@ -576,6 +594,8 @@ export function trackAuthProcess(child: ChildProcess): void {
 }
 
 export async function stopActiveAuthChrome(): Promise<void> {
+  for (const controller of activeAuthControllers) controller.abort();
+  activeAuthControllers.clear();
   for (const child of activeAuthProcesses) {
     try {
       await stopTrackedChild(child);

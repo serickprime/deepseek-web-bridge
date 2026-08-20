@@ -118,7 +118,7 @@ async function capture(conn: CdpConnection, expectedHost: string, timeoutMs: num
 
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    if (captured.token && captured.hifLeim) {
+    if (captured.token) {
       await new Promise(resolve => setTimeout(resolve, 3000));
       const fullCookie = await getFullCookie(conn);
 
@@ -145,9 +145,9 @@ async function capture(conn: CdpConnection, expectedHost: string, timeoutMs: num
     await new Promise(resolve => setTimeout(resolve, 2000));
   }
   throw new Error(
-    `Timed out waiting for a logged-in session with x-hif-leim. ` +
+    `Timed out waiting for a logged-in session with Bearer auth. ` +
     `Seen ${requestsSeen} requests to ${expectedHost}, ${requestsWithAuth} with Bearer auth, hif-leim seen: ${hifSeen}. ` +
-    `IMPORTANT: After logging in, you MUST send at least one message (e.g. type "hi" and press Enter) so the x-hif-leim header is generated. ` +
+    `IMPORTANT: After logging in, send at least one message (e.g. type "hi" and press Enter) so an authenticated API request is generated. ` +
     `If you just logged in, close this window and run \`npm run auth\` again — the profile is preserved.`,
   );
 }
