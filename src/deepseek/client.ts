@@ -21,7 +21,6 @@ import { SessionCreateLimiter } from "../utils/sessionCreateLimiter.js";
 import {
   inspectToolCallFromOutput,
   createToolRetryPrompt,
-  historicalToolInvocationText,
   sanitizedToolInvocationText,
   toolResultText,
   looksLikeToolIntentText,
@@ -118,7 +117,7 @@ export class DeepSeekClient {
     const allowedNames = request.tools.map(t => t.name);
     const hasTools = allowedNames.length > 0;
 
-    const upstreamPrompt = this.buildPrompt(request, state, toolPrompt);
+    const upstreamPrompt = this.buildPrompt(request, toolPrompt);
     let output = await this.runCompletion(upstreamPrompt, state);
 
     const inspection = inspectToolCallFromOutput(output, allowedNames);
@@ -258,7 +257,6 @@ export class DeepSeekClient {
 
   private buildPrompt(
     request: CanonicalRequest,
-    state: UpstreamSessionState,
     toolPrompt: string,
   ): string {
     const parts: string[] = [];

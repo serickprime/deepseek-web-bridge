@@ -71,14 +71,14 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
 | 7. DeepSeek | pow (WASM), sseParser, updateParser, client | ✅ готово |
 | 8. Server | middleware, output-адаптеры, protocolStream, routes, server | ✅ готово |
 | 9. Entrypoint | app.ts, index.ts, start.ts | ✅ готово |
-| 10. Тесты | 16 файлов, 313 тестов | ✅ готово |
+| 10. Тесты | 16 файлов, 314 тестов | ✅ готово |
 | 11. Скрипты | cdp, auth, doctor, launcher, live | ✅ live-часть работает |
 | 12. Веб-интерфейс | Bridge Console на `GET /` (Mileo dark theme, two-panel, diagnostics, model picker) | ✅ готово |
 
 **Проверки сейчас:**
 - `npm run typecheck` — ✅ без ошибок.
 - `npm run build` — ✅ собирается.
-- `npm test` — ✅ 313/313.
+- `npm test` — ✅ 314/314.
 - `npm run auth` — ✅ окно Chrome открывается, захват работает (сеть + localStorage
   fallback).
 - `npm run doctor` — ✅ все 6/6 проверок проходят (auth, reachable, challenge,
@@ -306,8 +306,11 @@ _(все проверены)_
          — аргументы tool_use НЕ сериализуются в upstream prompt.
       3. `anthropicMessageText()` аналогично использует sanitized формат.
       4. Добавлен PRIORITY RULE (rule 11) в tool prompt.
-      19 offline-тестов (`tools.test.ts`). Требуется post-/compact
-      live-test для подтверждения.
+      16 offline-тестов в исходном исправлении (`tools.test.ts`) + прямой
+      regression-тест через `DeepSeekClient.complete()`, проверяющий реальный
+      upstream prompt. OpenAI/Responses runtime проходит canonical normalization;
+      raw argument-serializing helper-ветки текущим production path не
+      достигаются. Требуется post-/compact live-test для подтверждения.
 
 ### Cross-platform Web UI (архитектурный план)
 

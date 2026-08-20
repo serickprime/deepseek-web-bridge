@@ -2,8 +2,9 @@ import { describe, expect, it } from "vitest";
 import { parseToolInvocation, hasToolTag, createToolRetryPrompt, historicalToolInvocationText, sanitizedToolInvocationText, toolResultText, looksLikeToolIntentText, looksLikeFakeToolTrace, COMPLETION_GUARD_MAX_ATTEMPTS, buildUpstreamPrompt } from "../../src/tools/toolParser.js";
 import { buildToolPrompt } from "../../src/tools/toolPrompt.js";
 import { ToolRetryTracker } from "../../src/tools/toolRetry.js";
-import { shouldRetry, buildToolUseIdMap } from "../../src/deepseek/client.js";
-import type { CanonicalMessage } from "../../src/api/canonical.js";
+import { DeepSeekClient, shouldRetry, buildToolUseIdMap } from "../../src/deepseek/client.js";
+import type { CanonicalMessage, CanonicalRequest } from "../../src/api/canonical.js";
+import type { UpstreamSessionState } from "../../src/sessions/sessionStore.js";
 
 const TOOLS = new Set(["Read", "Search", "get_weather", "calculate"]);
 
@@ -849,6 +850,88 @@ describe("buildUpstreamPrompt — stale action replay prevention", () => {
     const prompt = buildUpstreamPrompt(body, "openai", null);
     expect(prompt).toContain("Historical Action Record");
     expect(prompt).toContain("Bash");
+  });
+});
+
+describe("DeepSeekClient prompt construction — stale action replay prevention", () => {
+  it("excludes state.history while preserving the current user request", async () => {
+    const originalFetch = globalThis.fetch;
+    let completionPrompt = "";
+
+    globalThis.fetch = (async (input, init) => {
+      const url = String(input);
+      if (url.endsWith("/api/v0/chat/create_pow_challenge")) {
+        return new Response(JSON.stringify({
+          data: {
+            biz_data: {
+              challenge: {
+                target_path: "/api/v0/chat/completion",
+                signature: "test-signature",
+                salt: "test-salt",
+                challenge: "test-challenge",
+                algorithm: "DeepSeekHashV1",
+                difficulty: 1,
+                expire_at: Date.now() + 60_000,
+              },
+            },
+          },
+        }), { status: 200 });
+      }
+      if (url.endsWith("/api/v0/chat/completion")) {
+        const payload = JSON.parse(String(init?.body)) as { prompt?: unknown };
+        completionPrompt = String(payload.prompt ?? "");
+        return new Response("", { status: 200 });
+      }
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    }) as typeof globalThis.fetch;
+
+    try {
+      const client = new DeepSeekClient({
+        baseUrl: "https://example.com",
+        auth: { token: "test-token", cookie: "test-cookie" },
+        sessionManager: {} as never,
+        solver: {
+          solve: async () => ({
+            answer: 1,
+            signature: "test-signature",
+            algorithm: "DeepSeekHashV1",
+            salt: "test-salt",
+            challenge: "test-challenge",
+          }),
+        } as never,
+        logger: { info: () => {}, warn: () => {}, error: () => {} } as never,
+        redactor: { redactText: (text: string) => text } as never,
+        timeoutMs: 10_000,
+        maxRetries: 0,
+      });
+      const state: UpstreamSessionState = {
+        chatSessionId: "test-session",
+        parentMessageId: null,
+        history: [{
+          role: "assistant",
+          content: "STALE_DANGEROUS_ASSISTANT_ACTION: delete previous files",
+        }],
+        updatedAt: 0,
+      };
+      const request: CanonicalRequest = {
+        model: "deepseek-reasoner",
+        stream: false,
+        system: "",
+        messages: [{
+          role: "user",
+          parts: [{ type: "text", text: "CURRENT_USER_REQUEST: inspect the current file" }],
+        }],
+        tools: [],
+      };
+
+      await client.complete(request, state);
+
+      expect(completionPrompt).toContain("CURRENT_USER_REQUEST: inspect the current file");
+      expect(completionPrompt).not.toContain("STALE_DANGEROUS_ASSISTANT_ACTION");
+      expect(completionPrompt).not.toContain("delete previous files");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });
 

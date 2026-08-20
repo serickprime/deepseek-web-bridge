@@ -3,6 +3,24 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-20 — Tighten stale action replay regression coverage
+
+- Исправлено число тестов в записи для commit `7bb70ca`: там было добавлено
+  16, а не 19 offline-тестов (297 → 313).
+- `tests/unit/tools.test.ts`: добавлен прямой regression-тест через публичный
+  `DeepSeekClient.complete()`. Тест перехватывает реальный completion payload,
+  создаёт `state.history` со старым опасным assistant content и подтверждает,
+  что upstream prompt не содержит историю, но содержит текущий user request.
+- `src/deepseek/client.ts`: удалены неиспользуемый импорт
+  `historicalToolInvocationText` и ставший ненужным параметр `state` у
+  `buildPrompt()`.
+- Проверен OpenAI/Responses runtime path: HTTP-маршруты сначала нормализуют
+  запрос в `CanonicalRequest`; `canonicalToRaw()` очищает canonical `tool_use`
+  до `buildUpstreamPrompt()`. Raw OpenAI/Responses ветки, сериализующие
+  historical arguments, текущим production runtime не достигаются. Поведение
+  не изменено, отдельный TODO не добавлен.
+- Итог: 314 тестов (16 файлов), все проходят.
+
 ## 2026-08-20 — Prevent stale tool action replay (architectural fix)
 
 ### Root cause
@@ -43,7 +61,7 @@ turns. DeepSeek модель, получив эти аргументы в кон
 
 ### Тесты
 
-`tests/unit/tools.test.ts` — 19 новых offline-тестов:
+`tests/unit/tools.test.ts` — 16 новых offline-тестов:
 
 **sanitizedToolInvocationText (6 тестов):**
 1. содержит tool name
