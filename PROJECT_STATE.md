@@ -71,14 +71,14 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
 | 7. DeepSeek | pow (WASM), sseParser, updateParser, client | ✅ готово |
 | 8. Server | middleware, output-адаптеры, protocolStream, routes, server | ✅ готово |
 | 9. Entrypoint | app.ts, index.ts, start.ts | ✅ готово |
-| 10. Тесты | 23 файла, 359 тестов | ✅ готово |
+| 10. Тесты | 23 файла, 382 теста | ✅ готово |
 | 11. Скрипты | cdp, auth, doctor, launcher, live, real-OS platform smoke | ✅ live-часть работает |
 | 12. Веб-интерфейс | Bridge Console на `GET /` (Mileo dark theme, two-panel, diagnostics, model picker) | ✅ готово |
 
 **Проверки сейчас:**
 - `npm run typecheck` — ✅ без ошибок.
 - `npm run build` — ✅ собирается.
-- `npm test` — ✅ 359/359.
+- `npm test` — ✅ 382/382.
 - `npm run test:platform` — ✅ локально на Windows: real process/platform,
   `buildConfig`, Bridge HTTP, Unicode cwd и env propagation без DeepSeek auth.
 - `npm run auth` / Web UI AUTH — ✅ Bearer захватывается из сети, HIF читается из
@@ -334,6 +334,20 @@ Web API (`chat.deepseek.com`) ненадёжно для tool calling.
       полностью без ручного `continue`: 5 чтений файлов, 1 листинг каталога,
       3 shell-команды. PowerShell подтвердил итоговые файлы и отсутствие
       `b.txt`. Подтверждён именно этот multi-step сценарий.
+      **Critical guard hardening (2026-08-20)**: запросы к реальному cwd,
+      листингу/структуре каталога, содержимому/существованию файла и выполнению
+      команды теперь требуют structured `tool_result` текущего canonical
+      tool-cycle. Historical result, compact/history, `pwd` + `Вывод:` и fake
+      `ls -la` listing не считаются выполнением. После bounded retries Bridge
+      возвращает `TOOL_CALL_REQUIRED` (HTTP 502), а не fabricated final text;
+      справочные вопросы о `pwd`/`ls` остаются обычными текстовыми вопросами.
+      Добавлены 23 offline regression-теста, включая корневое поведение
+      `DeepSeekClient.complete()`.
+      **Live-test (2026-08-20, Windows, Claude Code 2.1.237)**: в
+      `D:\test CC NODE` запрос cwd дал настоящий `tool_use Bash(pwd)` и
+      `tool_result` `/d/test CC NODE` до final. Отдельный запрос листинга дал
+      настоящий `tool_use Bash(ls -la)` и result с `post-compact-final-2`,
+      `stale-live-test`, `test.txt`; результат совпал с `Get-ChildItem`.
 - [x] **Stale tool action replay**: после /compact bridge включал
       executable tool arguments из прошлых turns в upstream prompt.
       **Architectural fix implemented** (2026-08-20):

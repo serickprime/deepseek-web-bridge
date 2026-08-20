@@ -3,6 +3,36 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-20 — Reject fabricated environment tool results
+
+- `src/tools/toolParser.ts`, `src/deepseek/client.ts` — completion guard теперь
+  сопоставляет ответ модели с текущим canonical tool-cycle. Запросы текущего cwd,
+  листинга/структуры каталога, содержимого или существования файла и выполнения
+  команды при доступных Bash/Read/Glob-подобных инструментах требуют настоящего
+  структурированного `tool_result` текущего цикла. Historical tool results,
+  compact/history и правдоподобный текстовый вывод доказательством не считаются.
+- Детектор fabricated execution распознаёт русские и английские заявления о
+  выполнении команд, `pwd`/`ls -la` с `Вывод:`/`Output:` и fake shell listing.
+  Обычные справочные вопросы (`что такое pwd?`, `как работает ls -la?`) остаются
+  текстовыми и не требуют инструмента.
+- `src/tools/toolPrompt.ts` — явно закреплено, что текст команды или похожий на
+  shell output фрагмент не является `tool_result`. Retry prompt сообщает, что
+  инструмент не выполнялся, запрещает выдумывать cwd/files/output, требует
+  настоящий tool-call JSON и разрешает final только после текущего real result.
+- `src/utils/errors.ts` — после трёх безуспешных completion attempts Bridge
+  возвращает безопасную retryable ошибку `TOOL_CALL_REQUIRED` (HTTP 502), а не
+  выдаёт fabricated shell/file result как успешный ответ.
+- `tests/unit/tools.test.ts` — добавлены 23 regression-теста детектора и корневого
+  поведения `DeepSeekClient.complete()`: fake `pwd`/`ls`, выдуманный и даже
+  правильный cwd без result, RU/EN environment intents, real Bash tool-call,
+  final после текущего result и отказ учитывать historical result нового turn.
+- Windows live-test через реальный Claude Code 2.1.237 в `D:\test CC NODE`
+  подтвердил два полных цикла. `Bash(pwd)` вернул `/d/test CC NODE`; `Bash(ls -la)`
+  вернул `post-compact-final-2`, `stale-live-test`, `test.txt`. В обоих случаях
+  Claude Code зафиксировал настоящий `tool_use` и `tool_result` до final answer;
+  листинг совпал с независимым `Get-ChildItem`.
+- Проверки: typecheck, 382/382 offline tests, build и Windows platform smoke.
+
 ## 2026-08-20 — Cross-platform CI and platform smoke tests
 
 - `.github/workflows/cross-platform.yml` — добавлена real-OS matrix для

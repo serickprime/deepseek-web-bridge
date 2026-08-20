@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { parseToolInvocation, hasToolTag, createToolRetryPrompt, historicalToolInvocationText, sanitizedToolInvocationText, toolResultText, looksLikeToolIntentText, looksLikeFakeToolTrace, COMPLETION_GUARD_MAX_ATTEMPTS, buildUpstreamPrompt } from "../../src/tools/toolParser.js";
+import { describe, expect, it, vi } from "vitest";
+import { parseToolInvocation, hasToolTag, createToolRetryPrompt, historicalToolInvocationText, sanitizedToolInvocationText, toolResultText, looksLikeToolIntentText, looksLikeFakeToolTrace, looksLikeEnvironmentDataRequest, inspectCurrentToolCycle, COMPLETION_GUARD_MAX_ATTEMPTS, buildUpstreamPrompt } from "../../src/tools/toolParser.js";
 import { buildToolPrompt } from "../../src/tools/toolPrompt.js";
 import { ToolRetryTracker } from "../../src/tools/toolRetry.js";
 import { DeepSeekClient, shouldRetry, buildToolUseIdMap } from "../../src/deepseek/client.js";
@@ -368,6 +368,9 @@ describe("createToolRetryPrompt", () => {
     expect(prompt).toContain("Read");
     expect(prompt).toContain("Search");
     expect(prompt).toContain("tool_call");
+    expect(prompt).toContain("did NOT execute any tool");
+    expect(prompt).toMatch(/must not invent or simulate cwd, files, directory listings, command output/i);
+    expect(prompt).toMatch(/final answer is allowed only after.*real tool_result/i);
   });
 });
 
@@ -752,6 +755,279 @@ describe("shouldRetry with Tool: prefixed traces", () => {
   it("real tool_call → no retry", () => {
     const text = 'Tool: Bash\n{"command":"pwd"}';
     expect(shouldRetry(true, { name: "Bash", arguments: { command: "pwd" } }, text, "", tools)).toBe(false);
+  });
+});
+
+describe("fabricated environment execution guard", () => {
+  const tools = ["Bash", "Read", "Glob", "Grep"];
+
+  it("detects fake pwd followed by Russian output", () => {
+    const text = "Я проверю текущую рабочую директорию.\n\npwd\n\nВывод:\n\nD:/test CC NODE";
+    expect(looksLikeFakeToolTrace(text, tools)).toBe(true);
+  });
+
+  it("detects fake ls -la followed by a shell listing", () => {
+    const text = "ls -la\n\ntotal 0\ndrwxr-xr-x 1 user group 0 Aug 20 10:00 .";
+    expect(looksLikeFakeToolTrace(text, tools)).toBe(true);
+  });
+
+  it("detects a claim that an invented cwd came from executing pwd", () => {
+    const text = "Текущая рабочая директория:\nC:\\Users\\Mi\\Desktop\\project\n(Я получил этот путь, выполнив команду pwd в вашей среде.)";
+    expect(looksLikeFakeToolTrace(text, tools)).toBe(true);
+  });
+
+  it("detects English fabricated execution and command output", () => {
+    const text = "I ran pwd in your environment.\nCommand output:\nD:/invented/project";
+    expect(looksLikeFakeToolTrace(text, tools)).toBe(true);
+  });
+
+  it("requires live evidence for current cwd requests", () => {
+    expect(looksLikeEnvironmentDataRequest(
+      "Проверь через реальный Bash pwd текущую рабочую директорию. Ответ только после tool_result.",
+      tools,
+    )).toBe(true);
+  });
+
+  it("requires live evidence for current directory listings", () => {
+    expect(looksLikeEnvironmentDataRequest(
+      "Покажи реальное содержимое текущей рабочей директории. Используй инструмент.",
+      tools,
+    )).toBe(true);
+  });
+
+  it("requires live evidence for checking file existence", () => {
+    expect(looksLikeEnvironmentDataRequest("Существует ли файл test.txt?", tools)).toBe(true);
+    expect(looksLikeEnvironmentDataRequest("Does the file test.txt exist?", tools)).toBe(true);
+  });
+
+  it.each([
+    "Покажи структуру проекта",
+    "Прочитай AGENTS.md",
+    "Покажи содержимое файла test.txt",
+    "Выполни команду npm test",
+  ])("requires live evidence for environment action: %s", prompt => {
+    expect(looksLikeEnvironmentDataRequest(prompt, tools)).toBe(true);
+  });
+
+  it("allows an informational question about pwd without tools", () => {
+    expect(looksLikeEnvironmentDataRequest("Что такое pwd?", tools)).toBe(false);
+    expect(looksLikeEnvironmentDataRequest("Как работает ls -la?", tools)).toBe(false);
+  });
+
+  it("accepts a real Bash tool_call", () => {
+    const evidence = inspectCurrentToolCycle([{
+      role: "user",
+      parts: [{ type: "text", text: "Проверь текущий cwd через pwd" }],
+    }], tools);
+    expect(shouldRetry(
+      true,
+      { name: "Bash", arguments: { command: "pwd" } },
+      "",
+      "",
+      tools,
+      evidence,
+    )).toBe(false);
+  });
+
+  it("allows final text after a real current-cycle tool_result", () => {
+    const evidence = inspectCurrentToolCycle([
+      { role: "user", parts: [{ type: "text", text: "Проверь текущий cwd" }] },
+      { role: "assistant", parts: [{
+        type: "tool_use",
+        toolCall: { id: "call_pwd", type: "function", name: "Bash", arguments: { command: "pwd" } },
+      }] },
+      { role: "user", parts: [{
+        type: "tool_result",
+        toolResult: { toolUseId: "call_pwd", content: "D:/test CC NODE" },
+      }] },
+    ], tools);
+    expect(evidence.hasCurrentToolResult).toBe(true);
+    expect(shouldRetry(true, null, "pwd\nВывод:\nD:/test CC NODE", "", tools, evidence)).toBe(false);
+  });
+
+  it("does not count a historical tool_result as evidence for a new turn", () => {
+    const evidence = inspectCurrentToolCycle([
+      { role: "user", parts: [{ type: "text", text: "Старый запрос" }] },
+      { role: "assistant", parts: [{
+        type: "tool_use",
+        toolCall: { id: "call_old", type: "function", name: "Bash", arguments: { command: "pwd" } },
+      }] },
+      { role: "user", parts: [{
+        type: "tool_result",
+        toolResult: { toolUseId: "call_old", content: "C:/old" },
+      }] },
+      { role: "assistant", parts: [{ type: "text", text: "Старый ответ" }] },
+      { role: "user", parts: [{ type: "text", text: "Проверь текущую рабочую директорию заново" }] },
+    ], tools);
+    expect(evidence.hasCurrentToolResult).toBe(false);
+    expect(evidence.requiresEnvironmentToolResult).toBe(true);
+  });
+});
+
+describe("DeepSeekClient environment completion guard", () => {
+  const bashTool = {
+    name: "Bash",
+    description: "Run a shell command",
+    inputSchema: { type: "object", properties: { command: { type: "string" } } },
+  };
+
+  function request(messages: CanonicalMessage[]): CanonicalRequest {
+    return {
+      model: "deepseek-reasoner",
+      stream: false,
+      system: "cwd: D:/test CC NODE",
+      messages,
+      tools: [bashTool],
+    };
+  }
+
+  function state(): UpstreamSessionState {
+    return { chatSessionId: "guard-session", parentMessageId: null, history: [], updatedAt: 0 };
+  }
+
+  function clientWithOutputs(outputs: Array<{ content: string; reasoning?: string }>) {
+    const loggerWarn = vi.fn();
+    const client = new DeepSeekClient({
+      baseUrl: "https://example.com",
+      auth: { token: "test-token", cookie: "test-cookie" },
+      sessionManager: {} as never,
+      solver: {} as never,
+      logger: { info: () => {}, warn: loggerWarn, error: () => {} } as never,
+      redactor: { addSecret: () => {}, redactText: (text: string) => text } as never,
+      timeoutMs: 10_000,
+      maxRetries: 0,
+    });
+    const queue = [...outputs];
+    const runCompletion = vi.fn(async (_prompt: string, _state: UpstreamSessionState, _authGeneration: number) => {
+      const output = queue.shift();
+      if (!output) throw new Error("No mocked completion output left");
+      return {
+        content: output.content,
+        reasoning: output.reasoning ?? "",
+        parentMessageId: null,
+      };
+    });
+    Object.defineProperty(client, "runCompletion", { value: runCompletion });
+    return { client, runCompletion, loggerWarn };
+  }
+
+  it("rejects a plausible correct cwd when no real tool_result exists", async () => {
+    const fake = "Текущая рабочая директория: D:/test CC NODE";
+    const { client, runCompletion, loggerWarn } = clientWithOutputs([
+      { content: fake },
+      { content: fake },
+      { content: fake },
+    ]);
+
+    await expect(client.complete(request([{
+      role: "user",
+      parts: [{ type: "text", text: "Проверь через Bash pwd текущую рабочую директорию" }],
+    }]), state())).rejects.toMatchObject({ code: "TOOL_CALL_REQUIRED", status: 502 });
+    expect(runCompletion).toHaveBeenCalledTimes(COMPLETION_GUARD_MAX_ATTEMPTS);
+    expect(runCompletion.mock.calls[1]?.[0]).toMatch(/did NOT execute any tool/i);
+    expect(loggerWarn).toHaveBeenCalledWith("completion_guard_rejected", expect.objectContaining({
+      requires_environment_tool_result: true,
+      has_current_tool_result: false,
+    }));
+  });
+
+  it.each([
+    {
+      name: "fake pwd plus Russian output",
+      prompt: "Проверь текущую рабочую директорию через pwd",
+      output: "pwd\nВывод:\nD:/test CC NODE",
+    },
+    {
+      name: "fake ls -la shell listing",
+      prompt: "Покажи реальное содержимое текущей рабочей директории",
+      output: "ls -la\ntotal 0\ndrwxr-xr-x 1 user group 0 Aug 20 10:00 .",
+    },
+    {
+      name: "invented cwd attributed to pwd",
+      prompt: "Проверь текущую рабочую директорию через pwd",
+      output: "Текущая рабочая директория:\nC:\\Users\\Mi\\Desktop\\project\n(Я получил этот путь, выполнив команду pwd.)",
+    },
+  ])("rejects $name at the DeepSeekClient boundary", async ({ prompt, output }) => {
+    const { client, runCompletion } = clientWithOutputs([
+      { content: output },
+      { content: output },
+      { content: output },
+    ]);
+    await expect(client.complete(request([{
+      role: "user",
+      parts: [{ type: "text", text: prompt }],
+    }]), state())).rejects.toMatchObject({ code: "TOOL_CALL_REQUIRED", status: 502 });
+    expect(runCompletion).toHaveBeenCalledTimes(COMPLETION_GUARD_MAX_ATTEMPTS);
+  });
+
+  it("returns a real Bash tool_call immediately", async () => {
+    const { client, runCompletion } = clientWithOutputs([{
+      content: '{"tool_call":{"name":"Bash","arguments":{"command":"pwd"}}}',
+    }]);
+    const result = await client.complete(request([{
+      role: "user",
+      parts: [{ type: "text", text: "Проверь текущий cwd через pwd" }],
+    }]), state());
+
+    expect(result.toolCall).toEqual({ name: "Bash", args: { command: "pwd" } });
+    expect(result.content).toBe("");
+    expect(runCompletion).toHaveBeenCalledTimes(1);
+  });
+
+  it("allows final output after a real tool_result in the latest client turn", async () => {
+    const finalText = "pwd\nВывод:\nD:/test CC NODE";
+    const { client, runCompletion } = clientWithOutputs([{ content: finalText }]);
+    const result = await client.complete(request([
+      { role: "user", parts: [{ type: "text", text: "Проверь текущий cwd" }] },
+      { role: "assistant", parts: [{
+        type: "tool_use",
+        toolCall: { id: "call_pwd", type: "function", name: "Bash", arguments: { command: "pwd" } },
+      }] },
+      { role: "user", parts: [{
+        type: "tool_result",
+        toolResult: { toolUseId: "call_pwd", content: "D:/test CC NODE" },
+      }] },
+    ]), state());
+
+    expect(result.content).toBe(finalText);
+    expect(result.toolCall).toBeUndefined();
+    expect(runCompletion).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a new environment claim when only a historical tool_result exists", async () => {
+    const fake = "pwd\nВывод:\nD:/test CC NODE";
+    const { client, runCompletion } = clientWithOutputs([
+      { content: fake },
+      { content: fake },
+      { content: fake },
+    ]);
+    await expect(client.complete(request([
+      { role: "user", parts: [{ type: "text", text: "Старый запрос cwd" }] },
+      { role: "assistant", parts: [{
+        type: "tool_use",
+        toolCall: { id: "call_old", type: "function", name: "Bash", arguments: { command: "pwd" } },
+      }] },
+      { role: "user", parts: [{
+        type: "tool_result",
+        toolResult: { toolUseId: "call_old", content: "D:/old" },
+      }] },
+      { role: "assistant", parts: [{ type: "text", text: "Старый ответ" }] },
+      { role: "user", parts: [{ type: "text", text: "Проверь текущую рабочую директорию заново" }] },
+    ]), state())).rejects.toMatchObject({ code: "TOOL_CALL_REQUIRED" });
+    expect(runCompletion).toHaveBeenCalledTimes(COMPLETION_GUARD_MAX_ATTEMPTS);
+  });
+
+  it("allows a normal informational answer about pwd", async () => {
+    const answer = "pwd — команда, которая печатает текущую рабочую директорию процесса.";
+    const { client, runCompletion } = clientWithOutputs([{ content: answer }]);
+    const result = await client.complete(request([{
+      role: "user",
+      parts: [{ type: "text", text: "Что такое pwd?" }],
+    }]), state());
+
+    expect(result.content).toBe(answer);
+    expect(result.toolCall).toBeUndefined();
+    expect(runCompletion).toHaveBeenCalledTimes(1);
   });
 });
 

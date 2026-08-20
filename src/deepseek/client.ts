@@ -25,6 +25,8 @@ import {
   toolResultText,
   looksLikeToolIntentText,
   looksLikeFakeToolTrace,
+  inspectCurrentToolCycle,
+  type CurrentToolCycleEvidence,
   COMPLETION_GUARD_MAX_ATTEMPTS,
   buildUpstreamPrompt,
 } from "../tools/toolParser.js";
@@ -158,6 +160,7 @@ export class DeepSeekClient {
     const toolPrompt = buildToolPrompt(request.tools);
     const allowedNames = request.tools.map(t => t.name);
     const hasTools = allowedNames.length > 0;
+    const guardEvidence = inspectCurrentToolCycle(request.messages, allowedNames);
 
     const upstreamPrompt = this.buildPrompt(request, toolPrompt);
     let output = await this.runCompletion(upstreamPrompt, state, authGeneration);
@@ -165,13 +168,11 @@ export class DeepSeekClient {
     const inspection = inspectToolCallFromOutput(output, allowedNames);
     let toolCall = inspection.toolCall;
 
-    // Bounded completion guard loop: retry when model produces intent text,
-    // fake tool traces, or empty content with reasoning — instead of real
-    // tool_call JSON. Max COMPLETION_GUARD_MAX_ATTEMPTS total attempts
-    // (initial + retries). After exhausting retries, return whatever the
-    // model gave (honest error / text answer).
+    // Bounded completion guard loop: retry when the current user turn requires
+    // real environment evidence but has no current-cycle tool_result, or when
+    // the model produces intent/fabricated tool text instead of tool_call JSON.
     let retries = 0;
-    while (shouldRetry(hasTools, toolCall, output.content, output.reasoning, allowedNames) && retries < COMPLETION_GUARD_MAX_ATTEMPTS - 1) {
+    while (shouldRetry(hasTools, toolCall, output.content, output.reasoning, allowedNames, guardEvidence) && retries < COMPLETION_GUARD_MAX_ATTEMPTS - 1) {
       retries++;
       const retryPrompt = createToolRetryPrompt(allowedNames);
       output = await this.runCompletion(retryPrompt, state, authGeneration);
@@ -180,6 +181,18 @@ export class DeepSeekClient {
       if (toolCall) {
         output = { ...output, content: "", reasoning: "" };
       }
+    }
+
+    if (shouldRetry(hasTools, toolCall, output.content, output.reasoning, allowedNames, guardEvidence)) {
+      this.options.logger.warn("completion_guard_rejected", {
+        attempts: retries + 1,
+        requires_environment_tool_result: guardEvidence.requiresEnvironmentToolResult,
+        has_current_tool_result: guardEvidence.hasCurrentToolResult,
+      });
+      throw new BridgeError(
+        "DeepSeek did not produce a real tool call. Environment data was not verified, so no fabricated command or file result was returned.",
+        { code: "TOOL_CALL_REQUIRED", status: 502, retryable: true },
+      );
     }
 
     if (toolCall) {
@@ -463,8 +476,17 @@ export class DeepSeekClient {
   }
 }
 
-export function shouldRetry(hasTools: boolean, toolCall: unknown, content: string, reasoning: string, allowedToolNames: string[] = []): boolean {
+export function shouldRetry(
+  hasTools: boolean,
+  toolCall: unknown,
+  content: string,
+  reasoning: string,
+  allowedToolNames: string[] = [],
+  evidence?: CurrentToolCycleEvidence,
+): boolean {
   if (!hasTools || toolCall) return false;
+  if (evidence?.hasCurrentToolResult) return false;
+  if (evidence?.requiresEnvironmentToolResult) return true;
   if (content.trim() === "" && reasoning.trim() !== "") return true;
   if (content.trim() !== "" && looksLikeToolIntentText(content, allowedToolNames)) return true;
   if (content.trim() !== "" && looksLikeFakeToolTrace(content, allowedToolNames)) return true;

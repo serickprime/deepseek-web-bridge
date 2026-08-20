@@ -1,6 +1,6 @@
 import { BridgeError } from "../utils/errors.js";
 import { isRecord } from "../utils/json.js";
-import type { CanonicalToolCall } from "../api/canonical.js";
+import type { CanonicalMessage, CanonicalToolCall } from "../api/canonical.js";
 
 const MAX_TOOL_BYTES = 48 * 1024;
 const MAX_TOOL_CALL_DEPTH = 32;
@@ -250,6 +250,85 @@ export function looksLikeToolIntentText(content: string, allowedToolNames: strin
   return ACTION_OBJECT_RE.test(trimmed);
 }
 
+export interface CurrentToolCycleEvidence {
+  currentUserText: string;
+  hasCurrentToolResult: boolean;
+  requiresEnvironmentToolResult: boolean;
+}
+
+const INFORMATIONAL_PREFIXES = [
+  "что такое ",
+  "что означает ",
+  "как работает ",
+  "как использовать ",
+  "как пользоваться ",
+  "объясни ",
+  "расскажи ",
+  "зачем ",
+  "для чего ",
+  "what is ",
+  "what does ",
+  "how does ",
+  "how do i use ",
+  "explain ",
+  "describe ",
+  "why ",
+];
+
+function hasToolMatching(allowedToolNames: string[], pattern: RegExp): boolean {
+  return allowedToolNames.some(name => pattern.test(name.toLowerCase()));
+}
+
+export function looksLikeEnvironmentDataRequest(content: string, allowedToolNames: string[]): boolean {
+  if (allowedToolNames.length === 0) return false;
+  const trimmed = content.trim();
+  if (!trimmed) return false;
+  const normalized = trimmed.toLowerCase().replace(/\s+/g, " ");
+  if (INFORMATIONAL_PREFIXES.some(prefix => normalized.startsWith(prefix))) return false;
+
+  const hasShell = hasToolMatching(allowedToolNames, /bash|shell|powershell|terminal|command|exec/);
+  const hasReader = hasToolMatching(allowedToolNames, /^(?:read|cat)$|read.?file/);
+  const hasLister = hasToolMatching(allowedToolNames, /^(?:glob|grep|ls|find)$|list.?dir/);
+  const action = /проверь|покажи|выведи|перечисли|посмотри|прочитай|открой|найди|узнай|выполни|запусти|check|show|list|inspect|read|open|find|verify|run|execute/i.test(trimmed);
+
+  const currentCwd = /текущ\S*\s+(?:рабоч\S*\s+)?(?:директор|папк)|рабоч\S*\s+директор|\bcwd\b|current working directory|present working directory|where am i/i.test(trimmed);
+  const explicitPwd = /(?:^|\n)\s*pwd\s*[.!?]*\s*$/im.test(trimmed) || (action && /\bpwd\b/i.test(trimmed));
+  if (hasShell && (currentCwd || explicitPwd)) return true;
+
+  const directoryListing = /содержим\S*\s+(?:текущ\S*\s+)?(?:рабоч\S*\s+)?(?:директор|папк)|список\S*\s+(?:файл|папок)|структур\S*\s+проект|какие\s+(?:файл|папк)\S*\s+здесь|что\s+в\s+(?:этой\s+)?папк|directory contents|contents of (?:the )?(?:current )?(?:directory|folder)|list (?:the )?(?:current )?(?:directory|folder|files)|what files are here|project structure/i.test(trimmed);
+  const explicitListingCommand = /(?:^|\n)\s*(?:ls(?:\s+[^\r\n]+)?|get-childitem(?:\s+[^\r\n]+)?)\s*$/im.test(trimmed);
+  if ((hasShell || hasLister) && (directoryListing || (action && explicitListingCommand))) return true;
+
+  const fileContent = /содержим\S*|прочита\S*|покаж\S*\s+файл|file contents|contents of (?:the )?file|read (?:the )?(?:file\b|[^\r\n]{0,120}\.[a-z0-9_-]{1,16}\b)/i.test(trimmed);
+  const fileExistence = /существу\S*\s+(?:ли\s+)?файл|наличи\S*\s+файл|does (?:the )?file\b.*\bexist|check (?:whether )?.*file exists|file existence/i.test(trimmed);
+  if ((hasReader || hasLister || hasShell) && (fileExistence || (action && fileContent))) return true;
+
+  const commandExecution = /выполни\S*(?:\s+команд\S*)?|запусти\S*(?:\s+команд\S*)?|run (?:the )?command|execute (?:the )?command/i.test(trimmed);
+  return hasShell && commandExecution;
+}
+
+export function inspectCurrentToolCycle(
+  messages: CanonicalMessage[],
+  allowedToolNames: string[],
+): CurrentToolCycleEvidence {
+  const currentInput = [...messages].reverse().find(message => message.role === "user" || message.role === "tool");
+  if (!currentInput) {
+    return { currentUserText: "", hasCurrentToolResult: false, requiresEnvironmentToolResult: false };
+  }
+  const currentUserText = currentInput.parts
+    .filter(part => part.type === "text")
+    .map(part => part.text ?? "")
+    .filter(Boolean)
+    .join("\n");
+  const hasCurrentToolResult = currentInput.parts.some(part => part.type === "tool_result" && Boolean(part.toolResult));
+  return {
+    currentUserText,
+    hasCurrentToolResult,
+    requiresEnvironmentToolResult: !hasCurrentToolResult
+      && looksLikeEnvironmentDataRequest(currentUserText, allowedToolNames),
+  };
+}
+
 // --- Fake tool trace detection ---
 // When tools are available, the model sometimes outputs text like
 // "Read file: D:\foo\bar.txt" instead of returning a real tool_call JSON.
@@ -280,6 +359,23 @@ const FAKE_TRACE_PATTERNS: RegExp[] = [
   /^echo\s+\S/im,
 ];
 
+const FABRICATED_EXECUTION_CLAIMS: RegExp[] = [
+  /(?:^|\n)\s*(?:я\s+)?(?:выполняю|выполнил|выполнял|запустил)[^\n]*(?:pwd|ls|команд)/im,
+  /я\s+получил[\s\S]{0,180}выполнив[\s\S]{0,80}(?:pwd|ls|команд)/i,
+  /\bi\s+(?:ran|executed)\b[^\n]*(?:pwd|ls|command)?/i,
+  /\bi\s+(?:got|obtained)[\s\S]{0,180}\bby\s+(?:running|executing)\b/i,
+];
+
+function looksLikeFabricatedCommandOutput(content: string): boolean {
+  if (FABRICATED_EXECUTION_CLAIMS.some(pattern => pattern.test(content))) return true;
+  const hasCommandLine = /(?:^|\n)\s*(?:pwd|ls(?:\s+[^\r\n]+)?|get-childitem(?:\s+[^\r\n]+)?)\s*(?:\n|$)/im.test(content);
+  const hasOutputLabel = /(?:^|\n)\s*(?:вывод|результат команды|command output|output)\s*:/im.test(content);
+  const hasShellListing = /(?:^|\n)\s*total\s+\d+\s*(?:\n|$)/im.test(content)
+    || /(?:^|\n)\s*[d-][rwx-]{9}\s+\d+\s+/m.test(content);
+  return (hasCommandLine && (hasOutputLabel || hasShellListing))
+    || (hasOutputLabel && hasShellListing);
+}
+
 // Detect "Tool: <name>\n{...json...}" multi-line fake traces.
 // The tool name must match one of the allowed tools, and the next line
 // must start with '{' (JSON arguments).
@@ -301,7 +397,7 @@ function looksLikeToolPrefixedFakeTrace(content: string, allowedToolNames: strin
 export function looksLikeFakeToolTrace(content: string, allowedToolNames: string[]): boolean {
   if (allowedToolNames.length === 0) return false;
   const trimmed = content.trim();
-  if (trimmed.length === 0 || trimmed.length > FAKE_TRACE_MAX_LENGTH) return false;
+  if (trimmed.length === 0) return false;
 
   const hasTools = allowedToolNames.some(n => {
     const lower = n.toLowerCase();
@@ -310,6 +406,9 @@ export function looksLikeFakeToolTrace(content: string, allowedToolNames: string
       || lower === "ls" || lower === "cat" || lower === "mkdir";
   });
   if (!hasTools) return false;
+
+  if (looksLikeFabricatedCommandOutput(trimmed)) return true;
+  if (trimmed.length > FAKE_TRACE_MAX_LENGTH) return false;
 
   // "Tool: <name>\n{json}" format — matches any allowed tool name
   if (looksLikeToolPrefixedFakeTrace(trimmed, allowedToolNames)) return true;
@@ -347,11 +446,14 @@ function shouldRetryFencedToolResponse(hasTools: boolean, toolCall: CanonicalToo
 
 export function createToolRetryPrompt(allowedNames: string[]): string {
   return [
-    "Your previous response contained text instead of a tool call.",
+    "Your previous response did NOT execute any tool.",
+    "You must not invent or simulate cwd, files, directory listings, command output, or tool results.",
+    "For a request about the real environment, return a real tool_call JSON now.",
     "Output ONLY the JSON envelope below — nothing else:",
     '{"tool_call":{"name":"TOOL_NAME","arguments":{}}}',
     `Allowed tool names: ${JSON.stringify(allowedNames)}`,
     "No reasoning. No explanations. No Markdown. No text before or after.",
+    "A final answer is allowed only after the client sends a real tool_result in the current tool cycle.",
     "If no tool is needed, output only your final text answer.",
   ].join("\n");
 }
