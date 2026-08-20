@@ -65,9 +65,19 @@ claude --model deepseek-reasoner
 
 `local-key` здесь — локальное служебное значение, не ключ вашего аккаунта DeepSeek.
 
-Также можно запустить Claude Code через Bridge Console (`GET /` в браузере) —
-на Windows выберите модель, рабочую директорию и нажмите Launch. На macOS/Linux
-автоматический запуск интерактивного терминала пока отключён: запустите CLI вручную.
+Также можно запустить Claude Code или OpenCode через Bridge Console (`GET /` в
+браузере): выберите модель, рабочую директорию и нажмите Launch. Bridge открывает
+видимый интерактивный терминал:
+
+- Windows — текущий системный terminal launch;
+- macOS — новая сессия Terminal.app через `osascript`;
+- Linux — первый найденный emulator: `x-terminal-emulator`, `gnome-terminal`,
+  `konsole`, `xfce4-terminal`, `kitty`, `xterm`.
+
+Если на Linux нет поддержанного terminal emulator, кнопки Launch отключены и CLI
+можно запустить вручную. Capability означает доступность поддержанного terminal
+transport; наличие бинарников `claude`/`opencode` проверяется при самом запуске.
+Пути с Unicode и `~/` поддерживаются на macOS/Linux.
 
 ## Запуск OpenCode
 

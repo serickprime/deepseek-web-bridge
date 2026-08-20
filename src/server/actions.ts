@@ -12,7 +12,8 @@ import { SseAccumulator } from "../deepseek/sseParser.js";
 import { DeepSeekPatchParser } from "../deepseek/updateParser.js";
 import { COMPLETION_PATH, SESSION_CREATE_PATH, CLIENT_HEADERS, BROWSER_HEADERS, UPSTREAM_USER_AGENT } from "../config/constants.js";
 import { CdpConnection, createPage, launchChrome, waitForDebugger, findChrome } from "../cdp.js";
-import { findLinuxFolderPicker } from "./system.js";
+import { findLinuxFolderPicker, isCommandAvailableSync, type CommandAvailability } from "./system.js";
+import { launchNativeTerminal, stopNativeTerminalLaunches, type NativeLaunchOptions } from "./terminalLaunch.js";
 
 const CDP_PORT = 9222;
 
@@ -513,6 +514,10 @@ export function launchProcess(
     send({ type: "error", message: `Directory not found: ${cwd}` });
     return null;
   }
+  if (!isCommandAvailableSync(command)) {
+    send({ type: "error", message: `${command} executable was not found in the Bridge PATH. Install it or start it manually.` });
+    return null;
+  }
 
   const env = { ...process.env, ...extraEnv };
   send({ type: "progress", step: "launch", message: `Starting: ${command} ${args.join(" ")}` });
@@ -540,15 +545,33 @@ export function launchProcess(
   return child;
 }
 
-export function launchClaudeCode(workDir: string, model: string, send: (event: ActionEvent) => void): ChildProcess | null {
+export function launchClaudeCode(
+  workDir: string,
+  model: string,
+  send: (event: ActionEvent) => void,
+  options: NativeLaunchOptions = {},
+): ChildProcess | null | Promise<ChildProcess | null> {
   const args: string[] = [];
   if (model) args.push("--model", model);
+  const platform = options.platform ?? process.platform;
+  if (platform !== "win32") {
+    return launchNativeTerminal("claude", args, workDir, getBridgeEnv(), send, options);
+  }
   const child = launchProcess("claude", args, workDir, send, getBridgeEnv());
   trackProcess(child);
   return child;
 }
 
-export function launchOpenCode(workDir: string, model: string, send: (event: ActionEvent) => void): ChildProcess | null {
+export function launchOpenCode(
+  workDir: string,
+  _model: string,
+  send: (event: ActionEvent) => void,
+  options: NativeLaunchOptions = {},
+): ChildProcess | null | Promise<ChildProcess | null> {
+  const platform = options.platform ?? process.platform;
+  if (platform !== "win32") {
+    return launchNativeTerminal("opencode", [], workDir, getBridgeEnv(), send, options);
+  }
   const child = launchProcess("opencode", [], workDir, send, getBridgeEnv());
   trackProcess(child);
   return child;
@@ -587,6 +610,7 @@ export async function stopLaunchedProcesses(): Promise<void> {
     } catch { /* best effort */ }
   }
   launchedProcesses.clear();
+  await stopNativeTerminalLaunches();
 }
 
 export function trackAuthProcess(child: ChildProcess): void {
@@ -611,6 +635,11 @@ export interface PickFolderResult {
   path: string | null;
   cancelled: boolean;
   supported: boolean;
+}
+
+export interface PickFolderOptions {
+  platform?: NodeJS.Platform;
+  commandAvailable?: CommandAvailability;
 }
 
 function normalizePickedPath(selected: string): string {
@@ -656,8 +685,9 @@ function runUnixFolderPicker(
   });
 }
 
-export async function pickFolder(): Promise<PickFolderResult> {
-  if (process.platform === "darwin") {
+export async function pickFolder(options: PickFolderOptions = {}): Promise<PickFolderResult> {
+  const platform = options.platform ?? process.platform;
+  if (platform === "darwin") {
     return runUnixFolderPicker(
       "osascript",
       ["-e", 'POSIX path of (choose folder with prompt "Select working directory")'],
@@ -666,8 +696,8 @@ export async function pickFolder(): Promise<PickFolderResult> {
     );
   }
 
-  if (process.platform === "linux") {
-    const picker = await findLinuxFolderPicker();
+  if (platform === "linux") {
+    const picker = await findLinuxFolderPicker(options.commandAvailable);
     if (picker === "zenity") {
       return runUnixFolderPicker(
         "zenity",
@@ -685,7 +715,7 @@ export async function pickFolder(): Promise<PickFolderResult> {
     return { path: null, cancelled: false, supported: false };
   }
 
-  if (process.platform !== "win32") return { path: null, cancelled: false, supported: false };
+  if (platform !== "win32") return { path: null, cancelled: false, supported: false };
 
   const ps = [
     "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)",

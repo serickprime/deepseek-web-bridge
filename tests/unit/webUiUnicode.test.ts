@@ -104,4 +104,23 @@ describe("launcher Unicode cwd", () => {
     expect(vi.mocked(childProcess.spawn).mock.calls[0]?.[2]).toMatchObject({ cwd });
     child.emit("close", 0);
   });
+
+  it("returns a clear Windows error when the CLI executable is missing", () => {
+    const originalPlatform = process.platform;
+    Object.defineProperty(process, "platform", { value: "win32", configurable: true });
+    const cwd = "D:\\Проекты\\Тестовая папка\\ёжик";
+    vi.spyOn(fs, "existsSync").mockImplementation(target => String(target) === cwd);
+    const send = vi.fn();
+
+    try {
+      expect(launchClaudeCode(cwd, "deepseek-chat", send)).toBeNull();
+      expect(send).toHaveBeenCalledWith({
+        type: "error",
+        message: "claude executable was not found in the Bridge PATH. Install it or start it manually.",
+      });
+      expect(childProcess.spawn).not.toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(process, "platform", { value: originalPlatform, configurable: true });
+    }
+  });
 });

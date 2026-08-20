@@ -198,8 +198,34 @@ browser user-agent не участвует. Read-only endpoint публичен 
 | Компонент | Windows | macOS | Linux |
 | --- | --- | --- | --- |
 | Folder picker | PowerShell / WinForms, UTF-8/Base64 | osascript / AppleScript | zenity → kdialog → manual input |
-| CLI launch capability | ✅ live-подтверждена | ❌ до Terminal.app реализации | ❌ до terminal-emulator реализации |
+| CLI launch capability | ✅ live-подтверждена | Terminal.app / osascript (offline mocked) | x-terminal-emulator → gnome-terminal → konsole → xfce4-terminal → kitty → xterm (offline mocked) |
 | Chrome auth | ✅ поддерживается | ✅ частично (live-test) | ✅ частично (live-test) |
+
+### Нативный CLI launch
+
+- Windows сохраняет прежний `launchProcess()` с проверенным Unicode `cwd`,
+  detached/tracked child и `taskkill /T` только по PID запущенного Bridge процесса.
+- macOS запускает статический AppleScript через `osascript`; пользовательский
+  путь и CLI-аргументы передаются AppleScript как один POSIX-quoted аргумент, а
+  не вставляются в AppleScript source. Terminal.app открывает новую видимую
+  сессию. `~/` раскрывается backend в home directory.
+- Linux использует отдельный argv-контракт каждого emulator. `shell:false`;
+  пользовательский путь передаётся отдельным argv и как `cwd`, а не частью shell
+  command string.
+- macOS/Linux используют временный mode-0700 `sh` runner с фиксированным кодом.
+  Он принимает cwd, Bridge env и CLI как argv, экспортирует
+  `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `OPENAI_API_BASE`,
+  `OPENAI_API_KEY`, записывает свой PID в private temp file и делает `exec` CLI.
+- SHUTDOWN посылает SIGTERM только точному PID runner/CLI и точному launcher child.
+  На macOS Bridge дополнительно закрывает только созданное им окно Terminal.app,
+  если совпадают window id + tty и в окне осталась одна вкладка. Terminal.app или
+  terminal-emulator процессы не ищутся и не завершаются по имени.
+
+`claudeCodeLaunch`/`openCodeLaunch` означают наличие поддержанного visible-terminal
+transport, а не установленного CLI binary. Наличие `claude`/`opencode` проверяется
+при `POST /bridge/launch`; отсутствие даёт понятную SSE-ошибку. На macOS transport
+доступен только при наличии `osascript` и Terminal.app; на Linux — только если
+найден один из поддержанных emulator.
 
 ### Правила
 
@@ -209,5 +235,5 @@ browser user-agent не участвует. Read-only endpoint публичен 
 - Если picker недоступен — разрешается ручной ввод пути.
 - Все picker-команды запускаются через `spawn` с `shell:false`; выбранный путь
   читается из UTF-8 stdout и не вставляется в shell command string.
-- macOS/Linux picker покрыты platform-mocked offline-тестами, но требуют
-  настоящих live-тестов на соответствующих ОС.
+- macOS/Linux picker и CLI launch покрыты platform-mocked offline-тестами, но
+  требуют настоящих live-тестов на соответствующих ОС.

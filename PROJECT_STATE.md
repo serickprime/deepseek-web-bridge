@@ -71,14 +71,14 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
 | 7. DeepSeek | pow (WASM), sseParser, updateParser, client | ✅ готово |
 | 8. Server | middleware, output-адаптеры, protocolStream, routes, server | ✅ готово |
 | 9. Entrypoint | app.ts, index.ts, start.ts | ✅ готово |
-| 10. Тесты | 22 файла, 341 тест | ✅ готово |
+| 10. Тесты | 23 файла, 359 тестов | ✅ готово |
 | 11. Скрипты | cdp, auth, doctor, launcher, live | ✅ live-часть работает |
 | 12. Веб-интерфейс | Bridge Console на `GET /` (Mileo dark theme, two-panel, diagnostics, model picker) | ✅ готово |
 
 **Проверки сейчас:**
 - `npm run typecheck` — ✅ без ошибок.
 - `npm run build` — ✅ собирается.
-- `npm test` — ✅ 341/341.
+- `npm test` — ✅ 359/359.
 - `npm run auth` / Web UI AUTH — ✅ Bearer захватывается из сети, HIF читается из
   localStorage при наличии; отсутствие HIF допустимо только после успешной upstream-верификации.
 - `npm run doctor` — ✅ все 6/6 проверок проходят (auth, reachable, challenge,
@@ -146,7 +146,10 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
   fallback), macOS `osascript`, Linux `zenity` → `kdialog` → ручной ввод;
   общий 3-состоятельный результат path/cancelled/unsupported. UI получает
   backend capabilities через `GET /api/system`, всегда сохраняет ручной input,
-  показывает платформу и отключает неподдержанные действия,
+  показывает платформу и отключает неподдержанные действия. Windows сохраняет
+  live-проверенный launch; macOS открывает Terminal.app через `osascript`; Linux
+  выбирает `x-terminal-emulator` → `gnome-terminal` → `konsole` →
+  `xfce4-terminal` → `kitty` → `xterm`,
   кнопки запуска Claude Code / OpenCode, кнопки LOGOUT (локально удаляет auth + profile,
   не останавливая Bridge/CLI) и отдельная SHUTDOWN (останавливает tracked CLI,
   auth Chrome и Bridge), toggleable diagnostics terminal с имитацией проверок,
@@ -248,7 +251,10 @@ Web API (`chat.deepseek.com`) ненадёжно для tool calling.
 
 Не являются багами — просто не проверялись:
 
-_(все проверены)_
+- macOS: folder picker, Terminal.app Claude Code/OpenCode launch, точный Unicode
+  cwd/env и точечный SHUTDOWN.
+- Linux: zenity/kdialog picker, все поддержанные terminal emulator варианты,
+  точный Unicode cwd/env и точечный SHUTDOWN.
 
 ## Известные пробелы и TODO
 
@@ -350,9 +356,10 @@ _(все проверены)_
 `clone` → `npm install` → `npm run auth` → `npm start` → открыть
 `http://127.0.0.1:9655` → пользоваться Web UI без ручного выбора ОС.
 
-**Статус**: Windows/auth-lifecycle итерация live-подтверждена. `GET /api/system`,
-macOS picker и Linux `zenity`/`kdialog` fallback реализованы и покрыты
-platform-mocked offline-тестами. Настоящие macOS/Linux live-тесты ещё требуются.
+**Статус**: Windows/auth-lifecycle и Windows CLI launch live-подтверждены.
+`GET /api/system`, macOS picker/Terminal.app launch и Linux picker/terminal-emulator
+launch реализованы и покрыты platform-mocked offline-тестами. Настоящие
+macOS/Linux live-тесты ещё требуются.
 
 - [x] Windows FolderBrowserDialog передаёт UTF-8 path через ASCII Base64; Node
       явно декодирует UTF-8 и исправляет реально наблюдавшийся Latin-1 mojibake
@@ -384,10 +391,13 @@ platform-mocked offline-тестами. Настоящие macOS/Linux live-те
 - [x] Реализовать macOS/Linux folder picker: macOS `osascript`; Linux приоритетно
       `zenity`, затем `kdialog`, иначе `supported:false` и ручной ввод.
       Unicode/cancel/fallback покрыты platform-mocked offline-тестами.
-- [ ] Провести настоящие macOS/Linux live-тесты folder picker и Chrome auth.
+- [ ] Провести настоящие macOS/Linux live-тесты folder picker, нативного CLI
+      launch/SHUTDOWN и Chrome auth.
 - [x] Реализовать `GET /api/system` и UI capabilities. Windows возвращает
-      picker/Claude/OpenCode launch `true`; macOS launch и Linux launch остаются
-      `false`, пока нет отдельной реализации Terminal.app/terminal emulator и live-теста.
+      picker/Claude/OpenCode launch `true`; macOS launch = `true` только при
+      наличии `osascript` + Terminal.app; Linux launch = `true` только при наличии
+      поддержанного terminal emulator. Capability означает terminal transport,
+      не наличие CLI binary; `claude`/`opencode` проверяются при Launch.
       **Windows runtime probe (2026-08-20)**: production `dist` вернул HTTP 200
       `{"platform":"win32","folderPicker":true,"claudeCodeLaunch":true,"openCodeLaunch":true}`;
       страница загрузила `/api/system` и сохранила ручной `#workdir` input.
@@ -409,8 +419,8 @@ Backend определяет платформу через `process.platform`:
 {
   "platform": "darwin",
   "folderPicker": true,
-  "claudeCodeLaunch": false,
-  "openCodeLaunch": false
+  "claudeCodeLaunch": true,
+  "openCodeLaunch": true
 }
 ```
 
@@ -430,10 +440,23 @@ Endpoint реализован; backend использует только `proces
 
 #### 4. Запуск Claude Code / OpenCode
 
-- **Windows**: текущий live-подтверждённый launch сохраняется, обе capability `true`.
-- **macOS/Linux**: текущий `launchProcess()` не гарантирует видимый интерактивный
-  терминал, поэтому обе capability `false`, а direct Web UI launch отклоняется.
-  Terminal.app и Linux terminal-emulator launch остаются отдельной итерацией.
+- **Windows**: текущий live-подтверждённый `launchProcess()` сохранён без изменения,
+  обе capability `true`; Unicode cwd и tracked-process SHUTDOWN продолжают работать.
+- **macOS**: новая видимая Terminal.app session через статический AppleScript.
+  Cwd/аргументы POSIX-quoted и передаются как AppleScript argv; `~/` раскрывается
+  backend. Capability `true` только при наличии `osascript` и Terminal.app.
+- **Linux**: первый доступный `x-terminal-emulator`, `gnome-terminal`, `konsole`,
+  `xfce4-terminal`, `kitty`, `xterm`; у каждого отдельный argv layout,
+  `shell:false`. Если ничего нет — обе launch capability `false`.
+- **Env/SHUTDOWN**: фиксированный private runner получает cwd/env/command через
+  argv, экспортирует четыре Bridge env и `exec`-ит CLI. Bridge track-ит точный PID
+  runner/CLI и собственный terminal launcher child; macOS дополнительно хранит
+  window id + tty и закрывает окно только при точном совпадении и одной вкладке.
+  Широкого kill Terminal.app/emulator/CLI по имени нет.
+
+Реализация macOS/Linux проверена platform-mocked offline-тестами; настоящая
+видимая сессия, desktop environment differences и SHUTDOWN требуют live-теста
+на соответствующих ОС.
 
 Не запускать интерактивный CLI невидимо в фоне при нажатии Launch в Web UI.
 

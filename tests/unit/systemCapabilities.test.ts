@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
 import { routes } from "../../src/server/routes.js";
-import { getSystemCapabilities, type CommandAvailability, type SystemCapabilities, type SupportedPlatform } from "../../src/server/system.js";
+import { getSystemCapabilities, type CommandAvailability, type PathAvailability, type SystemCapabilities, type SupportedPlatform } from "../../src/server/system.js";
 import { LANDING_PAGE_HTML } from "../../src/server/landingPage.js";
 
 function mockResponse() {
@@ -17,7 +17,11 @@ function mockResponse() {
   return res;
 }
 
-async function callSystemEndpoint(platform: SupportedPlatform, commandAvailable: CommandAvailability) {
+async function callSystemEndpoint(
+  platform: SupportedPlatform,
+  commandAvailable: CommandAvailability,
+  pathAvailable: PathAvailability = () => true,
+) {
   const originalPlatform = process.platform;
   Object.defineProperty(process, "platform", { value: platform, configurable: true });
   const ctx = {
@@ -28,7 +32,7 @@ async function callSystemEndpoint(platform: SupportedPlatform, commandAvailable:
     redactor: {} as never,
     models: [],
     ready: () => true,
-    systemInfo: () => getSystemCapabilities(undefined, commandAvailable),
+    systemInfo: () => getSystemCapabilities(undefined, commandAvailable, pathAvailable),
   };
   try {
     const handler = routes(ctx).find(route => route.method === "GET" && route.path === "/api/system")!.handler;
@@ -43,21 +47,45 @@ async function callSystemEndpoint(platform: SupportedPlatform, commandAvailable:
 describe("GET /api/system", () => {
   it.each([
     ["win32", { platform: "win32", folderPicker: true, claudeCodeLaunch: true, openCodeLaunch: true }],
-    ["darwin", { platform: "darwin", folderPicker: true, claudeCodeLaunch: false, openCodeLaunch: false }],
-    ["linux", { platform: "linux", folderPicker: true, claudeCodeLaunch: false, openCodeLaunch: false }],
+    ["darwin", { platform: "darwin", folderPicker: true, claudeCodeLaunch: true, openCodeLaunch: true }],
+    ["linux", { platform: "linux", folderPicker: true, claudeCodeLaunch: true, openCodeLaunch: true }],
   ] as const)("returns backend capabilities for %s", async (platform, expected) => {
-    const commandAvailable = vi.fn(async (command: string) => platform === "linux" && command === "zenity");
+    const commandAvailable = vi.fn(async (command: string) => {
+      if (platform === "darwin") return command === "osascript";
+      if (platform === "linux") return command === "zenity" || command === "gnome-terminal";
+      return false;
+    });
     const result = await callSystemEndpoint(platform, commandAvailable);
 
     expect(result.status).toBe(200);
     expect(result.body).toEqual(expected);
   });
 
-  it("reports folderPicker=false on Linux when neither picker is installed", async () => {
-    const result = await callSystemEndpoint("linux", async () => false);
+  it("reports folderPicker=false independently when a Linux terminal is available", async () => {
+    const result = await callSystemEndpoint("linux", async command => command === "konsole");
     expect(result.body).toEqual({
       platform: "linux",
       folderPicker: false,
+      claudeCodeLaunch: true,
+      openCodeLaunch: true,
+    });
+  });
+
+  it("reports launch=false when Linux has no supported terminal emulator", async () => {
+    const result = await callSystemEndpoint("linux", async command => command === "zenity");
+    expect(result.body).toEqual({
+      platform: "linux",
+      folderPicker: true,
+      claudeCodeLaunch: false,
+      openCodeLaunch: false,
+    });
+  });
+
+  it("reports launch=false when Terminal.app is missing on macOS", async () => {
+    const result = await callSystemEndpoint("darwin", async command => command === "osascript", () => false);
+    expect(result.body).toEqual({
+      platform: "darwin",
+      folderPicker: true,
       claudeCodeLaunch: false,
       openCodeLaunch: false,
     });
@@ -72,6 +100,7 @@ describe("Web UI system capabilities", () => {
     expect(LANDING_PAGE_HTML).toContain("claude.disabled=!d.claudeCodeLaunch");
     expect(LANDING_PAGE_HTML).toContain("open.disabled=!d.openCodeLaunch");
     expect(LANDING_PAGE_HTML).toContain("Folder picker unavailable on ");
+    expect(LANDING_PAGE_HTML).toContain("No supported terminal emulator found");
     expect(LANDING_PAGE_HTML).toContain('id="platform-label"');
   });
 });

@@ -176,6 +176,7 @@ select.f-inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xml
           <button class="btn btn-p btn-sm" id="launch-claude-btn" onclick="launchClaude()" disabled>RUN CLAUDE CODE</button>
           <button class="btn btn-s btn-sm" id="launch-opencode-btn" onclick="launchOpen()" disabled>RUN OPENCODE</button>
         </div>
+        <div class="f-hint" id="launch-status"><span class="dot dot-p"></span><span>Checking terminal support</span></div>
       </div>
     </div>
   </div>
@@ -228,6 +229,13 @@ select.f-inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xml
     var claude=$("launch-claude-btn"),open=$("launch-opencode-btn");
     if(claude){claude.disabled=!d.claudeCodeLaunch;claude.title=d.claudeCodeLaunch?"":"Start Claude Code manually in a terminal";}
     if(open){open.disabled=!d.openCodeLaunch;open.title=d.openCodeLaunch?"":"Start OpenCode manually in a terminal";}
+    var launchHint=$("launch-status");
+    if(launchHint){
+      if(d.claudeCodeLaunch||d.openCodeLaunch)launchHint.innerHTML='<span class="dot dot-ok"></span><span>Visible terminal launch available</span>';
+      else if(d.platform==="linux")launchHint.innerHTML='<span class="dot dot-p"></span><span>No supported terminal emulator found</span>';
+      else if(d.platform==="darwin")launchHint.innerHTML='<span class="dot dot-p"></span><span>Terminal.app or osascript unavailable</span>';
+      else launchHint.innerHTML='<span class="dot dot-p"></span><span>Terminal launch unavailable</span>';
+    }
   }
 
   function updateSystem(){
@@ -349,7 +357,7 @@ select.f-inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xml
 
   /* ── LAUNCH ── */
   function launch(tool){
-    if(systemCaps&&((tool==="claude"&&!systemCaps.claudeCodeLaunch)||(tool==="opencode"&&!systemCaps.openCodeLaunch))){showToast("Launch is not supported on this platform yet. Start the CLI manually in a terminal.","error");return;}
+    if(systemCaps&&((tool==="claude"&&!systemCaps.claudeCodeLaunch)||(tool==="opencode"&&!systemCaps.openCodeLaunch))){showToast(systemCaps.platform==="linux"?"No supported terminal emulator found":"Native terminal launch is unavailable. Start the CLI manually.","error");return;}
     var wd=$("workdir");
     var workDir=wd?wd.value.trim():"";
     if(!workDir){showToast("Enter working directory first","error");return;}

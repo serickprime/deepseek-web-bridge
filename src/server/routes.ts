@@ -347,14 +347,16 @@ export function routes(ctx: RouteContext): Array<{
               endSSE(res);
               return;
             }
-            launchClaudeCode(workDir, model, send);
+            const launched = await launchClaudeCode(workDir, model, send);
+            if (!launched) endSSE(res);
           } else if (tool === "opencode") {
             if (!system.openCodeLaunch) {
               send({ type: "error", message: `OpenCode launch is not supported on ${system.platform} yet. Start it manually in a terminal.` });
               endSSE(res);
               return;
             }
-            launchOpenCode(workDir, model, send);
+            const launched = await launchOpenCode(workDir, model, send);
+            if (!launched) endSSE(res);
           } else {
             send({ type: "error", message: `Unknown tool: ${tool}. Use "claude" or "opencode".` });
             endSSE(res);

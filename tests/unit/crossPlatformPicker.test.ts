@@ -68,61 +68,52 @@ describe("macOS folder picker", () => {
 describe("Linux folder picker", () => {
   it("uses zenity first and preserves its Unicode path", async () => {
     setPlatform("linux");
-    vi.mocked(childProcess.spawn).mockImplementation((command, args) => {
+    vi.mocked(childProcess.spawn).mockImplementation(() => {
       const child = fakeChild();
       process.nextTick(() => {
-        if (command === "zenity" && args?.[0] === "--version") child.emit("spawn");
-        else {
-          child.stdout.end(Buffer.from("/home/миша/Проекты/ёжик\n", "utf8"));
-          child.emit("close", 0);
-        }
+        child.stdout.end(Buffer.from("/home/миша/Проекты/ёжик\n", "utf8"));
+        child.emit("close", 0);
       });
       return child as never;
     });
 
-    await expect(pickFolder()).resolves.toEqual({
+    await expect(pickFolder({ commandAvailable: async command => command === "zenity" })).resolves.toEqual({
       path: "/home/миша/Проекты/ёжик",
       cancelled: false,
       supported: true,
     });
-    expect(vi.mocked(childProcess.spawn).mock.calls.map(call => call[0])).toEqual(["zenity", "zenity"]);
-    expect(vi.mocked(childProcess.spawn).mock.calls[1]?.[2]).toMatchObject({ shell: false });
+    expect(vi.mocked(childProcess.spawn).mock.calls.map(call => call[0])).toEqual(["zenity"]);
+    expect(vi.mocked(childProcess.spawn).mock.calls[0]?.[2]).toMatchObject({ shell: false });
   });
 
   it("falls back to kdialog when zenity is unavailable", async () => {
     setPlatform("linux");
-    vi.mocked(childProcess.spawn).mockImplementation((command, args) => {
+    vi.mocked(childProcess.spawn).mockImplementation(() => {
       const child = fakeChild();
       process.nextTick(() => {
-        if (args?.[0] === "--version") {
-          if (command === "zenity") child.emit("error", new Error("ENOENT"));
-          else child.emit("spawn");
-        } else {
-          child.stdout.end("/home/user/KDE folder\n");
-          child.emit("close", 0);
-        }
+        child.stdout.end("/home/user/KDE folder\n");
+        child.emit("close", 0);
       });
       return child as never;
     });
 
-    await expect(pickFolder()).resolves.toEqual({
+    await expect(pickFolder({ commandAvailable: async command => command === "kdialog" })).resolves.toEqual({
       path: "/home/user/KDE folder",
       cancelled: false,
       supported: true,
     });
-    expect(vi.mocked(childProcess.spawn).mock.calls.map(call => call[0])).toEqual(["zenity", "kdialog", "kdialog"]);
-    expect(vi.mocked(childProcess.spawn).mock.calls[2]?.[2]).toMatchObject({ shell: false });
+    expect(vi.mocked(childProcess.spawn).mock.calls.map(call => call[0])).toEqual(["kdialog"]);
+    expect(vi.mocked(childProcess.spawn).mock.calls[0]?.[2]).toMatchObject({ shell: false });
   });
 
   it("returns supported=false when neither zenity nor kdialog exists", async () => {
     setPlatform("linux");
-    vi.mocked(childProcess.spawn).mockImplementation(() => {
-      const child = fakeChild();
-      process.nextTick(() => child.emit("error", new Error("ENOENT")));
-      return child as never;
-    });
-
-    await expect(pickFolder()).resolves.toEqual({ path: null, cancelled: false, supported: false });
-    expect(vi.mocked(childProcess.spawn).mock.calls.map(call => call[0])).toEqual(["zenity", "kdialog"]);
+    const checked: string[] = [];
+    await expect(pickFolder({ commandAvailable: async command => {
+      checked.push(command);
+      return false;
+    } })).resolves.toEqual({ path: null, cancelled: false, supported: false });
+    expect(checked).toEqual(["zenity", "kdialog"]);
+    expect(vi.mocked(childProcess.spawn)).not.toHaveBeenCalled();
   });
 });

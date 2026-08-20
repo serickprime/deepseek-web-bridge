@@ -3,6 +3,52 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-20 — Native macOS and Linux CLI launch
+
+### Реализация
+
+- `src/server/terminalLaunch.ts`, `src/server/actions.ts`, `src/server/routes.ts` —
+  добавлены отдельные native launch strategies без изменения Windows
+  `launchProcess()`. Windows сохраняет live-проверенные Unicode cwd, detached
+  child tracking, `taskkill /T` по tracked PID и обе launch capabilities `true`.
+- macOS открывает новую видимую Terminal.app session через `osascript` и
+  статический AppleScript. Пользовательский cwd/аргументы не вставляются в
+  AppleScript source: они POSIX-quoted и передаются как argv. Поддержаны Unicode
+  и раскрытие `~/`. Capability `true` только при наличии `osascript` и Terminal.app.
+- Linux безопасно ищет terminal emulator по PATH без его запуска, приоритет:
+  `x-terminal-emulator`, `gnome-terminal`, `konsole`, `xfce4-terminal`, `kitty`,
+  `xterm`. Для каждого используется отдельный документированный argv layout и
+  `spawn(..., shell:false)`. Если emulator не найден, launch capabilities `false`.
+- macOS/Linux запускают fixed mode-0700 runner. Cwd, CLI и четыре Bridge env
+  (`ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `OPENAI_API_BASE`,
+  `OPENAI_API_KEY`) передаются runner как argv; runner экспортирует env, пишет
+  собственный PID в private temp file и делает `exec` CLI.
+- SHUTDOWN завершает только точный runner/CLI PID и launcher child, созданные
+  Bridge. macOS дополнительно закрывает только tracked Terminal.app window при
+  совпадении window id + tty и одной вкладке. Нет kill по имени Terminal.app,
+  emulator, `claude` или `opencode`; delegated Linux terminal window может остаться
+  открытым, если emulator завершил launcher process и не реагирует на завершение CLI.
+- `src/server/system.ts`, `src/server/landingPage.ts` — capabilities теперь
+  отражают наличие native terminal transport. При отсутствии Linux emulator UI
+  показывает `No supported terminal emulator found`; ручной запуск остаётся доступен.
+  Наличие CLI binary не входит в capability и проверяется при `/bridge/launch` с
+  понятной SSE-ошибкой.
+- `README.md`, `docs/architecture.md`, `PROJECT_STATE.md` обновлены. macOS/Linux
+  реализация не объявляется live-проверенной на Windows.
+
+### Offline tests
+
+- `tests/unit/nativeCliLaunch.test.ts` — 15 тестов: root Claude/OpenCode macOS
+  launch, Unicode/`~/`, env propagation, safe escaping; argv layouts всех шести
+  Linux emulator, root x-terminal-emulator Unicode/env, fallback priority,
+  no-terminal/missing-CLI errors и узкий SHUTDOWN tracking.
+- `tests/unit/systemCapabilities.test.ts` — дополнены transport-aware macOS/Linux
+  capabilities и UI hint; Linux picker tests переведены на безопасный injected
+  availability probe.
+- Существующие Windows Unicode launch integration и SHUTDOWN regressions проходят;
+  добавлен Windows missing-CLI error regression.
+- Итого: 23 test files, 359 tests.
+
 ## 2026-08-20 — Cross-platform system capabilities and folder picker
 
 ### Реализация
