@@ -631,12 +631,8 @@ export async function pickFolder(): Promise<PickFolderResult> {
 export async function performLogout(): Promise<{ ok: boolean; message: string }> {
   const config = buildConfig();
   try {
-    if (fs.existsSync(config.chromeProfile)) {
-      fs.rmSync(config.chromeProfile, { recursive: true, force: true });
-    }
-    if (fs.existsSync(config.authFile)) {
-      fs.rmSync(config.authFile, { force: true });
-    }
+    await fs.promises.rm(config.chromeProfile, { recursive: true, force: true });
+    await fs.promises.rm(config.authFile, { force: true });
     return { ok: true, message: "Logged out" };
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : String(error) };

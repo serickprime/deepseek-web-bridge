@@ -3,6 +3,44 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-20 — Fix Web UI logout runtime behavior
+
+### Root cause и исправление
+
+- Реальный runtime-тест commit `9b7eaa6` показал ложный успех LOGOUT:
+  `POST /bridge/logout` возвращал `200 {"ok":true,"message":"Logged out"}`,
+  Node PID и `/health` оставались живы, но `auth.json` и dedicated Chrome profile
+  не удалялись, поэтому `/bridge/auth-status` продолжал возвращать `valid:true`.
+- Точная причина: на Windows с Node `v24.12.0` синхронный
+  `fs.rmSync(..., { force/recursive })` молча не удалял файлы и каталоги под
+  кириллическим путём `D:\Проекты\...`, не выбрасывая исключение.
+  `performLogout()` поэтому ошибочно возвращал `ok:true`.
+- `src/server/actions.ts` — LOGOUT переведён на `await fs.promises.rm()` для
+  dedicated Chrome profile и `auth.json`; async-вариант проверен на том же
+  Unicode path и реально удаляет targets. Маршрут SHUTDOWN не менялся.
+- `src/server/landingPage.ts` проверен отдельно: `doLogout()` показывает toast и
+  обновляет индикаторы, не заменяет `document.body`; замена страницы остаётся
+  только в `doShutdown()`.
+
+### Runtime regression
+
+- До исправления: PID `644`, `GET /health` = 200, auth-status = `valid:true`,
+  auth/profile присутствуют. После LOGOUT PID и `/health` оставались живы, но
+  auth-status ошибочно оставался `valid:true`, оба filesystem target сохранялись.
+- После исправления: PID `24128`, до LOGOUT `GET /health` = 200 и auth-status =
+  `valid:true`; `POST /bridge/logout` = 200. После LOGOUT тот же PID жив,
+  `GET /health` = 200, `GET /readyz` = 200, auth-status =
+  `{"valid":false,"message":"NO AUTH"}`, `auth.json` и Chrome profile удалены,
+  `GET /` = 200.
+
+### Тесты
+
+- `tests/unit/logoutRuntimeIntegration.test.ts` — новый HTTP integration-тест:
+  поднимает настоящий `buildApp()`/`BridgeServer` с Unicode data path и проверяет
+  `health → auth-status → logout → health/readyz/auth-status`, физическое удаление
+  auth/profile и доступность того же сервера после LOGOUT.
+- Итого: `npm run typecheck` ✅, `npm test` ✅ (326/326), `npm run build` ✅.
+
 ## 2026-08-20 — Web UI auth lifecycle and Unicode Windows paths
 
 ### Исправления

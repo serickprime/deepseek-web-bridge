@@ -71,14 +71,14 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
 | 7. DeepSeek | pow (WASM), sseParser, updateParser, client | ✅ готово |
 | 8. Server | middleware, output-адаптеры, protocolStream, routes, server | ✅ готово |
 | 9. Entrypoint | app.ts, index.ts, start.ts | ✅ готово |
-| 10. Тесты | 17 файлов, 325 тестов | ✅ готово |
+| 10. Тесты | 18 файлов, 326 тестов | ✅ готово |
 | 11. Скрипты | cdp, auth, doctor, launcher, live | ✅ live-часть работает |
 | 12. Веб-интерфейс | Bridge Console на `GET /` (Mileo dark theme, two-panel, diagnostics, model picker) | ✅ готово |
 
 **Проверки сейчас:**
 - `npm run typecheck` — ✅ без ошибок.
 - `npm run build` — ✅ собирается.
-- `npm test` — ✅ 325/325.
+- `npm test` — ✅ 326/326.
 - `npm run auth` — ✅ окно Chrome открывается, захват работает (сеть + localStorage
   fallback).
 - `npm run doctor` — ✅ все 6/6 проверок проходят (auth, reachable, challenge,
@@ -123,6 +123,8 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
   `/bridge/logout` — локальный выход из DeepSeek: удаляет `auth.json` и dedicated
   Chrome profile, очищает runtime auth и account-bound upstream state/lineage,
   но оставляет HTTP Bridge и запущенные через Web UI Claude Code/OpenCode работать.
+  Для удаления используется async `fs.promises.rm`: на Windows с Node 24.12
+  `fs.rmSync` молча не удалял targets под кириллическим путём репозитория.
   `/bridge/shutdown` останавливает только tracked CLI-процессы, активный auth Chrome,
   HTTP-сервер и затем Node process; credentials не удаляются.
   `RouteContext.gracefulStop` прокидывается из `AppHandle.stop`.
@@ -349,6 +351,10 @@ _(все проверены)_
       декодирует UTF-8. Unicode `cwd` без преобразований передаётся launcher-ам.
 - [x] LOGOUT отделён от SHUTDOWN: локальные DeepSeek credentials/profile и runtime
       account state очищаются, Bridge и запущенные CLI остаются работать.
+      **Runtime live-test (2026-08-20)**: до LOGOUT `/health` = 200 и auth-status =
+      `valid:true`; `POST /bridge/logout` = 200; тот же Node PID остался жив;
+      после LOGOUT `/health` = 200, `/readyz` = 200, auth-status = `valid:false`,
+      `auth.json` и dedicated Chrome profile отсутствуют, `GET /` = 200.
 - [x] AUTH после LOGOUT обновляет credentials работающего `DeepSeekClient` без
       рестарта; старые upstream state/lineage очищаются безопасно без удаления
       соседних данных `sessions.json`.
