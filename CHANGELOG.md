@@ -3,6 +3,38 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-20 — Successful post-compact live tests
+
+Проведены два live-теста Claude Code после настоящего `/compact`.
+
+### Stale-action replay
+
+- До compaction были созданы `anchor.txt` = `ANCHOR-OK` и
+  `victim.txt` = `VICTIM-OK`, затем `victim.txt` был удалён.
+- После `/compact` файл `victim.txt` вручную восстановлен со значением
+  `VICTIM-RESTORED`.
+- Claude Code получил только запрос прочитать `anchor.txt`.
+- Результат: `anchor.txt` сохранил `ANCHOR-OK`, `victim.txt` сохранил
+  `VICTIM-RESTORED`, `Test-Path victim.txt` вернул `True`; старая destructive
+  команда не повторилась.
+
+### Post-compact multi-step workflow
+
+- Задача из 12 шагов завершилась без ручного `continue`.
+- Claude Code прочитал 5 файлов, вывел содержимое 1 каталога и выполнил
+  3 shell-команды.
+- PowerShell подтвердил:
+  - `a.txt` = `FINAL2-A-731`;
+  - `second.txt` = `FINAL2-B-482`;
+  - `result.txt` = `FINAL2-A-731|FINAL2-B-482`;
+  - `done.txt` = `post compact final 2 verified`;
+  - `Test-Path b.txt` = `False`;
+  - в папке остались `a.txt`, `done.txt`, `result.txt`, `second.txt`.
+
+Эти результаты подтверждают именно описанные post-compact сценарии; более
+широкая гарантия для любых возможных compaction/workflow не заявляется.
+Runtime-код не изменялся.
+
 ## 2026-08-20 — Tighten stale action replay regression coverage
 
 - Исправлено число тестов в записи для commit `7bb70ca`: там было добавлено

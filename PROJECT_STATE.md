@@ -175,7 +175,7 @@ Web API (`chat.deepseek.com`) ненадёжно для tool calling.
 **Ключевое**: `deepseek-chat` и `deepseek-reasoner` deprecated (с 2026-07-24).
 Текущие модели: `deepseek-v4-flash` и `deepseek-v4-pro`.
 
-## Стабильная live-точка — 2026-08-19
+## Стабильная live-точка — 2026-08-20
 
 Подтверждено live-тестами Claude Code (полный workflow «кодирование через бридж»):
 
@@ -213,10 +213,19 @@ Web API (`chat.deepseek.com`) ненадёжно для tool calling.
   После compaction сохранились cwd, ALPHA-731, BETA-482, контекст.
   Простой post-compact workflow (create → read) прошёл успешно.
   PowerShell подтвердил: `compact-simple.txt` → `compact simple ok`.
-  **Оговорка**: на сложной multi-step задаче после compaction модель
-  заявила о создании файла, который реально отсутствовал
-  (premature final answer). **Prompt fix implemented**: COMPLETION GUARD
-  + FINAL ANSWER RULES в tool prompt. Требуется post-/compact live-test.
+- Post-/compact stale-action replay live-test (2026-08-20): до compact были
+  созданы `anchor.txt` = `ANCHOR-OK` и `victim.txt` = `VICTIM-OK`, затем
+  `victim.txt` удалён. После `/compact` он был вручную восстановлен как
+  `VICTIM-RESTORED`; Claude Code получил только запрос прочитать `anchor.txt`.
+  Проверено: `anchor.txt` = `ANCHOR-OK`, `victim.txt` = `VICTIM-RESTORED`,
+  `Test-Path victim.txt` = `True`; старая destructive-команда не повторилась.
+- Post-/compact multi-step live-test (2026-08-20): задача из 12 шагов
+  завершилась без ручного `continue`. Claude Code прочитал 5 файлов, вывел
+  1 каталог и выполнил 3 shell-команды. PowerShell подтвердил:
+  `a.txt` = `FINAL2-A-731`, `second.txt` = `FINAL2-B-482`, `result.txt` =
+  `FINAL2-A-731|FINAL2-B-482`, `done.txt` = `post compact final 2 verified`,
+  `Test-Path b.txt` = `False`; в папке остались `a.txt`, `done.txt`,
+  `result.txt`, `second.txt`.
 - Большие `tool_result` (>10 000 символов): `large-result.txt`
   18 500 байт прочитан через Read, цепочка продолжилась,
   создан `large-result-ok.txt`. PowerShell подтвердил.
@@ -291,14 +300,18 @@ _(все проверены)_
       `path-test-A.txt`=AAA, session-B cwd=`D:\test 2` создал
       `path-test-B.txt`=BBB. Файлы изолированы: `Test-Path` подтвердил
       отсутствие смешивания. PowerShell-команды подтвердили пути.
-- [~] После compaction на сложной multi-step задаче модель может
+- [x] После compaction на сложной multi-step задаче модель могла
       заявить о выполнении (premature final answer) без фактического
       вызова всех нужных tools. **Prompt fix implemented** (rule 9-10)
       + **runtime completion guard implemented** (fake tool trace
       detector + bounded retry, max 3 total attempts). Live-test
       воспроизвёл формат `Tool: Bash\n{json}` — добавлен детектор
       `looksLikeToolPrefixedFakeTrace()`.
-- [~] **Stale tool action replay**: после /compact bridge включал
+      **Live-test (2026-08-20)**: post-/compact задача из 12 шагов выполнена
+      полностью без ручного `continue`: 5 чтений файлов, 1 листинг каталога,
+      3 shell-команды. PowerShell подтвердил итоговые файлы и отсутствие
+      `b.txt`. Подтверждён именно этот multi-step сценарий.
+- [x] **Stale tool action replay**: после /compact bridge включал
       executable tool arguments из прошлых turns в upstream prompt.
       **Architectural fix implemented** (2026-08-20):
       1. Удалён `state.history` из `buildPrompt()` (client.ts).
@@ -310,7 +323,12 @@ _(все проверены)_
       regression-тест через `DeepSeekClient.complete()`, проверяющий реальный
       upstream prompt. OpenAI/Responses runtime проходит canonical normalization;
       raw argument-serializing helper-ветки текущим production path не
-      достигаются. Требуется post-/compact live-test для подтверждения.
+      достигаются.
+      **Live-test (2026-08-20)**: после настоящего `/compact` вручную
+      восстановленный `victim.txt` сохранил `VICTIM-RESTORED`, когда Claude Code
+      получил только запрос прочитать `anchor.txt`; `Test-Path victim.txt` =
+      `True`, старая destructive-команда не повторилась. Подтверждён именно
+      этот stale-action replay сценарий.
 
 ### Cross-platform Web UI (архитектурный план)
 
