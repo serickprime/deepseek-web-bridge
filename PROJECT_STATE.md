@@ -1,6 +1,6 @@
 # Состояние проекта
 
-> **Актуально на:** 2026-08-19.
+> **Актуально на:** 2026-08-20.
 > Этот файл — главный источник правды о стадии проекта. Любой агент обязан
 > прочитать его перед началом работы и обновить после внесения изменений.
 > Обязательный порядок чтения перед задачей: `AGENTS.md` → `PROJECT_STATE.md`
@@ -71,14 +71,14 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
 | 7. DeepSeek | pow (WASM), sseParser, updateParser, client | ✅ готово |
 | 8. Server | middleware, output-адаптеры, protocolStream, routes, server | ✅ готово |
 | 9. Entrypoint | app.ts, index.ts, start.ts | ✅ готово |
-| 10. Тесты | 16 файлов, 297 тестов | ✅ готово |
+| 10. Тесты | 16 файлов, 313 тестов | ✅ готово |
 | 11. Скрипты | cdp, auth, doctor, launcher, live | ✅ live-часть работает |
 | 12. Веб-интерфейс | Bridge Console на `GET /` (Mileo dark theme, two-panel, diagnostics, model picker) | ✅ готово |
 
 **Проверки сейчас:**
 - `npm run typecheck` — ✅ без ошибок.
 - `npm run build` — ✅ собирается.
-- `npm test` — ✅ 297/297.
+- `npm test` — ✅ 313/313.
 - `npm run auth` — ✅ окно Chrome открывается, захват работает (сеть + localStorage
   fallback).
 - `npm run doctor` — ✅ все 6/6 проверок проходят (auth, reachable, challenge,
@@ -297,8 +297,17 @@ _(все проверены)_
       + **runtime completion guard implemented** (fake tool trace
       detector + bounded retry, max 3 total attempts). Live-test
       воспроизвёл формат `Tool: Bash\n{json}` — добавлен детектор
-      `looksLikeToolPrefixedFakeTrace()`. Требуется повторный
-      post-/compact live-test.
+      `looksLikeToolPrefixedFakeTrace()`.
+- [~] **Stale tool action replay**: после /compact bridge включал
+      executable tool arguments из прошлых turns в upstream prompt.
+      **Architectural fix implemented** (2026-08-20):
+      1. Удалён `state.history` из `buildPrompt()` (client.ts).
+      2. `canonicalToRaw()` использует `sanitizedToolInvocationText()`
+         — аргументы tool_use НЕ сериализуются в upstream prompt.
+      3. `anthropicMessageText()` аналогично использует sanitized формат.
+      4. Добавлен PRIORITY RULE (rule 11) в tool prompt.
+      19 offline-тестов (`tools.test.ts`). Требуется post-/compact
+      live-test для подтверждения.
 
 ### Cross-platform Web UI (архитектурный план)
 

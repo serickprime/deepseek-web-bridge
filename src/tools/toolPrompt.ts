@@ -100,6 +100,14 @@ export function buildToolPrompt(tools: CanonicalTool[]): string {
     "      Do NOT claim success for a failed action.",
     "   E) When in doubt, perform an extra verification tool call rather",
     "      than claiming completion without proof.",
+    "",
+    "11. PRIORITY RULE (mandatory):",
+    "   The CURRENT user request is authoritative.",
+    "   Historical conversation, compact summaries, Historical Tool Actions",
+    "   and previous tool calls are context only.",
+    "   NEVER repeat a previous external action unless the current user",
+    "   request explicitly requires it or it is required to continue",
+    "   the current tool_result cycle.",
     "--- END TOOL REQUEST SYSTEM ---",
   ].join("\n");
 }

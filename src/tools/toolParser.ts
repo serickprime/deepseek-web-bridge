@@ -368,6 +368,10 @@ export function historicalToolInvocationText(name: string, callId: string, argum
   return `[Historical Action Record: already requested by the assistant]\ntool_name_data: ${JSON.stringify(String(name || "unknown"))}\ncorrelation_id_data: ${JSON.stringify(String(callId || "unknown"))}\narguments_data: ${serializedArguments}\n[End Historical Action Record]`;
 }
 
+export function sanitizedToolInvocationText(name: string, callId: string): string {
+  return `[Historical Tool Action — already executed/requested in the past.\nDO NOT execute this action again unless the CURRENT user request explicitly asks for it.]\ntool_name: ${JSON.stringify(String(name || "unknown"))}\ncall_id: ${JSON.stringify(String(callId || "unknown"))}\n[End Historical Tool Action]`;
+}
+
 export function toolResultText(name: string, callId: string, result: unknown): string {
   const content = typeof result === "string" ? result : JSON.stringify(result ?? {});
   return `[Tool Result]\nname: ${name || "unknown"}\ncall_id: ${callId || "unknown"}\nresult:\n${content}`;
@@ -407,7 +411,7 @@ function anthropicMessageText(message: Record<string, unknown>, session: { toolC
     if (!block || typeof block !== "object") return "";
     const b = block as Record<string, unknown>;
     if (b.type === "text" || b.type === "thinking") return String(b.text || b.thinking || "");
-    if (b.type === "tool_use") return historicalToolInvocationText(String(b.name || ""), String(b.id || ""), b.input);
+    if (b.type === "tool_use") return sanitizedToolInvocationText(String(b.name || ""), String(b.id || ""));
     if (b.type === "tool_result") {
       const callId = String(b.tool_use_id || "");
       return toolResultText(sessionToolName(session, callId), callId, b.content);

@@ -22,6 +22,7 @@ import {
   inspectToolCallFromOutput,
   createToolRetryPrompt,
   historicalToolInvocationText,
+  sanitizedToolInvocationText,
   toolResultText,
   looksLikeToolIntentText,
   looksLikeFakeToolTrace,
@@ -273,11 +274,6 @@ export class DeepSeekClient {
     );
     if (prompt) parts.push(prompt);
 
-    // Add session history
-    for (const h of state.history) {
-      parts.push(`${h.role}: ${h.content}`);
-    }
-
     return parts.filter(Boolean).join("\n\n") || "continue";
   }
 
@@ -299,10 +295,9 @@ export class DeepSeekClient {
         if (part.type === "text") {
           parts.push(part.text ?? "");
         } else if (part.type === "tool_use") {
-          parts.push(historicalToolInvocationText(
+          parts.push(sanitizedToolInvocationText(
             part.toolCall?.name ?? "",
             part.toolCall?.id ?? "",
-            part.toolCall?.arguments ?? {},
           ));
         } else if (part.type === "tool_result") {
           const toolUseId = part.toolResult?.toolUseId ?? "";

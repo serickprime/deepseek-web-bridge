@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseToolInvocation, hasToolTag, createToolRetryPrompt, historicalToolInvocationText, toolResultText, looksLikeToolIntentText, looksLikeFakeToolTrace, COMPLETION_GUARD_MAX_ATTEMPTS } from "../../src/tools/toolParser.js";
+import { parseToolInvocation, hasToolTag, createToolRetryPrompt, historicalToolInvocationText, sanitizedToolInvocationText, toolResultText, looksLikeToolIntentText, looksLikeFakeToolTrace, COMPLETION_GUARD_MAX_ATTEMPTS, buildUpstreamPrompt } from "../../src/tools/toolParser.js";
 import { buildToolPrompt } from "../../src/tools/toolPrompt.js";
 import { ToolRetryTracker } from "../../src/tools/toolRetry.js";
 import { shouldRetry, buildToolUseIdMap } from "../../src/deepseek/client.js";
@@ -751,5 +751,139 @@ describe("shouldRetry with Tool: prefixed traces", () => {
   it("real tool_call → no retry", () => {
     const text = 'Tool: Bash\n{"command":"pwd"}';
     expect(shouldRetry(true, { name: "Bash", arguments: { command: "pwd" } }, text, "", tools)).toBe(false);
+  });
+});
+
+describe("sanitizedToolInvocationText", () => {
+  it("contains tool name", () => {
+    const text = sanitizedToolInvocationText("Bash", "call_123");
+    expect(text).toContain("Bash");
+  });
+
+  it("contains call_id", () => {
+    const text = sanitizedToolInvocationText("Bash", "call_123");
+    expect(text).toContain("call_123");
+  });
+
+  it("does NOT contain arguments", () => {
+    const text = sanitizedToolInvocationText("Bash", "call_123");
+    expect(text).not.toContain("arguments");
+    expect(text).not.toContain("command");
+  });
+
+  it("contains DO NOT execute warning", () => {
+    const text = sanitizedToolInvocationText("Read", "call_456");
+    expect(text).toContain("DO NOT execute");
+  });
+
+  it("fallback for empty name", () => {
+    const text = sanitizedToolInvocationText("", "call_1");
+    expect(text).toContain("unknown");
+  });
+
+  it("fallback for empty callId", () => {
+    const text = sanitizedToolInvocationText("Read", "");
+    expect(text).toContain("unknown");
+  });
+});
+
+describe("buildUpstreamPrompt — stale action replay prevention", () => {
+  it("anthropic tool_use uses sanitized format without arguments", () => {
+    const body = {
+      system: "You are helpful.",
+      messages: [
+        { role: "user", content: [{ type: "text", text: "Read the file" }] },
+        { role: "assistant", content: [
+          { type: "tool_use", id: "call_abc", name: "Read", input: { file_path: "secret.txt" } },
+        ]},
+        { role: "user", content: [
+          { type: "tool_result", tool_use_id: "call_abc", content: "file contents" },
+        ]},
+      ],
+    };
+    const prompt = buildUpstreamPrompt(body, "anthropic", null);
+    expect(prompt).toContain("DO NOT execute");
+    expect(prompt).not.toContain("secret.txt");
+    expect(prompt).not.toContain("file_path");
+  });
+
+  it("tool_result is preserved in upstream prompt", () => {
+    const body = {
+      messages: [
+        { role: "assistant", content: [
+          { type: "tool_use", id: "call_1", name: "Bash", input: { command: "rm -rf /" } },
+        ]},
+        { role: "user", content: [
+          { type: "tool_result", tool_use_id: "call_1", content: "done" },
+        ]},
+      ],
+    };
+    const prompt = buildUpstreamPrompt(body, "anthropic", null);
+    expect(prompt).toContain("[Tool Result]");
+    expect(prompt).toContain("done");
+    expect(prompt).not.toContain("rm -rf /");
+  });
+
+  it("tool_result uses name from session map", () => {
+    const body = {
+      messages: [
+        { role: "user", content: [
+          { type: "tool_result", tool_use_id: "call_99", content: "data" },
+        ]},
+      ],
+    };
+    const session = { toolCalls: new Map([["call_99", { name: "Read" }]]) };
+    const prompt = buildUpstreamPrompt(body, "anthropic", session);
+    expect(prompt).toContain("Read");
+  });
+
+  it("openai path uses historicalToolInvocationText with arguments", () => {
+    const body = {
+      messages: [
+        { role: "assistant", content: "", tool_calls: [
+          { id: "call_x", type: "function", function: { name: "Bash", arguments: '{"command":"ls"}' } },
+        ]},
+        { role: "tool", tool_call_id: "call_x", content: "file.txt" },
+      ],
+    };
+    const prompt = buildUpstreamPrompt(body, "openai", null);
+    expect(prompt).toContain("Historical Action Record");
+    expect(prompt).toContain("Bash");
+  });
+});
+
+describe("toolPrompt — priority rule (rule 11)", () => {
+  const tools = [
+    { name: "Read", description: "Read a file", inputSchema: { type: "object", properties: { file_path: { type: "string" } } } },
+  ];
+
+  it("contains PRIORITY RULE section", () => {
+    const prompt = buildToolPrompt(tools);
+    expect(prompt).toContain("PRIORITY RULE");
+  });
+
+  it("current user request is authoritative", () => {
+    const prompt = buildToolPrompt(tools);
+    expect(prompt).toMatch(/CURRENT user request is authoritative/i);
+  });
+
+  it("historical context is context only", () => {
+    const prompt = buildToolPrompt(tools);
+    expect(prompt).toMatch(/Historical conversation[\s\S]*?context only/i);
+  });
+
+  it("Historical Tool Actions mentioned as context only", () => {
+    const prompt = buildToolPrompt(tools);
+    expect(prompt).toContain("Historical Tool Actions");
+  });
+
+  it("NEVER repeat previous external action", () => {
+    const prompt = buildToolPrompt(tools);
+    expect(prompt).toMatch(/NEVER repeat a previous external action/i);
+  });
+
+  it("exception for current tool_result cycle", () => {
+    const prompt = buildToolPrompt(tools);
+    expect(prompt).toMatch(/required to continue[\s\S]*?current tool_result cycle/i);
   });
 });

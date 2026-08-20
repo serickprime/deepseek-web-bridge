@@ -3,6 +3,74 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-20 — Prevent stale tool action replay (architectural fix)
+
+### Root cause
+
+После `/compact` (или при наличии `state.history`) bridge включал в upstream
+prompt **executable tool arguments** (напр. `{"command":"rm ..."}`) из прошлых
+turns. DeepSeek модель, получив эти аргументы в контексте, могла повторить
+опасные действия (stale-action replay). Три корневых причины:
+
+1. `state.history` добавлялась в `buildPrompt()` ПОСЛЕ `request.messages` —
+   stale assistant actions оказывались ниже текущего user message.
+2. `historicalToolInvocationText()` сериализовала полные executable arguments
+   в fresh upstream prompts.
+3. Не было priority-правила,告诉 модели, что текущий request authoritative
+   над историческим контекстом.
+
+### Что сделано
+
+**`src/deepseek/client.ts`:**
+- Удалён цикл `for (const h of state.history)` из `buildPrompt()` —
+  `state.history` больше не попадает в upstream prompt.
+- `canonicalToRaw()`: tool_use parts теперь используют
+  `sanitizedToolInvocationText(name, id)` вместо
+  `historicalToolInvocationText(name, id, arguments)` — аргументы не
+  сериализуются в upstream prompt.
+- Добавлен импорт `sanitizedToolInvocationText`.
+
+**`src/tools/toolParser.ts`:**
+- Добавлена `sanitizedToolInvocationText(name, callId)` — безопасный формат
+  без аргументов, с предупреждением "DO NOT execute this action again".
+- `anthropicMessageText()` теперь использует `sanitizedToolInvocationText`
+  вместо `historicalToolInvocationText` для tool_use блоков.
+
+**`src/tools/toolPrompt.ts`:**
+- Добавлено правило 11 (PRIORITY RULE): CURRENT user request is authoritative;
+  historical conversation, compact summaries, Historical Tool Actions and
+  previous tool calls are context only.
+
+### Тесты
+
+`tests/unit/tools.test.ts` — 19 новых offline-тестов:
+
+**sanitizedToolInvocationText (6 тестов):**
+1. содержит tool name
+2. содержит call_id
+3. НЕ содержит arguments
+4. содержит DO NOT execute warning
+5. fallback для пустого name
+6. fallback для пустого callId
+
+**buildUpstreamPrompt — stale action replay prevention (4 теста):**
+7. anthropic tool_use использует sanitized формат без arguments
+8. tool_result сохраняется в upstream prompt
+9. tool_result использует имя из session map
+10. openai path использует historicalToolInvocationText с arguments
+
+**toolPrompt — priority rule (6 тестов):**
+11. содержит PRIORITY RULE секцию
+12. CURRENT user request is authoritative
+13. historical context — context only
+14. Historical Tool Actions упоминается как context only
+15. NEVER repeat a previous external action
+16. исключение для current tool_result cycle
+
+### Итого
+
+313 тестов (16 файлов), все проходят.
+
 ## 2026-08-19 — Handle Tool-prefixed fake tool traces
 
 ### Root cause
