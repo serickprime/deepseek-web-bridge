@@ -3,6 +3,30 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-20 — Cross-platform CI and platform smoke tests
+
+- `.github/workflows/cross-platform.yml` — добавлена real-OS matrix для
+  `windows-latest`, `macos-latest`, `ubuntu-latest`: `npm ci`, typecheck, 359
+  offline tests, build и отдельный `npm run test:platform` на каждой ОС.
+- `scripts/platformSmoke.ts`, `package.json` — новый auth-free smoke изолирует
+  все Bridge data во временном каталоге, проверяет фактический
+  `process.platform`, `buildConfig`, startup Bridge, HTTP 200 для `/health` и
+  `/readyz`, backend `/api/system`, Unicode temp cwd и точную передачу
+  `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `OPENAI_API_BASE`,
+  `OPENAI_API_KEY` в безопасный `spawn(..., shell:false)` child.
+- `src/server/terminalLaunch.ts` — существующая фабрика fixed POSIX runner
+  экспортирована для real-OS smoke без изменения production launch behavior.
+  На macOS/Linux smoke реально исполняет этот runner и проверяет PID/cwd/env;
+  macOS также проверяет наличие `osascript`/Terminal.app и POSIX quoting пробелов,
+  кириллицы, одинарной кавычки и shell metacharacters. Linux сверяет capability
+  с реально найденным terminal emulator, не поднимая fake GUI.
+- Smoke не читает реальные credentials, не логирует placeholder token values,
+  не обращается к DeepSeek, не запускает Claude/OpenCode, не делает broad kill и
+  удаляет только собственные временные файлы/processes.
+- `README.md`, `PROJECT_STATE.md` — явно разделены unit/platform-mocked,
+  real-OS CI и desktop GUI live-test. CI не объявляется GUI-проверкой;
+  настоящие macOS/Linux picker/interactive terminal/SHUTDOWN live-тесты остаются TODO.
+
 ## 2026-08-20 — Native macOS and Linux CLI launch
 
 ### Реализация

@@ -105,9 +105,28 @@ API key:  local-key (если клиент требует что-то указа
 | `npm run doctor` | полная диагностика (auth, reachable, challenge, PoW, completion) |
 | `npm run ui` | текстовое меню: авторизация → диагностика → запуск |
 | `npm test` | offline-тесты без обращения к DeepSeek |
+| `npm run test:platform` | изолированный smoke текущей ОС: Bridge HTTP, Unicode cwd и child env; DeepSeek auth не нужен |
 | `npm run test:live` | live-проверка с вашим аккаунтом (требует запущенный сервер) |
 | `npm run typecheck` | проверка типов TypeScript |
 | `npm start` | запуск Bridge-сервера |
+
+## Cross-platform validation
+
+GitHub Actions запускает `npm ci`, typecheck, все offline-тесты, build и
+`npm run test:platform` на `windows-latest`, `macos-latest` и `ubuntu-latest`.
+Platform smoke использует только временные каталоги и placeholder env, поднимает
+локальный Bridge без `auth.json`, проверяет `/health`, `/readyz`, `/api/system`,
+Unicode cwd и передачу Bridge env в реальный child process.
+
+Уровни проверки различаются намеренно:
+
+1. `npm test` — unit/platform-mocked проверки логики и argv builders;
+2. GitHub Actions — выполнение на реальном kernel/filesystem каждой ОС без GUI;
+3. desktop GUI live-test — визуальный picker и интерактивный Terminal.app/Linux
+   terminal. Он подтверждён на Windows, но для macOS/Linux пока остаётся TODO.
+
+CI не открывает настоящий Claude Code/OpenCode и не считается проверкой видимого
+GUI-терминала.
 
 ## Модели
 

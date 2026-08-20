@@ -72,13 +72,15 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
 | 8. Server | middleware, output-адаптеры, protocolStream, routes, server | ✅ готово |
 | 9. Entrypoint | app.ts, index.ts, start.ts | ✅ готово |
 | 10. Тесты | 23 файла, 359 тестов | ✅ готово |
-| 11. Скрипты | cdp, auth, doctor, launcher, live | ✅ live-часть работает |
+| 11. Скрипты | cdp, auth, doctor, launcher, live, real-OS platform smoke | ✅ live-часть работает |
 | 12. Веб-интерфейс | Bridge Console на `GET /` (Mileo dark theme, two-panel, diagnostics, model picker) | ✅ готово |
 
 **Проверки сейчас:**
 - `npm run typecheck` — ✅ без ошибок.
 - `npm run build` — ✅ собирается.
 - `npm test` — ✅ 359/359.
+- `npm run test:platform` — ✅ локально на Windows: real process/platform,
+  `buildConfig`, Bridge HTTP, Unicode cwd и env propagation без DeepSeek auth.
 - `npm run auth` / Web UI AUTH — ✅ Bearer захватывается из сети, HIF читается из
   localStorage при наличии; отсутствие HIF допустимо только после успешной upstream-верификации.
 - `npm run doctor` — ✅ все 6/6 проверок проходят (auth, reachable, challenge,
@@ -166,7 +168,8 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
   AUTH применяет новые credentials без рестарта. Generation guard отклоняет
   завершившиеся после смены аккаунта старые upstream-запросы.
 - Скрипты: `auth` (CDP, читает hif_leim из localStorage), `doctor` (6 последовательных
-  чеков + реальный completion-запрос), `launcher` (меню), `live/run` (smoke-тест).
+  чеков + реальный completion-запрос), `launcher` (меню), `live/run` (account
+  live-test), `platformSmoke` (изолированный real-OS CI smoke без DeepSeek auth).
 
 ## Исследование: tool calling в других проектах
 
@@ -247,14 +250,14 @@ Web API (`chat.deepseek.com`) ненадёжно для tool calling.
   18 500 байт прочитан через Read, цепочка продолжилась,
   создан `large-result-ok.txt`. PowerShell подтвердил.
 
-### Области, ещё не проверенные live-тестами
+### Области, ещё не проверенные desktop GUI live-тестами
 
 Не являются багами — просто не проверялись:
 
-- macOS: folder picker, Terminal.app Claude Code/OpenCode launch, точный Unicode
-  cwd/env и точечный SHUTDOWN.
-- Linux: zenity/kdialog picker, все поддержанные terminal emulator варианты,
-  точный Unicode cwd/env и точечный SHUTDOWN.
+- macOS: визуальное открытие folder picker и Terminal.app Claude Code/OpenCode,
+  интерактивность CLI и точечный SHUTDOWN окна/процесса.
+- Linux: визуальное открытие zenity/kdialog и поддержанных terminal emulator,
+  интерактивность CLI и точечный SHUTDOWN окна/процесса.
 
 ## Известные пробелы и TODO
 
@@ -356,10 +359,12 @@ Web API (`chat.deepseek.com`) ненадёжно для tool calling.
 `clone` → `npm install` → `npm run auth` → `npm start` → открыть
 `http://127.0.0.1:9655` → пользоваться Web UI без ручного выбора ОС.
 
-**Статус**: Windows/auth-lifecycle и Windows CLI launch live-подтверждены.
+**Статус**: Windows/auth-lifecycle и Windows CLI launch desktop live-подтверждены.
 `GET /api/system`, macOS picker/Terminal.app launch и Linux picker/terminal-emulator
-launch реализованы и покрыты platform-mocked offline-тестами. Настоящие
-macOS/Linux live-тесты ещё требуются.
+launch реализованы и покрыты platform-mocked offline-тестами. Workflow
+`.github/workflows/cross-platform.yml` дополнительно запускает typecheck, все
+offline tests, build и `npm run test:platform` на реальных GitHub-hosted
+Windows/macOS/Linux runner. Это real-OS CI, но не desktop GUI live-test.
 
 - [x] Windows FolderBrowserDialog передаёт UTF-8 path через ASCII Base64; Node
       явно декодирует UTF-8 и исправляет реально наблюдавшийся Latin-1 mojibake
@@ -393,6 +398,14 @@ macOS/Linux live-тесты ещё требуются.
       Unicode/cancel/fallback покрыты platform-mocked offline-тестами.
 - [ ] Провести настоящие macOS/Linux live-тесты folder picker, нативного CLI
       launch/SHUTDOWN и Chrome auth.
+- [x] Добавить real-OS CI matrix (`windows-latest`, `macos-latest`,
+      `ubuntu-latest`) и изолированный `test:platform`: текущая ОС,
+      `buildConfig`, startup Bridge, `/health`, `/readyz`, `/api/system`, Unicode
+      temp cwd, безопасный child, четыре Bridge env и cleanup. macOS также
+      проверяет наличие `osascript`/Terminal.app, production POSIX runner и
+      POSIX quoting; Linux — реальное обнаружение terminal transport и
+      capability=false при его отсутствии. Smoke не читает auth, не запускает
+      DeepSeek/Claude/OpenCode и не делает broad process kill.
 - [x] Реализовать `GET /api/system` и UI capabilities. Windows возвращает
       picker/Claude/OpenCode launch `true`; macOS launch = `true` только при
       наличии `osascript` + Terminal.app; Linux launch = `true` только при наличии
@@ -426,6 +439,18 @@ Backend определяет платформу через `process.platform`:
 
 Endpoint реализован; backend использует только `process.platform`. На Linux
 `folderPicker` определяется безопасной проверкой `zenity`, затем `kdialog`.
+
+#### Уровни cross-platform проверки
+
+1. **Unit/platform-mocked** — Vitest проверяет mocked платформы, picker/terminal
+   argv builders, escaping, capabilities и Windows regressions.
+2. **Real-OS CI** — GitHub Actions запускает проект и безопасный child runner на
+   настоящих Windows/macOS/Linux runner; проверяет filesystem/Unicode/cwd/env и
+   backend HTTP без аккаунта DeepSeek. На macOS/Linux выполняется fixed POSIX
+   runner, но GUI transport намеренно не открывается.
+3. **Desktop GUI live-tested** — требует пользовательской desktop session и
+   ручного наблюдения picker/видимого интерактивного терминала. Windows пройден;
+   macOS/Linux остаются TODO.
 
 #### 3. Folder picker
 

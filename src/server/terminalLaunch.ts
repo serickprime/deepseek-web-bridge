@@ -32,6 +32,12 @@ export interface TerminalCommand {
   args: string[];
 }
 
+export interface UnixCliRunner {
+  tempDir: string;
+  pidFile: string;
+  runnerArgs: string[];
+}
+
 interface NativeLaunchRecord {
   child: ChildProcess;
   platform: "darwin" | "linux";
@@ -144,12 +150,12 @@ export function buildLinuxTerminalCommand(
   }
 }
 
-function createRunner(
+export function createUnixCliRunner(
   cwd: string,
   bridgeEnv: Record<string, string>,
   command: string,
   args: string[],
-): { tempDir: string; pidFile: string; runnerArgs: string[] } {
+): UnixCliRunner {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "deepseek-bridge-launch-"));
   const runnerPath = path.join(tempDir, "run-cli.sh");
   const pidFile = path.join(tempDir, "cli.pid");
@@ -269,7 +275,7 @@ export async function launchNativeTerminal(
     }
   }
 
-  const runner = createRunner(resolvedCwd, bridgeEnv, command, args);
+  const runner = createUnixCliRunner(resolvedCwd, bridgeEnv, command, args);
   const title = tool === "claude" ? "DeepSeek Bridge — Claude Code" : "DeepSeek Bridge — OpenCode";
   const terminalCommand = platform === "darwin"
     ? buildMacTerminalCommand(runner.runnerArgs)

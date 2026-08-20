@@ -17,7 +17,8 @@
     "ui": "tsx scripts/launcher.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:live": "tsx scripts/live/run.ts"
+    "test:live": "tsx scripts/live/run.ts",
+    "test:platform": "tsx scripts/platformSmoke.ts"
   },
   "dependencies": {
     "ws": "^8.18.0"
