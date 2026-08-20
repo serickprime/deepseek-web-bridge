@@ -3,6 +3,35 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-20 — One-click desktop launchers
+
+- `scripts/desktopStart.mjs` — добавлен общий dependency-free bootstrap только на
+  built-in Node API. Он независимо определяет корень репозитория, требует Node.js
+  20+, проверяет npm, при отсутствии `node_modules` запускает `npm install`, а при
+  missing/stale `dist/index.js` — `npm run build`.
+- Перед установкой/build bootstrap проверяет `http://127.0.0.1:9655/health`.
+  Уже работающий Bridge не дублируется: открывается существующий Web UI. Для нового
+  процесса bootstrap ждёт HTTP 200 readiness, затем открывает браузер и остаётся
+  привязанным к `npm start`, сохраняя видимые логи и lifecycle окна.
+- Ошибки Node/npm/install/build/startup сначала показываются простым русским
+  сообщением, затем краткой технической причиной. Node не устанавливается скрытно:
+  при отсутствии или версии ниже 20 открывается официальная download page.
+- `START.bat`, `START.command`, `START.sh`, `DeepSeek Web Bridge.desktop` — тонкие
+  launchers для двойного клика. Все вычисляют корень относительно собственного
+  файла; пути передаются через quoted argv/cwd без shell interpolation. Linux
+  desktop entry использует freedesktop `%k` отдельным аргументом и оставляет
+  `START.sh` fallback; macOS launcher не пытается обходить Gatekeeper.
+- `tests/unit/desktopStart.test.ts` — 18 offline-тестов: Node <20, missing npm,
+  first/already-installed launch, build decision, duplicate Bridge, health polling,
+  Unicode cwd, install/build/startup failures, timeout, dependency-free imports и
+  безопасные относительные launcher contracts. npm, browser и Bridge в тестах
+  заменены injected runtime и реально не запускаются.
+- `README.md`, `PROJECT_STATE.md` — one-click flow сделан основным сценарием;
+  npm-команды перенесены в «Ручной запуск / Для разработчиков». macOS/Linux
+  double-click GUI остаётся честным desktop live-test TODO; существующий real-OS
+  CI matrix продолжает выполнять весь offline suite на трёх ОС.
+- Итого: 24 test files, 400 tests.
+
 ## 2026-08-20 — Reject fabricated environment tool results
 
 - `src/tools/toolParser.ts`, `src/deepseek/client.ts` — completion guard теперь

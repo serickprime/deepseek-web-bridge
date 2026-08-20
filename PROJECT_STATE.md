@@ -22,12 +22,14 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
 
 Рабочая цепочка «из коробки»:
 
-1. `npm run auth` — открыть Chrome, войти в DeepSeek (вручную, CAPTCHA/2FA),
-   сохранить `data/auth.json` (token + cookie + опциональные hif-заголовки, права 0600).
-2. `npm run doctor` — все проверки зелёные (auth, доступность, PoW, session,
-   completion SSE).
-3. `npm start` — сервер на `http://127.0.0.1:9655`.
-4. Клиенты подключаются:
+1. Скачать ZIP, распаковать и запустить `START.bat`, `START.command` или
+   `DeepSeek Web Bridge.desktop`. Dependency-free bootstrap проверяет Node/npm,
+   при первом запуске выполняет install + build, запускает Bridge и открывает Web UI.
+2. Нажать AUTH, войти в DeepSeek (вручную, CAPTCHA/2FA) и сохранить
+   `data/auth.json` (token + cookie + опциональные hif-заголовки, права 0600).
+3. Выбрать рабочую папку и запустить Claude Code/OpenCode из Bridge Console.
+4. Для ручного/developer-сценария остаются `npm run auth`, `npm run doctor` и
+   `npm start`; клиенты подключаются:
    - Claude Code: `ANTHROPIC_BASE_URL=http://127.0.0.1:9655`,
      `ANTHROPIC_AUTH_TOKEN=local-key`, модель `deepseek-reasoner`;
    - OpenCode: `OPENCODE_CONFIG=opencode.json`, модель `deepseek-web/deepseek-reasoner`;
@@ -55,7 +57,8 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
 - `src/deepseek/` — PoW (WASM), SSE/update парсеры, upstream-клиент.
   `parentMessageId` — number (uint32), парсится через `parseMessageId()`.
 - `src/server/` — HTTP-сервер, middleware, адаптеры вывода, SSE-обрамление.
-- `scripts/` — auth (CDP), doctor, launcher, start, live-тест.
+- `scripts/` — dependency-free desktop bootstrap, auth (CDP), doctor, launcher,
+  start, live-тест.
 - `tests/unit/` — vitest, offline (без обращения к DeepSeek).
 
 ## Статус по фазам
@@ -71,14 +74,14 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
 | 7. DeepSeek | pow (WASM), sseParser, updateParser, client | ✅ готово |
 | 8. Server | middleware, output-адаптеры, protocolStream, routes, server | ✅ готово |
 | 9. Entrypoint | app.ts, index.ts, start.ts | ✅ готово |
-| 10. Тесты | 23 файла, 382 теста | ✅ готово |
-| 11. Скрипты | cdp, auth, doctor, launcher, live, real-OS platform smoke | ✅ live-часть работает |
+| 10. Тесты | 24 файла, 400 тестов | ✅ готово |
+| 11. Скрипты | desktopStart, cdp, auth, doctor, launcher, live, real-OS platform smoke | ✅ live-часть работает |
 | 12. Веб-интерфейс | Bridge Console на `GET /` (Mileo dark theme, two-panel, diagnostics, model picker) | ✅ готово |
 
 **Проверки сейчас:**
 - `npm run typecheck` — ✅ без ошибок.
 - `npm run build` — ✅ собирается.
-- `npm test` — ✅ 382/382.
+- `npm test` — ✅ 400/400.
 - `npm run test:platform` — ✅ локально на Windows: real process/platform,
   `buildConfig`, Bridge HTTP, Unicode cwd и env propagation без DeepSeek auth.
 - `npm run auth` / Web UI AUTH — ✅ Bearer захватывается из сети, HIF читается из
@@ -170,6 +173,12 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
 - Скрипты: `auth` (CDP, читает hif_leim из localStorage), `doctor` (6 последовательных
   чеков + реальный completion-запрос), `launcher` (меню), `live/run` (account
   live-test), `platformSmoke` (изолированный real-OS CI smoke без DeepSeek auth).
+  `scripts/desktopStart.mjs` использует только built-in Node API и является общей
+  логикой one-click launch: Node/npm preflight, первый `npm install`, stale/missing
+  dist build, duplicate-server health guard, startup health wait и browser open.
+  Тонкие `START.bat`, `START.command`, `START.sh` только находят корень и обрабатывают
+  отсутствие Node до запуска bootstrap; Linux `.desktop` передаёт собственный путь
+  через freedesktop `%k` отдельным аргументом.
 
 ## Исследование: tool calling в других проектах
 
@@ -380,6 +389,14 @@ launch реализованы и покрыты platform-mocked offline-тест
 offline tests, build и `npm run test:platform` на реальных GitHub-hosted
 Windows/macOS/Linux runner. Это real-OS CI, но не desktop GUI live-test.
 
+- [x] Добавлен one-click запуск самого Bridge: Windows `START.bat`, macOS
+      `START.command`, Linux `DeepSeek Web Bridge.desktop` + fallback `START.sh`.
+      Общий dependency-free `scripts/desktopStart.mjs` работает до установки
+      dependencies, поддерживает Unicode/пробелы через отдельный `cwd`, не запускает
+      второй Bridge при HTTP 200 `/health`, автоматически выполняет install/build,
+      ждёт readiness и открывает Web UI. 18 offline-тестов изолируют npm, browser и
+      child process; настоящий double-click desktop live-test macOS/Linux не заявлен.
+
 - [x] Windows FolderBrowserDialog передаёт UTF-8 path через ASCII Base64; Node
       явно декодирует UTF-8 и исправляет реально наблюдавшийся Latin-1 mojibake
       только когда восстановленный каталог существует. **Runtime live-test
@@ -410,8 +427,8 @@ Windows/macOS/Linux runner. Это real-OS CI, но не desktop GUI live-test.
 - [x] Реализовать macOS/Linux folder picker: macOS `osascript`; Linux приоритетно
       `zenity`, затем `kdialog`, иначе `supported:false` и ручной ввод.
       Unicode/cancel/fallback покрыты platform-mocked offline-тестами.
-- [ ] Провести настоящие macOS/Linux live-тесты folder picker, нативного CLI
-      launch/SHUTDOWN и Chrome auth.
+- [ ] Провести настоящие macOS/Linux live-тесты one-click START, folder picker,
+      нативного CLI launch/SHUTDOWN и Chrome auth.
 - [x] Добавить real-OS CI matrix (`windows-latest`, `macos-latest`,
       `ubuntu-latest`) и изолированный `test:platform`: текущая ОС,
       `buildConfig`, startup Bridge, `/health`, `/readyz`, `/api/system`, Unicode
