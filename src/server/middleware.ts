@@ -8,7 +8,7 @@ export interface SecurityOptions {
   loopback: boolean;
 }
 
-export const PUBLIC_PATHS: ReadonlySet<string> = new Set(["/", "/health", "/readyz"]);
+export const PUBLIC_PATHS: ReadonlySet<string> = new Set(["/", "/health", "/readyz", "/api/system"]);
 
 export function isPublicPath(method: string, path: string): boolean {
   const pathname = path.split("?")[0] ?? path;

@@ -12,6 +12,7 @@ import { SseAccumulator } from "../deepseek/sseParser.js";
 import { DeepSeekPatchParser } from "../deepseek/updateParser.js";
 import { COMPLETION_PATH, SESSION_CREATE_PATH, CLIENT_HEADERS, BROWSER_HEADERS, UPSTREAM_USER_AGENT } from "../config/constants.js";
 import { CdpConnection, createPage, launchChrome, waitForDebugger, findChrome } from "../cdp.js";
+import { findLinuxFolderPicker } from "./system.js";
 
 const CDP_PORT = 9222;
 
@@ -618,7 +619,72 @@ function normalizePickedPath(selected: string): string {
   return !repaired.includes("\uFFFD") && fs.existsSync(repaired) ? repaired : selected;
 }
 
+function runUnixFolderPicker(
+  command: string,
+  args: string[],
+  isCancellation: (code: number | null, stderr: string) => boolean,
+  normalize: (selected: string) => string = selected => selected,
+): Promise<PickFolderResult> {
+  return new Promise(resolve => {
+    const child = spawn(command, args, {
+      stdio: ["ignore", "pipe", "pipe"],
+      shell: false,
+    });
+    const stdout: Buffer[] = [];
+    const stderr: Buffer[] = [];
+    let failedToStart = false;
+    child.stdout?.on("data", (chunk: Buffer | string) => {
+      stdout.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, "utf8"));
+    });
+    child.stderr?.on("data", (chunk: Buffer | string) => {
+      stderr.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, "utf8"));
+    });
+    child.on("error", () => {
+      failedToStart = true;
+      resolve({ path: null, cancelled: false, supported: false });
+    });
+    child.on("close", code => {
+      if (failedToStart) return;
+      const selected = Buffer.concat(stdout).toString("utf8").replace(/[\r\n]+$/, "");
+      if (selected) {
+        resolve({ path: normalize(selected), cancelled: false, supported: true });
+        return;
+      }
+      const errorText = Buffer.concat(stderr).toString("utf8");
+      resolve({ path: null, cancelled: isCancellation(code, errorText), supported: true });
+    });
+  });
+}
+
 export async function pickFolder(): Promise<PickFolderResult> {
+  if (process.platform === "darwin") {
+    return runUnixFolderPicker(
+      "osascript",
+      ["-e", 'POSIX path of (choose folder with prompt "Select working directory")'],
+      (_code, stderr) => /User canceled|\(-128\)/i.test(stderr),
+      selected => selected.length > 1 && selected.endsWith("/") ? selected.slice(0, -1) : selected,
+    );
+  }
+
+  if (process.platform === "linux") {
+    const picker = await findLinuxFolderPicker();
+    if (picker === "zenity") {
+      return runUnixFolderPicker(
+        "zenity",
+        ["--file-selection", "--directory", "--title=Select working directory"],
+        code => code === 1,
+      );
+    }
+    if (picker === "kdialog") {
+      return runUnixFolderPicker(
+        "kdialog",
+        ["--getexistingdirectory", process.cwd(), "--title", "Select working directory"],
+        code => code === 1,
+      );
+    }
+    return { path: null, cancelled: false, supported: false };
+  }
+
   if (process.platform !== "win32") return { path: null, cancelled: false, supported: false };
 
   const ps = [

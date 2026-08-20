@@ -114,7 +114,7 @@ export class DeepSeekClient {
     const res = await this.fetch(SESSION_CREATE_PATH, { method: "POST", body }, null, authGeneration);
     if (res.status === 401 || res.status === 403) {
       throw new BridgeError(
-        `DeepSeek authorization expired (HTTP ${res.status}). Run \`npm run auth\` and restart Bridge.`,
+        `DeepSeek authorization expired (HTTP ${res.status}). Use AUTH in Bridge Console, or run \`npm run auth\`.`,
         { code: res.status === 401 ? "DEEPSEEK_HTTP_401" : "DEEPSEEK_HTTP_403", status: res.status },
       );
     }
@@ -221,7 +221,7 @@ export class DeepSeekClient {
     );
     if (res.status === 401 || res.status === 403) {
       throw new BridgeError(
-        `DeepSeek authorization expired (HTTP ${res.status}). Run \`npm run auth\` and restart Bridge.`,
+        `DeepSeek authorization expired (HTTP ${res.status}). Use AUTH in Bridge Console, or run \`npm run auth\`.`,
         { code: res.status === 401 ? "DEEPSEEK_HTTP_401" : "DEEPSEEK_HTTP_403", status: res.status },
       );
     }
@@ -364,7 +364,7 @@ export class DeepSeekClient {
     const res = await this.fetch(CHALLENGE_PATH, { method: "POST", body }, null, authGeneration);
     if (res.status === 401 || res.status === 403) {
       throw new BridgeError(
-        `DeepSeek authorization expired (HTTP ${res.status}). Run \`npm run auth\` and restart Bridge.`,
+        `DeepSeek authorization expired (HTTP ${res.status}). Use AUTH in Bridge Console, or run \`npm run auth\`.`,
         { code: res.status === 401 ? "DEEPSEEK_HTTP_401" : "DEEPSEEK_HTTP_403", status: res.status },
       );
     }

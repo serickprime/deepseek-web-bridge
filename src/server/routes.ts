@@ -17,6 +17,7 @@ import type { Redactor } from "../utils/redaction.js";
 import type { AuthCredentials } from "../deepseek/client.js";
 import { LANDING_PAGE_HTML } from "./landingPage.js";
 import { runAuthSSE, runDoctorSSE, runDiagnosticsSSE, checkAuthStatus, launchClaudeCode, launchOpenCode, writeSSE, endSSE, pickFolder, performLogout, stopLaunchedProcesses, stopActiveAuthChrome, type ActionEvent } from "./actions.js";
+import { getSystemCapabilities, type SystemCapabilities } from "./system.js";
 
 export interface RouteContext {
   security: SecurityOptions;
@@ -29,6 +30,7 @@ export interface RouteContext {
   gracefulStop?: () => Promise<void>;
   setRuntimeAuth?: (auth: AuthCredentials) => Promise<void> | void;
   clearRuntimeAuth?: () => Promise<void> | void;
+  systemInfo?: () => Promise<SystemCapabilities>;
 }
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
@@ -180,6 +182,11 @@ export function routes(ctx: RouteContext): Array<{
     },
     {
       method: "GET",
+      path: "/api/system",
+      handler: async (_req, res) => sendJson(res, 200, await (ctx.systemInfo?.() ?? getSystemCapabilities())),
+    },
+    {
+      method: "GET",
       path: "/v1/models",
       handler: async (_req, res) => {
         const data = ctx.models.map(m => ({ ...m, created: Math.floor(Date.now() / 1000) }));
@@ -325,6 +332,7 @@ export function routes(ctx: RouteContext): Array<{
           const tool = typeof body.tool === "string" ? body.tool : "";
           const workDir = typeof body.workDir === "string" ? body.workDir : process.cwd();
           const model = typeof body.model === "string" ? body.model : "deepseek-chat";
+          const system = await (ctx.systemInfo?.() ?? getSystemCapabilities());
 
           res.writeHead(200, {
             "content-type": "text/event-stream",
@@ -334,8 +342,18 @@ export function routes(ctx: RouteContext): Array<{
           const send = (e: ActionEvent) => writeSSE(res, e);
 
           if (tool === "claude") {
+            if (!system.claudeCodeLaunch) {
+              send({ type: "error", message: `Claude Code launch is not supported on ${system.platform} yet. Start it manually in a terminal.` });
+              endSSE(res);
+              return;
+            }
             launchClaudeCode(workDir, model, send);
           } else if (tool === "opencode") {
+            if (!system.openCodeLaunch) {
+              send({ type: "error", message: `OpenCode launch is not supported on ${system.platform} yet. Start it manually in a terminal.` });
+              endSSE(res);
+              return;
+            }
             launchOpenCode(workDir, model, send);
           } else {
             send({ type: "error", message: `Unknown tool: ${tool}. Use "claude" or "opencode".` });

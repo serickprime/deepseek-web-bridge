@@ -3,6 +3,47 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-20 — Cross-platform system capabilities and folder picker
+
+### Реализация
+
+- `src/server/system.ts`, `src/server/routes.ts`, `src/server/middleware.ts` —
+  добавлен публичный read-only `GET /api/system`. Backend определяет платформу
+  через `process.platform`; browser platform/user-agent не используется. Schema:
+  `platform`, `folderPicker`, `claudeCodeLaunch`, `openCodeLaunch`.
+- Windows capabilities: folder picker, Claude Code launch и OpenCode launch =
+  `true`. Проверенный WinForms picker в `src/server/actions.ts` не изменён:
+  сохранены UTF-8/Base64 transport и filesystem-validated mojibake fallback.
+- macOS: folder picker через статический AppleScript в `osascript`, UTF-8 stdout,
+  Unicode path и cancel `-128` → `cancelled:true`. CLI launch capabilities =
+  `false`, пока нет отдельного Terminal.app launch и настоящего live-теста.
+- Linux: безопасная проверка наличия `zenity`, затем `kdialog`; picker запускается
+  через `spawn(..., shell:false)` со статическими аргументами. Если обе утилиты
+  отсутствуют, возвращается `supported:false`, Web UI оставляет ручной ввод.
+  CLI launch capabilities = `false` до terminal-emulator реализации/live-теста.
+- `src/server/landingPage.ts` — UI загружает `/api/system`, показывает платформу,
+  включает picker только при `folderPicker:true`, никогда не скрывает ручной
+  workDir input и отключает неподтверждённый CLI launch. Backend также отклоняет
+  direct `/bridge/launch` на платформах с launch capability `false`.
+- `src/deepseek/client.ts` — сообщения 401/403 больше не требуют restart Bridge;
+  пользователь направляется к AUTH в Bridge Console или `npm run auth`.
+- `README.md`, `docs/architecture.md`, `PROJECT_STATE.md` синхронизированы с
+  текущими capabilities и ограничениями.
+
+### Offline tests и границы проверки
+
+- `tests/unit/systemCapabilities.test.ts` — 5 тестов: endpoint для mocked
+  win32/darwin/linux, Linux без picker utilities, Web UI `folderPicker:false`.
+- `tests/unit/crossPlatformPicker.test.ts` — 5 тестов: macOS Unicode/cancel,
+  Linux zenity, kdialog fallback, отсутствие обоих picker.
+- Существующие Windows Unicode picker/launch regressions продолжают проверяться.
+  macOS/Linux сценарии в этой итерации только platform-mocked/offline; настоящий
+  live-test на macOS/Linux не заявляется и остаётся TODO.
+- Реальный Windows production probe на порту 9657: `GET /api/system` = HTTP 200
+  `{"platform":"win32","folderPicker":true,"claudeCodeLaunch":true,"openCodeLaunch":true}`;
+  HTML действительно запрашивает endpoint и сохраняет ручной `#workdir` input.
+- Итого: 22 test files, 341 test.
+
 ## 2026-08-20 — Verify Web UI auth lifecycle and shutdown
 
 ### Runtime root causes и исправления

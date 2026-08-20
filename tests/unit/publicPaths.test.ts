@@ -6,6 +6,7 @@ describe("isPublicPath", () => {
     expect(isPublicPath("GET", "/")).toBe(true);
     expect(isPublicPath("GET", "/health")).toBe(true);
     expect(isPublicPath("GET", "/readyz")).toBe(true);
+    expect(isPublicPath("GET", "/api/system")).toBe(true);
   });
 
   it("does not exempt API endpoints", () => {

@@ -181,23 +181,24 @@ WASM, компиляцию, решение PoW, completion, SSE, reasoning, `res
 
 Обычные offline-тесты (`npm test`) не обращаются к аккаунту DeepSeek.
 
-## Cross-platform platform abstraction (план)
+## Cross-platform platform abstraction
 
 Web UI должен работать одинаково на Windows, macOS и Linux.
 Backend определяет платформу через `process.platform` и предоставляет
 capabilities клиенту. Пользователь НЕ выбирает ОС вручную.
 
-### System capabilities API (будущий endpoint)
+### System capabilities API
 
-`GET /api/system` вернёт JSON с platform, folderPicker, claudeCodeLaunch,
-openCodeLaunch. Endpoint сейчас не реализовывать.
+`GET /api/system` возвращает JSON с `platform`, `folderPicker`,
+`claudeCodeLaunch`, `openCodeLaunch`. Backend использует `process.platform`;
+browser user-agent не участвует. Read-only endpoint публичен наравне с health.
 
 ### Platform-specific компоненты
 
 | Компонент | Windows | macOS | Linux |
 | --- | --- | --- | --- |
-| Folder picker | PowerShell / WinForms | osascript / AppleScript | zenity / kdialog / fallback |
-| CLI launch | Windows Terminal / PowerShell | Terminal.app / совместимый | x-terminal-emulator / gnome-terminal / konsole |
+| Folder picker | PowerShell / WinForms, UTF-8/Base64 | osascript / AppleScript | zenity → kdialog → manual input |
+| CLI launch capability | ✅ live-подтверждена | ❌ до Terminal.app реализации | ❌ до terminal-emulator реализации |
 | Chrome auth | ✅ поддерживается | ✅ частично (live-test) | ✅ частично (live-test) |
 
 ### Правила
@@ -206,3 +207,7 @@ openCodeLaunch. Endpoint сейчас не реализовывать.
 - Web UI не определяет платформу через user-agent.
 - Интерактивный CLI не запускается невидимо в фоне.
 - Если picker недоступен — разрешается ручной ввод пути.
+- Все picker-команды запускаются через `spawn` с `shell:false`; выбранный путь
+  читается из UTF-8 stdout и не вставляется в shell command string.
+- macOS/Linux picker покрыты platform-mocked offline-тестами, но требуют
+  настоящих live-тестов на соответствующих ОС.

@@ -126,7 +126,7 @@ describe("DeepSeekClient.complete - 401/403 on completion", () => {
   let tracker: ReturnType<typeof mockFetch>;
   afterEach(() => { tracker?.restore(); });
 
-  it("401 on completion -> DEEPSEEK_HTTP_401 with npm run auth message", async () => {
+  it("401 on completion -> DEEPSEEK_HTTP_401 with runtime re-auth guidance", async () => {
     let callCount = 0;
     tracker = mockFetch(async () => {
       callCount++;
@@ -142,7 +142,9 @@ describe("DeepSeekClient.complete - 401/403 on completion", () => {
     } catch (e) {
       expect(e).toBeInstanceOf(BridgeError);
       expect((e as BridgeError).code).toBe("DEEPSEEK_HTTP_401");
+      expect((e as BridgeError).message).toContain("AUTH in Bridge Console");
       expect((e as BridgeError).message).toContain("npm run auth");
+      expect((e as BridgeError).message).not.toContain("restart Bridge");
       expect((e as BridgeError).message).not.toContain("tok_abc");
     }
   });
@@ -232,7 +234,7 @@ describe("CompletionHandler - auth expired resets", () => {
 
   it("401 on ensureSession resets session and lineage", async () => {
     const error = new BridgeError(
-      "DeepSeek authorization expired (HTTP 401). Run `npm run auth` and restart Bridge.",
+      "DeepSeek authorization expired (HTTP 401). Use AUTH in Bridge Console, or run `npm run auth`.",
       { code: "DEEPSEEK_HTTP_401", status: 401 },
     );
     const handler = makeHandler({
@@ -269,7 +271,7 @@ describe("CompletionHandler - auth expired resets", () => {
 
   it("403 on ensureSession resets session and lineage", async () => {
     const error = new BridgeError(
-      "DeepSeek authorization expired (HTTP 403). Run `npm run auth` and restart Bridge.",
+      "DeepSeek authorization expired (HTTP 403). Use AUTH in Bridge Console, or run `npm run auth`.",
       { code: "DEEPSEEK_HTTP_403", status: 403 },
     );
     const handler = makeHandler({
@@ -309,7 +311,7 @@ describe("CompletionHandler - auth expired resets", () => {
       ensureSession: async (state: { chatSessionId: string | null }) => { state.chatSessionId = "sess_001"; },
       complete: async () => {
         throw new BridgeError(
-          "DeepSeek authorization expired (HTTP 401). Run `npm run auth` and restart Bridge.",
+          "DeepSeek authorization expired (HTTP 401). Use AUTH in Bridge Console, or run `npm run auth`.",
           { code: "DEEPSEEK_HTTP_401", status: 401 },
         );
       },
@@ -376,7 +378,7 @@ describe("CompletionHandler - auth expired resets", () => {
 
   it("lineage cleaned for upstreamKey with multiple call IDs", async () => {
     const error = new BridgeError(
-      "DeepSeek authorization expired (HTTP 401). Run `npm run auth` and restart Bridge.",
+      "DeepSeek authorization expired (HTTP 401). Use AUTH in Bridge Console, or run `npm run auth`.",
       { code: "DEEPSEEK_HTTP_401", status: 401 },
     );
     const handler = makeHandler({

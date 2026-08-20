@@ -56,6 +56,7 @@ body::after{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;opac
 
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;font-family:var(--m);font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;padding:9px 18px;border-radius:4px;border:none;cursor:pointer;transition:all .12s ease;text-decoration:none;white-space:nowrap}
 .btn:active{transform:scale(.97)}
+.btn:disabled{cursor:not-allowed;opacity:.4;transform:none;box-shadow:none}
 .btn-p{background:var(--acc);color:#fff;box-shadow:0 0 20px rgba(253,16,0,.2)}
 .btn-p:hover{background:#e00e00;box-shadow:0 0 28px rgba(253,16,0,.35)}
 .btn-s{background:transparent;color:var(--txt-m);border:1px solid var(--bdr)}
@@ -167,13 +168,13 @@ select.f-inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xml
           <div class="f-lbl">WORKING DIRECTORY</div>
           <div class="f-row">
             <input class="f-inp" id="workdir" type="text" placeholder="D:\\Projects\\my-app" value="">
-            <button class="btn btn-s btn-sm" onclick="pickFolder()">...</button>
+            <button class="btn btn-s btn-sm" id="pick-folder-btn" onclick="pickFolder()" disabled>...</button>
           </div>
           <div class="f-hint" id="wd-status"><span class="dot dot-p"></span><span>Path not verified</span></div>
         </div>
         <div class="sess-acts">
-          <button class="btn btn-p btn-sm" onclick="launchClaude()">RUN CLAUDE CODE</button>
-          <button class="btn btn-s btn-sm" onclick="launchOpen()">RUN OPENCODE</button>
+          <button class="btn btn-p btn-sm" id="launch-claude-btn" onclick="launchClaude()" disabled>RUN CLAUDE CODE</button>
+          <button class="btn btn-s btn-sm" id="launch-opencode-btn" onclick="launchOpen()" disabled>RUN OPENCODE</button>
         </div>
       </div>
     </div>
@@ -181,7 +182,7 @@ select.f-inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xml
 
   <div class="sbar">
     <div class="sbar-l"><span>&gt; STATUS // <span id="sbar-st">INITIALIZING</span> // LOCAL // NO TELEMETRY</span></div>
-    <div class="sbar-r">BRIDGE::LOCAL</div>
+    <div class="sbar-r">BRIDGE::LOCAL // <span id="platform-label">DETECTING</span></div>
   </div>
 </div>
 <div class="toast-w" id="toasts"></div>
@@ -211,6 +212,29 @@ select.f-inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xml
   var models=[];
   var diagOpen=false;
   var activeSSE=null;
+  var systemCaps=null;
+
+  function applySystemCapabilities(d){
+    systemCaps=d;
+    var platform=$("platform-label");
+    if(platform)platform.textContent=String(d.platform||"unknown").toUpperCase();
+    var picker=$("pick-folder-btn");
+    if(picker){picker.disabled=!d.folderPicker;picker.title=d.folderPicker?"Choose folder":"Folder picker unavailable; enter path manually";}
+    var hint=$("wd-status");
+    if(hint){
+      if(d.folderPicker)hint.innerHTML='<span class="dot dot-ok"></span><span>System folder picker available</span>';
+      else hint.innerHTML='<span class="dot dot-p"></span><span>Folder picker unavailable on '+String(d.platform||"this platform")+'; enter path manually</span>';
+    }
+    var claude=$("launch-claude-btn"),open=$("launch-opencode-btn");
+    if(claude){claude.disabled=!d.claudeCodeLaunch;claude.title=d.claudeCodeLaunch?"":"Start Claude Code manually in a terminal";}
+    if(open){open.disabled=!d.openCodeLaunch;open.title=d.openCodeLaunch?"":"Start OpenCode manually in a terminal";}
+  }
+
+  function updateSystem(){
+    fetch("/api/system").then(function(r){if(!r.ok)throw new Error("HTTP "+r.status);return r.json();})
+      .then(applySystemCapabilities)
+      .catch(function(){applySystemCapabilities({platform:"unknown",folderPicker:false,claudeCodeLaunch:false,openCodeLaunch:false});});
+  }
 
   function toggleDiag(){
     diagOpen=!diagOpen;
@@ -325,6 +349,7 @@ select.f-inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xml
 
   /* ── LAUNCH ── */
   function launch(tool){
+    if(systemCaps&&((tool==="claude"&&!systemCaps.claudeCodeLaunch)||(tool==="opencode"&&!systemCaps.openCodeLaunch))){showToast("Launch is not supported on this platform yet. Start the CLI manually in a terminal.","error");return;}
     var wd=$("workdir");
     var workDir=wd?wd.value.trim():"";
     if(!workDir){showToast("Enter working directory first","error");return;}
@@ -341,6 +366,7 @@ select.f-inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xml
   window.launchClaude=function(){launch("claude");};
   window.launchOpen=function(){launch("opencode");};
   window.pickFolder=function(){
+    if(systemCaps&&!systemCaps.folderPicker){showToast("Folder picker unavailable; enter path manually","info");return;}
     fetch("/bridge/pick-folder",{method:"POST",headers:{"content-type":"application/json"},body:"{}"})
       .then(function(r){return r.json();}).then(function(d){
         if(d.path){var inp=$("workdir");if(inp)inp.value=d.path;showToast("Folder selected","success");}
@@ -413,6 +439,7 @@ select.f-inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xml
     });
   }
 
+  updateSystem();
   updateHealth();
   updateReady();
   updateModels();

@@ -71,14 +71,14 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
 | 7. DeepSeek | pow (WASM), sseParser, updateParser, client | ✅ готово |
 | 8. Server | middleware, output-адаптеры, protocolStream, routes, server | ✅ готово |
 | 9. Entrypoint | app.ts, index.ts, start.ts | ✅ готово |
-| 10. Тесты | 20 файлов, 331 тест | ✅ готово |
+| 10. Тесты | 22 файла, 341 тест | ✅ готово |
 | 11. Скрипты | cdp, auth, doctor, launcher, live | ✅ live-часть работает |
 | 12. Веб-интерфейс | Bridge Console на `GET /` (Mileo dark theme, two-panel, diagnostics, model picker) | ✅ готово |
 
 **Проверки сейчас:**
 - `npm run typecheck` — ✅ без ошибок.
 - `npm run build` — ✅ собирается.
-- `npm test` — ✅ 331/331.
+- `npm test` — ✅ 341/341.
 - `npm run auth` / Web UI AUTH — ✅ Bearer захватывается из сети, HIF читается из
   localStorage при наличии; отсутствие HIF допустимо только после успешной upstream-верификации.
 - `npm run doctor` — ✅ все 6/6 проверок проходят (auth, reachable, challenge,
@@ -119,7 +119,8 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
   SSE-вывод для трёх протоколов, JSON-вывод для non-streaming (no-op
   ProtocolStream вместо null), `/health`, `/readyz`, `/v1/models`,
   `/v1/sessions` (CRUD), `/v1/chat/completions`, `/v1/responses`,
-  `/v1/messages`, `/bridge/pick-folder`, `/bridge/logout`, `/bridge/shutdown`.
+  `/v1/messages`, `GET /api/system`, `/bridge/pick-folder`, `/bridge/logout`,
+  `/bridge/shutdown`.
   `/bridge/logout` — локальный выход из DeepSeek: удаляет `auth.json` и dedicated
   Chrome profile, очищает runtime auth и account-bound upstream state/lineage,
   но оставляет HTTP Bridge и запущенные через Web UI Claude Code/OpenCode работать.
@@ -140,9 +141,12 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
 - Веб-интерфейс: Bridge Console на `GET /` в стиле Mileo (dark theme) — почти
   чёрный фон (#020101), красные акценты (#FD1000), two-panel layout
   (Connection + Session), статусные LED-точки, model picker из `/v1/models`,
-  Working Directory input с реальным folder picker (PowerShell FolderBrowserDialog,
-  UTF-8/Base64 transport и filesystem-validated mojibake fallback для Unicode
-  Windows paths, 3-состоятельный: path/cancelled/unsupported),
+  Working Directory input с platform-aware folder picker: Windows PowerShell
+  FolderBrowserDialog (UTF-8/Base64 transport и filesystem-validated mojibake
+  fallback), macOS `osascript`, Linux `zenity` → `kdialog` → ручной ввод;
+  общий 3-состоятельный результат path/cancelled/unsupported. UI получает
+  backend capabilities через `GET /api/system`, всегда сохраняет ручной input,
+  показывает платформу и отключает неподдержанные действия,
   кнопки запуска Claude Code / OpenCode, кнопки LOGOUT (локально удаляет auth + profile,
   не останавливая Bridge/CLI) и отдельная SHUTDOWN (останавливает tracked CLI,
   auth Chrome и Bridge), toggleable diagnostics terminal с имитацией проверок,
@@ -346,8 +350,9 @@ _(все проверены)_
 `clone` → `npm install` → `npm run auth` → `npm start` → открыть
 `http://127.0.0.1:9655` → пользоваться Web UI без ручного выбора ОС.
 
-**Статус**: первая Windows/auth-lifecycle итерация реализована. macOS/Linux picker
-и `GET /api/system` остаются планом следующей итерации.
+**Статус**: Windows/auth-lifecycle итерация live-подтверждена. `GET /api/system`,
+macOS picker и Linux `zenity`/`kdialog` fallback реализованы и покрыты
+platform-mocked offline-тестами. Настоящие macOS/Linux live-тесты ещё требуются.
 
 - [x] Windows FolderBrowserDialog передаёт UTF-8 path через ASCII Base64; Node
       явно декодирует UTF-8 и исправляет реально наблюдавшийся Latin-1 mojibake
@@ -376,8 +381,16 @@ _(все проверены)_
       вернул `RESTART-FINAL-963` без повторного AUTH. Отдельный production probe
       на порту 9656 подтвердил edge case: SHUTDOWN отменил активный AUTH, завершил
       Node PID `13880` и все 11 процессов dedicated auth Chrome; HTTP закрылся.
-- [ ] Реализовать и live-проверить macOS/Linux folder picker.
-- [ ] Реализовать `GET /api/system` и UI capabilities.
+- [x] Реализовать macOS/Linux folder picker: macOS `osascript`; Linux приоритетно
+      `zenity`, затем `kdialog`, иначе `supported:false` и ручной ввод.
+      Unicode/cancel/fallback покрыты platform-mocked offline-тестами.
+- [ ] Провести настоящие macOS/Linux live-тесты folder picker и Chrome auth.
+- [x] Реализовать `GET /api/system` и UI capabilities. Windows возвращает
+      picker/Claude/OpenCode launch `true`; macOS launch и Linux launch остаются
+      `false`, пока нет отдельной реализации Terminal.app/terminal emulator и live-теста.
+      **Windows runtime probe (2026-08-20)**: production `dist` вернул HTTP 200
+      `{"platform":"win32","folderPicker":true,"claudeCodeLaunch":true,"openCodeLaunch":true}`;
+      страница загрузила `/api/system` и сохранила ручной `#workdir` input.
 
 #### 1. Определение ОС
 
@@ -388,7 +401,7 @@ Backend определяет платформу через `process.platform`:
 
 Пользователь НЕ выбирает ОС вручную. Backend является source of truth.
 
-#### 2. System capabilities API (будущий endpoint)
+#### 2. System capabilities API
 
 `GET /api/system` — возвращает capabilities текущей ОС:
 
@@ -396,27 +409,31 @@ Backend определяет платформу через `process.platform`:
 {
   "platform": "darwin",
   "folderPicker": true,
-  "claudeCodeLaunch": true,
-  "openCodeLaunch": true
+  "claudeCodeLaunch": false,
+  "openCodeLaunch": false
 }
 ```
 
-Endpoint сейчас не реализовывать.
+Endpoint реализован; backend использует только `process.platform`. На Linux
+`folderPicker` определяется безопасной проверкой `zenity`, затем `kdialog`.
 
 #### 3. Folder picker
 
-- **Windows**: PowerShell / `System.Windows.Forms` (текущий механизм).
-- **macOS**: системный picker через `osascript` / AppleScript.
-- **Linux**: `zenity` / `kdialog` или fallback на ручной ввод пути.
+- **Windows**: PowerShell / `System.Windows.Forms`, неизменный UTF-8/Base64 transport
+  и текущий filesystem-validated mojibake fallback.
+- **macOS**: системный picker через `osascript` / AppleScript; UTF-8 stdout,
+  cancel `-128` → `cancelled:true`.
+- **Linux**: безопасное обнаружение и запуск без shell string: `zenity`, затем
+  `kdialog`; если обоих нет — `supported:false` и ручной ввод пути.
 
 Если picker недоступен — Web UI разрешает ручной ввод пути.
 
 #### 4. Запуск Claude Code / OpenCode
 
-- **Windows**: Windows Terminal / PowerShell (текущий механизм).
-- **macOS**: интерактивный CLI через `Terminal.app` или совместимый терминал.
-- **Linux**: обнаружение терминального эмулятора:
-  `x-terminal-emulator`, `gnome-terminal`, `konsole` и т.п.
+- **Windows**: текущий live-подтверждённый launch сохраняется, обе capability `true`.
+- **macOS/Linux**: текущий `launchProcess()` не гарантирует видимый интерактивный
+  терминал, поэтому обе capability `false`, а direct Web UI launch отклоняется.
+  Terminal.app и Linux terminal-emulator launch остаются отдельной итерацией.
 
 Не запускать интерактивный CLI невидимо в фоне при нажатии Launch в Web UI.
 
