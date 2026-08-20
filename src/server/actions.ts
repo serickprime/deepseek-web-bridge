@@ -14,6 +14,12 @@ import { COMPLETION_PATH, SESSION_CREATE_PATH, CLIENT_HEADERS, BROWSER_HEADERS, 
 import { CdpConnection, createPage, launchChrome, waitForDebugger, findChrome } from "../cdp.js";
 import { findLinuxFolderPicker, isCommandAvailableSync, type CommandAvailability } from "./system.js";
 import { launchNativeTerminal, stopNativeTerminalLaunches, type NativeLaunchOptions } from "./terminalLaunch.js";
+import {
+  OPENCODE_PROVIDER_ID,
+  PRIMARY_MODELS,
+  openCodeModelId,
+  resolveModelSelection,
+} from "../config/modelCapabilities.js";
 
 const CDP_PORT = 9222;
 
@@ -457,8 +463,8 @@ export async function runDoctorSSE(
       },
       body: JSON.stringify({
         chat_session_id: chatSessionId, parent_message_id: null, prompt: "Say OK only.",
-        ref_file_ids: [], model_name: "deepseek-chat", thinking_enabled: false, search_enabled: false,
-        messages: [{ id: "msg_1", role: "user", content: "Say OK only.", content_type: "text" }], additional_input: {},
+        ref_file_ids: [], model_type: "default", thinking_enabled: false, search_enabled: false,
+        action: null, preempt: false,
       }),
     });
     if (!res.ok) throw new Error(`completion HTTP ${res.status}`);
@@ -500,6 +506,33 @@ function getBridgeEnv(): Record<string, string> {
     ANTHROPIC_AUTH_TOKEN: "local-key",
     OPENAI_API_BASE: "http://127.0.0.1:9655/v1",
     OPENAI_API_KEY: "local-key",
+  };
+}
+
+export function buildOpenCodeBridgeConfig(): string {
+  return JSON.stringify({
+    $schema: "https://opencode.ai/config.json",
+    provider: {
+      [OPENCODE_PROVIDER_ID]: {
+        npm: "@ai-sdk/openai-compatible",
+        name: "DeepSeek Bridge",
+        options: {
+          baseURL: "{env:OPENAI_API_BASE}",
+          apiKey: "{env:OPENAI_API_KEY}",
+        },
+        models: Object.fromEntries(PRIMARY_MODELS.map(model => [
+          model.id,
+          { name: model.displayName },
+        ])),
+      },
+    },
+  });
+}
+
+function getOpenCodeBridgeEnv(): Record<string, string> {
+  return {
+    ...getBridgeEnv(),
+    OPENCODE_CONFIG_CONTENT: buildOpenCodeBridgeConfig(),
   };
 }
 
@@ -551,8 +584,15 @@ export function launchClaudeCode(
   send: (event: ActionEvent) => void,
   options: NativeLaunchOptions = {},
 ): ChildProcess | null | Promise<ChildProcess | null> {
+  let selectedModel: string;
+  try {
+    selectedModel = resolveModelSelection(model).canonicalId;
+  } catch (error) {
+    send({ type: "error", message: error instanceof Error ? error.message : String(error) });
+    return null;
+  }
   const args: string[] = [];
-  if (model) args.push("--model", model);
+  if (selectedModel) args.push("--model", selectedModel);
   const platform = options.platform ?? process.platform;
   if (platform !== "win32") {
     return launchNativeTerminal("claude", args, workDir, getBridgeEnv(), send, options);
@@ -564,15 +604,24 @@ export function launchClaudeCode(
 
 export function launchOpenCode(
   workDir: string,
-  _model: string,
+  model: string,
   send: (event: ActionEvent) => void,
   options: NativeLaunchOptions = {},
 ): ChildProcess | null | Promise<ChildProcess | null> {
+  let selectedModel: string;
+  try {
+    selectedModel = openCodeModelId(model);
+  } catch (error) {
+    send({ type: "error", message: error instanceof Error ? error.message : String(error) });
+    return null;
+  }
+  const args = ["--model", selectedModel];
+  const bridgeEnv = getOpenCodeBridgeEnv();
   const platform = options.platform ?? process.platform;
   if (platform !== "win32") {
-    return launchNativeTerminal("opencode", [], workDir, getBridgeEnv(), send, options);
+    return launchNativeTerminal("opencode", args, workDir, bridgeEnv, send, options);
   }
-  const child = launchProcess("opencode", [], workDir, send, getBridgeEnv());
+  const child = launchProcess("opencode", args, workDir, send, bridgeEnv);
   trackProcess(child);
   return child;
 }

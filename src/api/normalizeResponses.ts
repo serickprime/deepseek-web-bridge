@@ -19,6 +19,11 @@ function boolField(body: Record<string, unknown>, key: string, fallback: boolean
   return typeof value === "boolean" ? value : fallback;
 }
 
+function optionalBoolField(body: Record<string, unknown>, key: string): boolean | undefined {
+  const value = body[key];
+  return typeof value === "boolean" ? value : undefined;
+}
+
 function resolveText(items: unknown[] | string): string {
   if (typeof items === "string") return items;
   if (!Array.isArray(items)) return "";
@@ -112,12 +117,12 @@ export function normalizeResponses(body: unknown, headers: Record<string, string
   const record = requireRecord(body);
   const instructions = stringField(record, "instructions", "");
   const out: CanonicalRequest = {
-    model: stringField(record, "model", "deepseek-chat"),
+    model: stringField(record, "model", "deepseek-v4-flash"),
     stream: boolField(record, "stream", true),
     system: instructions,
     messages: [],
     tools: normalizeTools(record.tools),
-    reasoning: boolField(record, "reasoning", false),
+    reasoning: optionalBoolField(record, "reasoning"),
     search: false,
     maxTokens: maxTokens(record),
   };

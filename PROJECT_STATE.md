@@ -31,8 +31,11 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
 4. Для ручного/developer-сценария остаются `npm run auth`, `npm run doctor` и
    `npm start`; клиенты подключаются:
    - Claude Code: `ANTHROPIC_BASE_URL=http://127.0.0.1:9655`,
-     `ANTHROPIC_AUTH_TOKEN=local-key`, модель `deepseek-reasoner`;
-   - OpenCode: `OPENCODE_CONFIG=opencode.json`, модель `deepseek-web/deepseek-reasoner`;
+     `ANTHROPIC_AUTH_TOKEN=local-key`, модель `deepseek-v4-flash` или
+     `deepseek-v4-pro`;
+   - OpenCode: временный provider из дочернего process env, модель
+     `deepseek-bridge/deepseek-v4-flash` или
+     `deepseek-bridge/deepseek-v4-pro`; глобальный config не меняется;
    - любой OpenAI-клиент: `http://127.0.0.1:9655/v1`.
 5. `npm run test:live` — live-проверка проходит (health, models, chat, messages).
 
@@ -74,14 +77,14 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
 | 7. DeepSeek | pow (WASM), sseParser, updateParser, client | ✅ готово |
 | 8. Server | middleware, output-адаптеры, protocolStream, routes, server | ✅ готово |
 | 9. Entrypoint | app.ts, index.ts, start.ts | ✅ готово |
-| 10. Тесты | 24 файла, 400 тестов | ✅ готово |
+| 10. Тесты | 25 файлов, 418 тестов | ✅ готово |
 | 11. Скрипты | desktopStart, cdp, auth, doctor, launcher, live, real-OS platform smoke | ✅ live-часть работает |
 | 12. Веб-интерфейс | Bridge Console на `GET /` (Mileo dark theme, two-panel, diagnostics, model picker) | ✅ готово |
 
 **Проверки сейчас:**
 - `npm run typecheck` — ✅ без ошибок.
 - `npm run build` — ✅ собирается.
-- `npm test` — ✅ 400/400.
+- `npm test` — ✅ 418/418.
 - `npm run test:platform` — ✅ локально на Windows: real process/platform,
   `buildConfig`, Bridge HTTP, Unicode cwd и env propagation без DeepSeek auth.
 - `npm run auth` / Web UI AUTH — ✅ Bearer захватывается из сети, HIF читается из
@@ -117,6 +120,10 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
   **Session create limiter**: не более 1 нового chat_session раз в 2 секунды
   (`SESSION_CREATE_INTERVAL_MS`), конкурентные вызовы сериализуются через
   promise-chain. Continuation (existing `chatSessionId`) проходит без лимитера.
+  Модель выбирается через единый V4 registry: Flash/Instant отправляет
+  `model_type:"default"`, Pro/Expert — `model_type:"expert"`; Thinking и Search
+  передаются отдельными boolean-полями. Текущий Web payload использует
+  `action:null`/`preempt:false` и не содержит старый `model_name`.
 - Сессии: `SessionStore` (история с лимитами), `KeyedMutex` (последовательность
   для одной upstream-сессии), `SessionResolver` (client identity vs upstream
   identity), `LineageStore` (связь call-id → upstream-сессия в sessions.json).
@@ -161,6 +168,9 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
   toast notifications. Статические файлы `GET /assets/*` (PNG, CSS, JS) с
   path-traversal protection. Публичные пути: `/`, `/health`, `/readyz`,
   `/assets/*` (GET).
+  Model selector показывает только `deepseek-v4-flash` и `deepseek-v4-pro`.
+  OpenCode запускается с process-local provider `DeepSeek Bridge` и явным
+  `deepseek-bridge/<selected-model>`, не меняя пользовательский global config.
 - Безопасность: redaction секретов в логах, 0600 для auth/sessions файлов (Unix; на Windows без chmod для совместимости с NTFS),
   loopback-проверка + PROXY_API_KEY для не-loopback, CORS по умолчанию только
   loopback, ограничение глубины/размера tool аргументов, защита от
@@ -202,7 +212,19 @@ Claude Code, OpenCode, любой OpenAI-совместимый SDK.
 Web API (`chat.deepseek.com`) ненадёжно для tool calling.
 
 **Ключевое**: `deepseek-chat` и `deepseek-reasoner` deprecated (с 2026-07-24).
-Текущие модели: `deepseek-v4-flash` и `deepseek-v4-pro`.
+Текущие модели: `deepseek-v4-flash` и `deepseek-v4-pro`. Live CDP capture
+2026-08-20 подтвердил Web mapping: Instant=`model_type:"default"`,
+Expert=`model_type:"expert"`; `thinking_enabled` независим для обеих моделей,
+Search доступен в Instant и отсутствует в Expert UI. Upstream response оставляет
+`response.model` пустым, поэтому Bridge не отправляет выдуманный `model_name`.
+
+Production live-test текущей V4-интеграции 2026-08-20 подтвердил на одном
+работающем Bridge: Claude Code Flash → `FLASH-LIVE-731`, Claude Code Pro →
+`PRO-LIVE-482`; Flash Bash `pwd` прошёл как настоящий `tool_use`/`tool_result` и
+вернул `/d/test CC NODE`. OpenCode process-local provider перечислил только
+`deepseek-bridge/deepseek-v4-flash` и `deepseek-bridge/deepseek-v4-pro`, а
+реальный Flash completion вернул `OPENCODE-LIVE-517` (exit code 0). Глобальный
+OpenCode config не изменялся.
 
 ## Стабильная live-точка — 2026-08-20
 
@@ -299,8 +321,9 @@ Web API (`chat.deepseek.com`) ненадёжно для tool calling.
 - [x] **Битые ссылки** (`docs/protocols.md`, `docs/troubleshooting.md`,
       `docs/live-validation.md`) — удалены из README. Оставлены только
       ссылки на реально существующие документы.
-- [x] **`/v1/models` — «runtime probe»** — README исправлен: описан
-      статический список из 2 моделей (`deepseek-chat`, `deepseek-reasoner`).
+- [x] **`/v1/models` — актуальные модели** — публикуется статический список
+      подтверждённых `deepseek-v4-flash` и `deepseek-v4-pro`. Legacy aliases
+      `deepseek-chat`/`deepseek-reasoner` принимаются, но не рекламируются.
 
 ### Приоритет 3 (улучшения, не блокеры)
 - [x] В `src/api/handler.ts` переменная `turn` не используется — tool-цикл

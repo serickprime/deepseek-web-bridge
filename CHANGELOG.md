@@ -3,6 +3,49 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-20 — Current DeepSeek V4 Web models
+
+- До изменения runtime через dedicated Chrome/CDP перехвачены реальные запросы
+  текущего `chat.deepseek.com`. Instant отправляет `model_type:"default"`, Expert
+  — `model_type:"expert"`; Thinking меняет отдельный `thinking_enabled` для обеих
+  моделей. Smart Search в Instant меняет `search_enabled`; в Expert его toggle
+  отсутствует. Во всех режимах остальные scalar-поля совпали:
+  `action:null`, `preempt:false`. Token/cookie/HIF и prompt не логировались.
+- Response capture подтвердил `model_type`, thinking/search flags и показал, что
+  `response.model` сейчас пустой. Связь Instant→V4 Flash и Expert→V4 Pro
+  дополнительно сверена с официальным релизом DeepSeek V4; Bridge не выдумывает
+  upstream `model_name`.
+- `src/config/modelCapabilities.ts`, `src/deepseek/client.ts` — добавлен единый
+  registry: основные `deepseek-v4-flash`/`deepseek-v4-pro` маппятся на Web
+  `default`/`expert`; Thinking остаётся отдельным capability. Payload приведён к
+  текущему Web schema. Search разрешён для Flash и отклоняется для Pro.
+  `deepseek-chat`/`deepseek-reasoner` сохранены только как скрытые legacy aliases
+  V4 Flash; Reasoner alias по умолчанию включает Thinking.
+- `src/app.ts`, `src/api/normalize*.ts`, `src/server/routes.ts`,
+  `src/server/landingPage.ts` — `/v1/models`, defaults и Web UI selector переведены
+  на V4; unknown model возвращает `MODEL_UNAVAILABLE` HTTP 400 до создания
+  upstream session.
+- `src/server/actions.ts`, `src/server/terminalLaunch.ts` — Claude Code получает
+  выбранный V4 model. OpenCode получает явный
+  `deepseek-bridge/deepseek-v4-flash|pro` и process-local
+  `OPENCODE_CONFIG_CONTENT` с provider `DeepSeek Bridge`; глобальный config
+  пользователя не изменяется. Unix runner безопасно передаёт эту переменную
+  отдельным argv наряду с существующими Bridge env.
+- `scripts/doctor.ts`, `scripts/live/run.ts`, `README.md`,
+  `docs/architecture.md`, `PROJECT_STATE.md` синхронизированы с текущим Web
+  payload, V4 моделями и legacy aliases.
+- `tests/unit/models.test.ts` и существующие normalize/launcher regressions:
+  Flash/Pro, Thinking OFF/ON, Search, exact upstream payload, `/v1/models`,
+  unknown model, aliases, Claude Code и OpenCode selected model/provider.
+- Production live-test на одном работающем Bridge подтвердил Claude Code с
+  Flash (`FLASH-LIVE-731`) и Pro (`PRO-LIVE-482`). Отдельный Flash-запрос
+  выполнил настоящий Bash `pwd`: Claude Code получил `tool_use`, вернул
+  `tool_result` `/d/test CC NODE` и только затем сформировал final answer.
+- OpenCode live-test подтвердил process-local provider: `opencode models
+  deepseek-bridge` показал только обе V4-модели, а completion через
+  `deepseek-bridge/deepseek-v4-flash` вернул `OPENCODE-LIVE-517` с exit code 0.
+- Итого: 25 test files, 418 tests.
+
 ## 2026-08-20 — One-click desktop launchers
 
 - `scripts/desktopStart.mjs` — добавлен общий dependency-free bootstrap только на

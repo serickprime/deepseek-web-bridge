@@ -151,13 +151,11 @@ export async function runDoctor(): Promise<void> {
       parent_message_id: null,
       prompt: "Say OK only.",
       ref_file_ids: [],
-      model_name: "deepseek-chat",
+      model_type: "default",
       thinking_enabled: false,
       search_enabled: false,
-      messages: [
-        { id: "msg_1", role: "user", content: "Say OK only.", content_type: "text" },
-      ],
-      additional_input: {},
+      action: null,
+      preempt: false,
     };
 
     const res = await fetch(`${state.auth.baseUrl}${COMPLETION_PATH}`, {

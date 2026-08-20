@@ -123,4 +123,28 @@ describe("launcher Unicode cwd", () => {
       Object.defineProperty(process, "platform", { value: originalPlatform, configurable: true });
     }
   });
+
+  it("passes the selected V4 model to Windows Claude Code", () => {
+    const cwd = "D:\\Проекты\\Тестовая папка\\ёжик";
+    const child = fakeChild();
+    vi.spyOn(fs, "existsSync").mockReturnValue(true);
+    vi.mocked(childProcess.spawn).mockReturnValue(child as never);
+
+    expect(launchClaudeCode(cwd, "deepseek-v4-pro", vi.fn(), { platform: "win32" })).toBe(child);
+    expect(vi.mocked(childProcess.spawn).mock.calls[0]?.[1]).toEqual(["--model", "deepseek-v4-pro"]);
+    child.emit("close", 0);
+  });
+
+  it("passes the isolated DeepSeek Bridge provider/model to Windows OpenCode", () => {
+    const cwd = "D:\\Проекты\\Тестовая папка\\ёжик";
+    const child = fakeChild();
+    vi.spyOn(fs, "existsSync").mockReturnValue(true);
+    vi.mocked(childProcess.spawn).mockReturnValue(child as never);
+
+    expect(launchOpenCode(cwd, "deepseek-v4-flash", vi.fn(), { platform: "win32" })).toBe(child);
+    const call = vi.mocked(childProcess.spawn).mock.calls[0]!;
+    expect(call[1]).toEqual(["--model", "deepseek-bridge/deepseek-v4-flash"]);
+    expect(call[2]?.env?.OPENCODE_CONFIG_CONTENT).toContain('"name":"DeepSeek Bridge"');
+    child.emit("close", 0);
+  });
 });

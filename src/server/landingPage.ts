@@ -362,7 +362,7 @@ select.f-inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xml
     var workDir=wd?wd.value.trim():"";
     if(!workDir){showToast("Enter working directory first","error");return;}
     var md=$("model-sel");
-    var model=md?md.value:"deepseek-chat";
+    var model=md?md.value:"deepseek-v4-flash";
     showToast("Launching "+tool+"...","success");
     listenSSE("/bridge/launch",{tool:tool,workDir:workDir,model:model},function(ev){
       if(ev.type==="progress")showToast(ev.message||"...","success");
@@ -443,7 +443,7 @@ select.f-inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xml
       if(desc)desc.innerHTML='<span class="dot dot-ok"></span><span>'+models.length+' model(s) available</span>';
     }).catch(function(){
       var sel=$("model-sel");
-      sel.innerHTML="<option>DEEPSEEK-CHAT</option><option>DEEPSEEK-REASONER</option>";
+      sel.innerHTML="<option>DEEPSEEK-V4-FLASH</option><option>DEEPSEEK-V4-PRO</option>";
     });
   }
 

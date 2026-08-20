@@ -154,22 +154,30 @@ retry нет. Bridge не выполняет инструменты — он т�
 
 ## Модели
 
-`src/config/modelCapabilities.ts` — таблица:
+`src/config/modelCapabilities.ts` — статическая таблица подтверждённых режимов:
 
 ```ts
 interface ModelCapability {
   id: string;
-  modelType: string;
+  upstreamModelType: "default" | "expert";
   reasoning: boolean;
   search: boolean;
-  available: boolean;
-  checkedAt?: number;
 }
 ```
 
-Доступность проверяется короткими запросами (runtime capability probe). Модель
-попадает в `/v1/models`, только если probe подтвердил её. Не подтверждённые
-режимы помечаются `UNKNOWN` и скрываются.
+Live CDP capture текущего `chat.deepseek.com` подтвердил:
+
+- Instant / V4 Flash → `model_type: "default"`;
+- Expert / V4 Pro → `model_type: "expert"`;
+- Thinking → отдельный `thinking_enabled` для обеих моделей;
+- Search → отдельный `search_enabled`, доступный в текущем UI для Instant,
+  но отсутствующий в Expert.
+
+Upstream payload не содержит `model_name`; поле `response.model` сейчас пустое.
+Названия V4 являются client-facing IDs Bridge и соответствуют официально
+опубликованной DeepSeek связи Instant/Expert с Flash/Pro. `/v1/models` показывает
+только эти две основные модели. `deepseek-chat`/`deepseek-reasoner` принимаются
+как скрытые legacy aliases V4 Flash; второй alias включает Thinking по умолчанию.
 
 ## Диагностика
 
@@ -216,6 +224,10 @@ browser user-agent не участвует. Read-only endpoint публичен 
   Он принимает cwd, Bridge env и CLI как argv, экспортирует
   `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `OPENAI_API_BASE`,
   `OPENAI_API_KEY`, записывает свой PID в private temp file и делает `exec` CLI.
+- OpenCode получает только в дочернем процессе `OPENCODE_CONFIG_CONTENT` с
+  custom provider `deepseek-bridge` и явный `--model
+  deepseek-bridge/deepseek-v4-*`. Глобальные файлы конфигурации OpenCode не
+  создаются и не изменяются.
 - SHUTDOWN посылает SIGTERM только точному PID runner/CLI и точному launcher child.
   На macOS Bridge дополнительно закрывает только созданное им окно Terminal.app,
   если совпадают window id + tty и в окне осталась одна вкладка. Terminal.app или

@@ -93,8 +93,12 @@ npm start
 $env:ANTHROPIC_BASE_URL="http://127.0.0.1:9655"
 $env:ANTHROPIC_AUTH_TOKEN="local-key"
 $env:CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY="1"
-claude --model deepseek-reasoner
+claude --model deepseek-v4-flash
 ```
+
+Для Expert Mode укажите `--model deepseek-v4-pro`. Thinking не является
+отдельной моделью: если клиент отправляет Anthropic
+`thinking: { "type": "enabled" }`, Bridge включает его для выбранной Flash/Pro.
 
 `local-key` здесь — локальное служебное значение, не ключ вашего аккаунта DeepSeek.
 
@@ -114,19 +118,22 @@ transport; наличие бинарников `claude`/`opencode` провер�
 
 ## Запуск OpenCode
 
-OpenCode подключается к Bridge как к OpenAI-совместимому серверу:
+При запуске из Bridge Console OpenCode получает временную конфигурацию только
+через environment дочернего процесса. Глобальный config пользователя не
+изменяется. В интерфейсе OpenCode модель отображается как:
 
-```powershell
-$env:OPENAI_API_BASE="http://127.0.0.1:9655/v1"
-$env:OPENAI_API_KEY="local-key"
-opencode --model deepseek-chat
-```
+- `deepseek-bridge/deepseek-v4-flash`;
+- `deepseek-bridge/deepseek-v4-pro`.
+
+Bridge Console передаёт явный `--model deepseek-bridge/<model>` и локальный
+custom provider `DeepSeek Bridge`, поэтому OpenCode не выбирает OpenCode Zen или
+другой provider из пользовательских настроек.
 
 ## Другой OpenAI-совместимый клиент
 
 ```
 Base URL: http://127.0.0.1:9655/v1
-Model:    deepseek-chat или deepseek-reasoner
+Model:    deepseek-v4-flash или deepseek-v4-pro
 API key:  local-key (если клиент требует что-то указать)
 ```
 
@@ -163,15 +170,23 @@ GUI-терминала.
 
 ## Модели
 
-`GET /v1/models` возвращает статический список:
+`GET /v1/models` возвращает две основные модели:
 
 | Model ID | Описание |
 | --- | --- |
-| `deepseek-chat` | DeepSeek Chat |
-| `deepseek-reasoner` | DeepSeek Reasoner |
+| `deepseek-v4-flash` | DeepSeek V4 Flash; Instant Mode (`model_type: "default"`) |
+| `deepseek-v4-pro` | DeepSeek V4 Pro; Expert Mode (`model_type: "expert"`) |
 
-Клиент (Claude Code / OpenCode) указывает модель при подключении.
-Список моделей обновляется в коде при добавлении новых рабочих режимов.
+Thinking передаётся отдельно от модели: `reasoning: true/false` в локальном
+OpenAI/Responses contract или Anthropic `thinking.type`. Search подтверждён для
+Instant/Flash и передаётся как `search: true`; в текущем Expert Web UI Search
+недоступен.
+
+Legacy aliases `deepseek-chat` и `deepseek-reasoner` принимаются для
+совместимости, но не публикуются в `/v1/models`: оба ведут на V4 Flash, а
+`deepseek-reasoner` по умолчанию включает Thinking. Актуальное соответствие
+Instant/Expert моделям V4 также опубликовано в
+[официальном релизе DeepSeek V4](https://deepseek.com/en/news/v4-preview/).
 
 ## Документация
 

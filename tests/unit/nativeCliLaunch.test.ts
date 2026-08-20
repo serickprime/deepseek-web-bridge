@@ -67,7 +67,7 @@ describe("macOS native Terminal.app launch", () => {
     const child = fakeChild();
     vi.mocked(childProcess.spawn).mockReturnValue(child as never);
 
-    const launched = await launchClaudeCode(cwd, "deepseek-reasoner", vi.fn(), {
+    const launched = await launchClaudeCode(cwd, "deepseek-v4-pro", vi.fn(), {
       platform: "darwin",
       commandAvailable: async () => true,
       pathAvailable: () => true,
@@ -79,7 +79,7 @@ describe("macOS native Terminal.app launch", () => {
     expect(args).toEqual(["-e", expect.stringContaining('tell application "Terminal"'), expect.any(String)]);
     expect(args![2]).toContain(quotePosixShellArg("claude"));
     expect(args![2]).toContain(quotePosixShellArg("--model"));
-    expect(args![2]).toContain(quotePosixShellArg("deepseek-reasoner"));
+    expect(args![2]).toContain(quotePosixShellArg("deepseek-v4-pro"));
     expect(options).toMatchObject({ cwd, shell: false, detached: true });
   });
 
@@ -88,7 +88,7 @@ describe("macOS native Terminal.app launch", () => {
     const child = fakeChild();
     vi.mocked(childProcess.spawn).mockReturnValue(child as never);
 
-    await launchOpenCode(cwd, "deepseek-chat", vi.fn(), {
+    await launchOpenCode(cwd, "deepseek-v4-flash", vi.fn(), {
       platform: "darwin",
       commandAvailable: async () => true,
       pathAvailable: () => true,
@@ -98,6 +98,9 @@ describe("macOS native Terminal.app launch", () => {
     const invocation = String(args![2]);
     expect(invocation).toContain(quotePosixShellArg(cwd));
     expect(invocation).toContain(quotePosixShellArg("opencode"));
+    expect(invocation).toContain(quotePosixShellArg("--model"));
+    expect(invocation).toContain(quotePosixShellArg("deepseek-bridge/deepseek-v4-flash"));
+    expect(invocation).toContain("DeepSeek Bridge");
     expect(invocation).toContain(quotePosixShellArg("http://127.0.0.1:9655"));
     expect(invocation).toContain(quotePosixShellArg("local-key"));
     expect(invocation).toContain(quotePosixShellArg("http://127.0.0.1:9655/v1"));
@@ -107,6 +110,7 @@ describe("macOS native Terminal.app launch", () => {
         ANTHROPIC_AUTH_TOKEN: "local-key",
         OPENAI_API_BASE: "http://127.0.0.1:9655/v1",
         OPENAI_API_KEY: "local-key",
+        OPENCODE_CONFIG_CONTENT: expect.stringContaining('"deepseek-bridge"'),
       }),
     });
   });

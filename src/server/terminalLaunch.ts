@@ -90,7 +90,8 @@ anthropic_base_url=$3
 anthropic_auth_token=$4
 openai_api_base=$5
 openai_api_key=$6
-shift 6
+opencode_config_content=$7
+shift 7
 umask 077
 printf '%s\n' "$$" > "$pid_file"
 if ! cd "$work_dir"; then
@@ -101,6 +102,9 @@ export ANTHROPIC_BASE_URL="$anthropic_base_url"
 export ANTHROPIC_AUTH_TOKEN="$anthropic_auth_token"
 export OPENAI_API_BASE="$openai_api_base"
 export OPENAI_API_KEY="$openai_api_key"
+if [ -n "$opencode_config_content" ]; then
+  export OPENCODE_CONFIG_CONTENT="$opencode_config_content"
+fi
 if [ "$#" -eq 0 ]; then
   printf 'DeepSeek Bridge: no CLI command supplied\n' >&2
   exit 64
@@ -171,6 +175,7 @@ export function createUnixCliRunner(
       bridgeEnv.ANTHROPIC_AUTH_TOKEN ?? "",
       bridgeEnv.OPENAI_API_BASE ?? "",
       bridgeEnv.OPENAI_API_KEY ?? "",
+      bridgeEnv.OPENCODE_CONFIG_CONTENT ?? "",
       command,
       ...args,
     ],

@@ -25,6 +25,11 @@ function boolField(body: Record<string, unknown>, key: string, fallback: boolean
   return typeof value === "boolean" ? value : fallback;
 }
 
+function optionalBoolField(body: Record<string, unknown>, key: string): boolean | undefined {
+  const value = body[key];
+  return typeof value === "boolean" ? value : undefined;
+}
+
 function maxTokensField(body: Record<string, unknown>): number | undefined {
   const value = body.max_tokens ?? body.max_output_tokens;
   if (typeof value === "number" && Number.isFinite(value) && value > 0) {
@@ -127,12 +132,12 @@ export function normalizeOpenAI(body: unknown, headers: Record<string, string | 
   const record = requireRecord(body);
   const messages = Array.isArray(record.messages) ? record.messages : [];
   const out: CanonicalRequest = {
-    model: stringField(record, "model", "deepseek-chat"),
+    model: stringField(record, "model", "deepseek-v4-flash"),
     stream: boolField(record, "stream", true),
     system: "",
     messages: [],
     tools: normalizeOpenAITools(record.tools),
-    reasoning: boolField(record, "reasoning", false),
+    reasoning: optionalBoolField(record, "reasoning"),
     search: boolField(record, "search", false),
     maxTokens: maxTokensField(record),
   };

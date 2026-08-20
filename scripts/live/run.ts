@@ -43,7 +43,7 @@ async function main(): Promise<void> {
     method: "POST",
     headers: { "content-type": "application/json", ...apiKeyHeaders() },
     body: JSON.stringify({
-      model: "deepseek-chat",
+      model: "deepseek-v4-flash",
       stream: false,
       messages: [{ role: "user", content: "Reply with the single word: pong" }],
     }),
@@ -62,7 +62,7 @@ async function main(): Promise<void> {
       ...apiKeyHeaders(),
     },
     body: JSON.stringify({
-      model: "deepseek-chat",
+      model: "deepseek-v4-flash",
       max_tokens: 64,
       messages: [{ role: "user", content: "Reply with the single word: pong" }],
     }),

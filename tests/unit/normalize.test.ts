@@ -70,6 +70,19 @@ describe("normalizeAnthropic", () => {
     expect(req.messages[0]?.parts[0]?.toolCall?.name).toBe("Read");
     expect(req.messages[1]?.parts[0]?.toolResult?.toolUseId).toBe("t1");
   });
+
+  it("keeps Thinking as a separate capability", () => {
+    expect(normalizeAnthropic({
+      model: "deepseek-v4-pro",
+      thinking: { type: "enabled" },
+      messages: [],
+    }, {}).reasoning).toBe(true);
+    expect(normalizeAnthropic({
+      model: "deepseek-v4-pro",
+      thinking: { type: "disabled" },
+      messages: [],
+    }, {}).reasoning).toBe(false);
+  });
 });
 
 describe("normalizeResponses", () => {
@@ -83,5 +96,22 @@ describe("normalizeResponses", () => {
     );
     expect(req.system).toBe("Be concise.");
     expect(req.messages[0]?.parts[0]?.text).toBe("Hello");
+  });
+});
+
+describe("V4 defaults", () => {
+  it("defaults all protocols to V4 Flash without forcing Thinking", () => {
+    expect(normalizeOpenAI({ messages: [] }, {})).toMatchObject({
+      model: "deepseek-v4-flash",
+      reasoning: undefined,
+    });
+    expect(normalizeAnthropic({ messages: [] }, {})).toMatchObject({
+      model: "deepseek-v4-flash",
+      reasoning: undefined,
+    });
+    expect(normalizeResponses({ input: [] }, {})).toMatchObject({
+      model: "deepseek-v4-flash",
+      reasoning: undefined,
+    });
   });
 });

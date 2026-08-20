@@ -30,6 +30,7 @@ import {
   COMPLETION_GUARD_MAX_ATTEMPTS,
   buildUpstreamPrompt,
 } from "../tools/toolParser.js";
+import { resolveModelSelection, type ModelSelection } from "../config/modelCapabilities.js";
 
 export interface AuthCredentials {
   token: string;
@@ -157,13 +158,14 @@ export class DeepSeekClient {
     authGeneration = this.authGeneration,
   ): Promise<CompletionResult> {
     this.assertAuthGeneration(authGeneration);
+    const modelSelection = resolveModelSelection(request.model, request.reasoning, request.search);
     const toolPrompt = buildToolPrompt(request.tools);
     const allowedNames = request.tools.map(t => t.name);
     const hasTools = allowedNames.length > 0;
     const guardEvidence = inspectCurrentToolCycle(request.messages, allowedNames);
 
     const upstreamPrompt = this.buildPrompt(request, toolPrompt);
-    let output = await this.runCompletion(upstreamPrompt, state, authGeneration);
+    let output = await this.runCompletion(upstreamPrompt, state, authGeneration, modelSelection);
 
     const inspection = inspectToolCallFromOutput(output, allowedNames);
     let toolCall = inspection.toolCall;
@@ -175,7 +177,7 @@ export class DeepSeekClient {
     while (shouldRetry(hasTools, toolCall, output.content, output.reasoning, allowedNames, guardEvidence) && retries < COMPLETION_GUARD_MAX_ATTEMPTS - 1) {
       retries++;
       const retryPrompt = createToolRetryPrompt(allowedNames);
-      output = await this.runCompletion(retryPrompt, state, authGeneration);
+      output = await this.runCompletion(retryPrompt, state, authGeneration, modelSelection);
       const retryInspection = inspectToolCallFromOutput(output, allowedNames);
       toolCall = retryInspection.toolCall;
       if (toolCall) {
@@ -212,17 +214,18 @@ export class DeepSeekClient {
     prompt: string,
     state: UpstreamSessionState,
     authGeneration: number,
+    model: ModelSelection,
   ): Promise<{ content: string; reasoning: string; parentMessageId: number | null; usage?: CompletionResult["usage"] }> {
     const payload = {
       chat_session_id: state.chatSessionId,
       parent_message_id: state.parentMessageId,
       prompt,
       ref_file_ids: [],
-      model_name: "deepseek-reasoner",
-      thinking_enabled: true,
-      search_enabled: false,
-      messages: [],
-      additional_input: {},
+      model_type: model.upstreamModelType,
+      thinking_enabled: model.thinkingEnabled,
+      search_enabled: model.searchEnabled,
+      action: null,
+      preempt: false,
     };
     const challenge = await this.fetchChallenge(authGeneration);
     const solution = await this.options.solver.solve(challenge);

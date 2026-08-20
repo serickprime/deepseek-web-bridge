@@ -14,6 +14,7 @@ import { Logger } from "./utils/logger.js";
 import { isRecord } from "./utils/json.js";
 import { BridgeServer } from "./server/server.js";
 import type { RouteContext } from "./server/routes.js";
+import { bridgeModelList } from "./config/modelCapabilities.js";
 
 export interface AppHandle {
   server: BridgeServer;
@@ -98,10 +99,7 @@ export function buildApp(): AppHandle {
     sessions: sessionManager,
     logger,
     redactor,
-    models: [
-      { id: "deepseek-chat", object: "model", owned_by: "deepseek" },
-      { id: "deepseek-reasoner", object: "model", owned_by: "deepseek" },
-    ],
+    models: bridgeModelList(),
     ready: () => sessionManager.listSessions().length >= 0,
     setRuntimeAuth: async (auth: AuthCredentials) => {
       await resetUpstreamAccountState(sessionStore, lineage);

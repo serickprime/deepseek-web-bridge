@@ -18,6 +18,7 @@ import type { AuthCredentials } from "../deepseek/client.js";
 import { LANDING_PAGE_HTML } from "./landingPage.js";
 import { runAuthSSE, runDoctorSSE, runDiagnosticsSSE, checkAuthStatus, launchClaudeCode, launchOpenCode, writeSSE, endSSE, pickFolder, performLogout, stopLaunchedProcesses, stopActiveAuthChrome, type ActionEvent } from "./actions.js";
 import { getSystemCapabilities, type SystemCapabilities } from "./system.js";
+import { DEFAULT_MODEL_ID, resolveModelSelection } from "../config/modelCapabilities.js";
 
 export interface RouteContext {
   security: SecurityOptions;
@@ -89,6 +90,7 @@ function handleCompletion(ctx: RouteContext, protocol: Protocol, modelFallback: 
       const raw = await readBody({ raw: req }, ctx.security.maxBytes);
       const body = JSON.parse(raw.toString("utf8"));
       const normalized = normalizeByProtocol(protocol, body, req.headers as Record<string, string | undefined>);
+      resolveModelSelection(normalized.model, normalized.reasoning, normalized.search);
       logger.info("completion_request", {
         protocol,
         model: normalized.model,
@@ -196,17 +198,17 @@ export function routes(ctx: RouteContext): Array<{
     {
       method: "POST",
       path: "/v1/chat/completions",
-      handler: handleCompletion(ctx, "openai", "deepseek-chat"),
+      handler: handleCompletion(ctx, "openai", DEFAULT_MODEL_ID),
     },
     {
       method: "POST",
       path: "/v1/responses",
-      handler: handleCompletion(ctx, "responses", "deepseek-chat"),
+      handler: handleCompletion(ctx, "responses", DEFAULT_MODEL_ID),
     },
     {
       method: "POST",
       path: "/v1/messages",
-      handler: handleCompletion(ctx, "anthropic", "deepseek-chat"),
+      handler: handleCompletion(ctx, "anthropic", DEFAULT_MODEL_ID),
     },
     {
       method: "GET",
@@ -331,7 +333,7 @@ export function routes(ctx: RouteContext): Array<{
           const body = JSON.parse(raw.toString("utf8")) as Record<string, unknown>;
           const tool = typeof body.tool === "string" ? body.tool : "";
           const workDir = typeof body.workDir === "string" ? body.workDir : process.cwd();
-          const model = typeof body.model === "string" ? body.model : "deepseek-chat";
+          const model = typeof body.model === "string" ? body.model : DEFAULT_MODEL_ID;
           const system = await (ctx.systemInfo?.() ?? getSystemCapabilities());
 
           res.writeHead(200, {

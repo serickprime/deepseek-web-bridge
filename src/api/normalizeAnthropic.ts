@@ -118,9 +118,11 @@ export function normalizeAnthropic(body: unknown, headers: Record<string, string
   const record = requireRecord(body);
   const system = stringField(record, "system", "");
   const thinking = record.thinking;
-  const reasoning = isRecord(thinking) && typeof thinking.type === "string" && thinking.type === "enabled";
+  const reasoning = isRecord(thinking) && typeof thinking.type === "string"
+    ? thinking.type === "enabled"
+    : undefined;
   const out: CanonicalRequest = {
-    model: stringField(record, "model", "deepseek-chat"),
+    model: stringField(record, "model", "deepseek-v4-flash"),
     stream: boolField(record, "stream", false),
     system,
     messages: normalizeMessages(Array.isArray(record.messages) ? record.messages : [], ""),
