@@ -346,6 +346,7 @@ export interface CurrentToolCycleEvidence {
   fulfilledObligationIds: string[];
   missingObligations: ToolObligation[];
   staleObligations: ToolObligation[];
+  inconclusiveObligations: ToolObligation[];
   cardinalityFailures: ObligationCardinalityFailure[];
   exactLiterals: string[];
   missingExactLiterals: string[];
@@ -584,12 +585,20 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
   if (hasShell && serverVerification) kinds.add("server_verification");
 
   const requiresExactlyOne = /(?:ровно|точно)\s+одн(?:у|о|ой)?(?=\s|[.,:;!?]|$)|\bexactly\s+one\b|\ba\s+single\b/i.test(content);
+  const titleDescriptionLiterals = new Set(
+    literalValues(literals, ["title", "description"]).map(value => value.normalize("NFC")),
+  );
 
   return [...kinds].map(kind => {
     let argumentLiterals: string[] = [];
     let resultLiterals: string[] = [];
     if (kind === "file_mutation") {
-      argumentLiterals = [...contentLiterals, ...pathLiterals.slice(0, 1), ...urlLiterals];
+      // API payload fields belong to data_mutation; a file mutation is identified
+      // by its path/marker, not by request body fields shared with the POST.
+      const fileContentLiterals = kinds.has("data_mutation")
+        ? contentLiterals.filter(value => !titleDescriptionLiterals.has(value.normalize("NFC")))
+        : contentLiterals;
+      argumentLiterals = [...fileContentLiterals, ...pathLiterals.slice(0, 1), ...urlLiterals];
     } else if (kind === "data_mutation" || kind === "command_execution") {
       argumentLiterals = [...contentLiterals, ...urlLiterals];
     } else if (kind === "api_verification") {
@@ -677,6 +686,15 @@ function resultContainsExactUnicode(resultContent: string, literal: string): boo
     return collectStringValues(parsed).some(value => value.normalize("NFC") === normalizedLiteral);
   }
   return containsExactUnicode([resultContent], literal);
+}
+
+function resultMatchesObligationLiterals(obligation: ToolObligation, resultContent: string): boolean {
+  return obligation.resultLiterals.every(literal => resultContainsExactUnicode(resultContent, literal));
+}
+
+function isContainerJson(resultContent: string): boolean {
+  const parsed = parseToolResultJson(resultContent);
+  return Array.isArray(parsed) || (parsed !== null && typeof parsed === "object");
 }
 
 function countExactRecords(value: unknown, literals: string[]): number {
@@ -820,7 +838,7 @@ function fulfillsObligation(
   if (obligation.kind === "test_execution" && looksLikeFailedTestOutput(resultContent)) return false;
   const argumentStrings = collectStringValues(toolCall.arguments);
   if (!obligation.argumentLiterals.every(literal => containsExactUnicode(argumentStrings, literal))) return false;
-  return obligation.resultLiterals.every(literal => resultContainsExactUnicode(resultContent, literal))
+  return resultMatchesObligationLiterals(obligation, resultContent)
     && resultSatisfiesCardinality(obligation, resultContent);
 }
 
@@ -876,6 +894,7 @@ function emptyCurrentToolCycleEvidence(): CurrentToolCycleEvidence {
     fulfilledObligationIds: [],
     missingObligations: [],
     staleObligations: [],
+    inconclusiveObligations: [],
     cardinalityFailures: [],
     exactLiterals: [],
     missingExactLiterals: [],
@@ -944,6 +963,7 @@ export function inspectCurrentToolCycle(
   }
 
   const staleObligations: ToolObligation[] = [];
+  const inconclusiveObligations: ToolObligation[] = [];
   const cardinalityFailures: ObligationCardinalityFailure[] = [];
   const fulfilledObligationIds = obligations.filter(obligation => {
     const lastInvalidation = isFinalStateObligation(obligation)
@@ -964,14 +984,25 @@ export function inspectCurrentToolCycle(
       && !looksLikeStructuredToolError(evidence.resultContent)
       && !looksLikeFailedObligationOutput(obligation.kind, evidence.resultContent)
     ));
-    const latestFresh = freshVerificationEvidence.at(-1);
-    const observedCount = latestFresh ? observedExactResultCount(obligation, latestFresh.resultContent) : undefined;
-    if (observedCount !== undefined && obligation.requiredExactResultCount !== undefined) {
-      cardinalityFailures.push({
-        obligationId: obligation.id,
-        expectedCount: obligation.requiredExactResultCount,
-        observedCount,
-      });
+    // Exact-count is judged only on relevant verification output: results that
+    // contain the requested literals or are container-shaped JSON. Health probes,
+    // pwd and other scalar/unrelated outputs never participate in counting.
+    const relevantFreshVerification = freshVerificationEvidence.filter(evidence =>
+      resultMatchesObligationLiterals(obligation, evidence.resultContent)
+      || isContainerJson(evidence.resultContent),
+    );
+    const latestRelevant = relevantFreshVerification.at(-1);
+    if (latestRelevant !== undefined && obligation.requiredExactResultCount !== undefined) {
+      const observedCount = observedExactResultCount(obligation, latestRelevant.resultContent);
+      if (observedCount === undefined) {
+        inconclusiveObligations.push(obligation);
+      } else if (observedCount !== obligation.requiredExactResultCount) {
+        cardinalityFailures.push({
+          obligationId: obligation.id,
+          expectedCount: obligation.requiredExactResultCount,
+          observedCount,
+        });
+      }
     }
     if (isFinalStateObligation(obligation)
       && matchingEvidence.some(evidence => evidence.sequence <= lastInvalidation)
@@ -1011,6 +1042,7 @@ export function inspectCurrentToolCycle(
     fulfilledObligationIds,
     missingObligations,
     staleObligations,
+    inconclusiveObligations,
     cardinalityFailures,
     exactLiterals,
     missingExactLiterals,
@@ -1147,6 +1179,7 @@ export interface ToolRetryPromptContext {
   missingObligations?: string[];
   fulfilledObligations?: string[];
   staleObligations?: string[];
+  inconclusiveObligations?: string[];
   cardinalityFailures?: ObligationCardinalityFailure[];
   repeatedFailedToolName?: string;
   malformedToolIntent?: boolean;
@@ -1202,6 +1235,13 @@ export function createToolRetryPrompt(
       `Stale final-state verifications: ${JSON.stringify(context.staleObligations)}`,
       "A later state-changing action made that evidence stale. Re-check the final state now with a fresh GET, Read, or health request as appropriate.",
       "Do NOT repeat an already successful mutation or POST merely because its verification became stale.",
+    );
+  }
+  if ((context.inconclusiveObligations ?? []).length > 0) {
+    lines.push(
+      `Unresolved exact-count verifications: ${JSON.stringify(context.inconclusiveObligations)}`,
+      "The latest verification output could not be deterministically counted. Run the verification again now (a fresh GET or Read) and return its raw JSON output so the exact record count can be checked.",
+      "Do NOT repeat an already successful mutation or POST.",
     );
   }
   if ((context.cardinalityFailures ?? []).length > 0) {

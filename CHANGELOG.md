@@ -3,6 +3,31 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-21 — Fix final-state guard tool flow regression
+
+- Root cause (эмпирически подтверждён A/B-сборками `67c6f689` vs `06b1e4e8`):
+  (1) нечитаемый count (не-JSON verification output) трактовался как вечный
+  cardinality mismatch; (2) multiline `title:`/`description:` literals
+  пере-байндились к аргументам `file_mutation`, поэтому успешный
+  `Write(report.txt)` не мог закрыть obligation; (3) stale invalidation в
+  связке с выросшим retry-промптом чаще упиралась в
+  `COMPLETION_GUARD_MAX_ATTEMPTS` и давала серии `TOOL_CALL_REQUIRED`.
+- Cardinality стала трёхзначной: count=1 fulfilled, count=0/>1 — явный
+  failure, нечитаемый/неоднозначный вывод — inconclusive. Retry требует свежий
+  детерминированный GET/Read с raw JSON и запрещает повторять уже успешную
+  мутацию (`src/tools/toolParser.ts`, `src/deepseek/client.ts`, телеметрия
+  `inconclusive_obligation_count`).
+- Exact-count считается только по релевантному verification-выводу:
+  совпадение exact literals либо container JSON (массив/объект). Health
+  `"200"`, `pwd` и другие скалярные выводы не участвуют в подсчёте.
+- `title`/`description` исключены из аргументов `file_mutation` при наличии
+  `data_mutation` в том же запросе; независимые файловые задачи по-прежнему
+  требуют точных значений.
+- `tests/unit/tools.test.ts` — 9 новых regression cases: sequential flow без
+  blocking final, inconclusive unit+root recovery через GET, health-noise,
+  независимый Write отчёта, пины explicit-values/stale/malformed. Итого
+  501/501 offline.
+
 ## 2026-08-21 — Require fresh final-state evidence
 
 - Root cause: current-cycle `ToolObligation` evidence было монотонным. После

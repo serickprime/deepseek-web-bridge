@@ -370,6 +370,28 @@ OpenCode config не изменялся.
   `TOOL_CALL_REQUIRED`, exact count оставался 0. Полный autonomous success не
   заявляется; TODO ниже остаётся `[~]`.
 
+### Tool flow regression fix — 2026-08-21
+
+- Эмпирический A/B тест старой (`67c6f689`) и новой (`06b1e4e8`) сборок на
+  идентичных сценариях подтвердил три root cause регрессии живого tool-flow:
+  нечитаемый count навсегда блокировал API/storage verification; multiline
+  `title:`/`description:` literals пере-байндились к аргументам
+  `file_mutation`; stale invalidation вместе с выросшим retry-промптом чаще
+  упиралась в лимит попыток и давала серии `TOOL_CALL_REQUIRED`.
+- Guard классифицирует нечитаемый вывод как inconclusive вместо вечного
+  missing/failure: retry требует свежий детерминированный GET/Read с raw JSON
+  и запрещает повтор успешной мутации. Добавлены `inconclusiveObligations` в
+  evidence, retry-блок «could not be deterministically counted» и телеметрия
+  `inconclusive_obligation_count`.
+- Exact-count учитывает только релевантный verification-вывод: совпадение
+  exact literals либо container JSON. Health `"200"`, `pwd` и скалярные
+  выводы больше не создают ложных cardinality failures.
+- Аргументы `file_mutation` больше не включают title/description при наличии
+  `data_mutation`; независимые файловые задачи сохраняют требование точных
+  значений.
+- Offline: 9 новых regression cases; итого 501/501 tests; typecheck, build и
+  platform-smoke зелёные.
+
 ## Стабильная live-точка — 2026-08-20
 
 Подтверждено live-тестами Claude Code (полный workflow «кодирование через бридж»):
@@ -501,8 +523,10 @@ OpenCode config не изменялся.
       дали exact count=1, serial Jest 29/29, HTTP 200 и listener PID 21104.
       Однако CLI не дал captured final до 15-минутного timeout. Чистые Flash/Pro
       повторы безопасно вернули непустой `TOOL_CALL_REQUIRED` до mutation, без
-      fabricated success. Нужен один desktop turn с exact count=1 и видимым
-      final после свежих API/storage/HTTP evidence.
+      fabricated success. 2026-08-21: offline root causes регрессии tool-flow
+      исправлены (inconclusive cardinality, релевантность подсчёта, узкий
+      re-binding `file_mutation`); нужен повторный live-run с exact count=1 и
+      видимым final после свежих API/storage/HTTP evidence.
 - [ ] **Повторно проверить production SHUTDOWN/PID lifecycle** — после
       action-integrity live-run наблюдалось, что `/bridge/shutdown` закрывал HTTP
       listener, но исходный Node PID дважды оставался жив и требовал точечного
