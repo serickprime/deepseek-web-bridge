@@ -3,6 +3,42 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-21 — Prevent repeated failed tool calls
+
+- Root cause: completion guard считал любой валидный распарсенный `tool_call`
+  достаточным и сразу возвращал его Claude Code. Evidence текущего action cycle
+  хранил только имя failed tool, поэтому не мог отличить исправленный вызов от
+  повтора тех же arguments; после `Bash(false)` модель могла снова отдавать тот
+  же action и в конце вернуть пустой final.
+- `src/tools/toolParser.ts` — добавлен стабильный fingerprint из точного имени
+  tool и рекурсивно key-sorted JSON arguments. Для Bash исключён только
+  неисполняемый `description`: live Claude Code меняет этот текст между
+  одинаковыми calls, тогда как `command`, `timeout` и остальные execution-поля
+  сохраняются в fingerprint. Учитываются только коррелированные
+  `tool_use` → `tool_result is_error:true` после последнего текстового user
+  request; successful и historical results не блокируют новые calls.
+- `src/deepseek/client.ts` — повтор failed fingerprint больше не выходит через
+  `onToolCall` и не выполняется Claude Code. Вместо этого existing bounded guard
+  запрашивает другой tool, исправленные arguments или честный failure. После
+  трёх неудачных completion attempts Bridge возвращает непустой
+  `TOOL_CALL_REQUIRED`; пустой final после failed result также отклоняется.
+- Retry prompt явно сообщает, что точный вызов уже выполнялся и вернул
+  `is_error:true`, запрещает неизменный повтор и разрешает альтернативу,
+  исправленные arguments либо честное объяснение невозможности.
+- `tests/unit/tools.test.ts` — 11 regressions: стабильность fingerprint при
+  разном JSON key order и Bash descriptions, identical failed Bash block,
+  changed arguments/другой tool, successful result, historical failure, новый
+  user cycle, bounded attempts, отсутствие повторного callback, recovery и
+  непустой BridgeError после empty-final exhaustion.
+- Production live на Windows через Claude Code 2.1.238 в `D:\test CC NODE`:
+  точный `Bash(false)` выполнился один раз в одном user request. Изменённые
+  executable commands были разрешены, а final честно сообщил об ошибке. Второй
+  сценарий прошёл `false` → `is_error:true` →
+  `printf RECOVERY-OK-482` → successful result → final `RECOVERY-OK-482`.
+- Отдельно в `PROJECT_STATE.md` оставлен открытый TODO по наблюдаемому
+  SHUTDOWN/PID lifecycle; production shutdown code в этой задаче не менялся.
+- Итого: 25 test files, 451 tests.
+
 ## 2026-08-20 — Claude Code action completion integrity
 
 - Runtime root cause воспроизведён до изменения: `Artifact` попадал в DeepSeek

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { parseToolInvocation, hasToolTag, createToolRetryPrompt, historicalToolInvocationText, sanitizedToolInvocationText, toolResultText, looksLikeToolIntentText, looksLikeFakeToolTrace, looksLikeEnvironmentDataRequest, looksLikeExternalActionRequest, looksLikeActionSuccessClaim, inspectCurrentToolCycle, COMPLETION_GUARD_MAX_ATTEMPTS, buildUpstreamPrompt } from "../../src/tools/toolParser.js";
+import { parseToolInvocation, hasToolTag, createToolRetryPrompt, historicalToolInvocationText, sanitizedToolInvocationText, toolResultText, looksLikeToolIntentText, looksLikeFakeToolTrace, looksLikeEnvironmentDataRequest, looksLikeExternalActionRequest, looksLikeActionSuccessClaim, inspectCurrentToolCycle, toolCallFingerprint, isRepeatedFailedToolCall, COMPLETION_GUARD_MAX_ATTEMPTS, buildUpstreamPrompt } from "../../src/tools/toolParser.js";
 import { buildToolPrompt, selectBridgeTools } from "../../src/tools/toolPrompt.js";
 import { ToolRetryTracker } from "../../src/tools/toolRetry.js";
 import { DeepSeekClient, shouldRetry, buildToolUseIdMap } from "../../src/deepseek/client.js";
@@ -1050,6 +1050,103 @@ describe("external action completion integrity", () => {
   });
 });
 
+describe("repeated failed tool call evidence", () => {
+  const tools = ["Bash", "Read"];
+
+  function toolCycle(
+    error: boolean,
+    nextUserText?: string,
+  ): CanonicalMessage[] {
+    const messages: CanonicalMessage[] = [
+      { role: "user", parts: [{ type: "text", text: "Выполни команду false" }] },
+      { role: "assistant", parts: [{
+        type: "tool_use",
+        toolCall: {
+          id: "call_failed",
+          type: "function",
+          name: "Bash",
+          arguments: { timeout: 1_000, command: "false" },
+        },
+      }] },
+      { role: "user", parts: [{
+        type: "tool_result",
+        toolResult: { toolUseId: "call_failed", content: "exit code 1", isError: error },
+      }] },
+    ];
+    if (nextUserText) {
+      messages.push({ role: "assistant", parts: [{ type: "text", text: "Команда завершилась с ошибкой." }] });
+      messages.push({ role: "user", parts: [{ type: "text", text: nextUserText }] });
+    }
+    return messages;
+  }
+
+  it("builds the same fingerprint regardless of JSON object key formatting", () => {
+    expect(toolCallFingerprint("Bash", {
+      timeout: 1_000,
+      command: "false",
+      options: { cwd: ".", env: { Z: "2", A: "1" } },
+    })).toBe(toolCallFingerprint("Bash", {
+      options: { env: { A: "1", Z: "2" }, cwd: "." },
+      command: "false",
+      timeout: 1_000,
+    }));
+  });
+
+  it("ignores Bash description text that does not change the executed action", () => {
+    expect(toolCallFingerprint("Bash", {
+      command: "false",
+      description: "Execute false command that always fails",
+      timeout: 120_000,
+    })).toBe(toolCallFingerprint("Bash", {
+      timeout: 120_000,
+      description: "Execute false command to verify it fails",
+      command: "false",
+    }));
+  });
+
+  it("blocks an identical failed Bash call with reordered JSON keys", () => {
+    const evidence = inspectCurrentToolCycle(toolCycle(true), tools);
+    const repeated = { name: "Bash", arguments: { command: "false", timeout: 1_000 } };
+    expect(isRepeatedFailedToolCall(repeated, evidence)).toBe(true);
+    expect(shouldRetry(true, repeated, "", "", tools, evidence)).toBe(true);
+  });
+
+  it("allows changed arguments after a failure", () => {
+    const evidence = inspectCurrentToolCycle(toolCycle(true), tools);
+    const changed = { name: "Bash", arguments: { command: "false --verbose", timeout: 1_000 } };
+    expect(isRepeatedFailedToolCall(changed, evidence)).toBe(false);
+    expect(shouldRetry(true, changed, "", "", tools, evidence)).toBe(false);
+  });
+
+  it("allows a different tool after a failed Bash call", () => {
+    const evidence = inspectCurrentToolCycle(toolCycle(true), tools);
+    const different = { name: "Read", arguments: { file_path: "error.log" } };
+    expect(isRepeatedFailedToolCall(different, evidence)).toBe(false);
+    expect(shouldRetry(true, different, "", "", tools, evidence)).toBe(false);
+  });
+
+  it("does not fingerprint successful tool results as failures", () => {
+    const evidence = inspectCurrentToolCycle(toolCycle(false), tools);
+    const same = { name: "Bash", arguments: { command: "false", timeout: 1_000 } };
+    expect(evidence.failedToolFingerprints).toEqual([]);
+    expect(isRepeatedFailedToolCall(same, evidence)).toBe(false);
+  });
+
+  it("does not carry a historical failed fingerprint into a new user request", () => {
+    const evidence = inspectCurrentToolCycle(toolCycle(true, "Покажи текущую папку"), tools);
+    const oldCall = { name: "Bash", arguments: { command: "false", timeout: 1_000 } };
+    expect(evidence.failedToolFingerprints).toEqual([]);
+    expect(isRepeatedFailedToolCall(oldCall, evidence)).toBe(false);
+  });
+
+  it("starts a new action cycle when the user explicitly asks to retry", () => {
+    const evidence = inspectCurrentToolCycle(toolCycle(true, "Попробуй эту команду ещё раз"), tools);
+    const retry = { name: "Bash", arguments: { command: "false", timeout: 1_000 } };
+    expect(evidence.currentUserText).toBe("Попробуй эту команду ещё раз");
+    expect(shouldRetry(true, retry, "", "", tools, evidence)).toBe(false);
+  });
+});
+
 describe("DeepSeekClient environment completion guard", () => {
   const bashTool = {
     name: "Bash",
@@ -1214,6 +1311,72 @@ describe("DeepSeekClient environment completion guard", () => {
     expect(result.content).toBe(answer);
     expect(result.toolCall).toBeUndefined();
     expect(runCompletion).toHaveBeenCalledTimes(1);
+  });
+
+  function failedBashMessages(): CanonicalMessage[] {
+    return [
+      { role: "user", parts: [{ type: "text", text: "Выполни команду false" }] },
+      { role: "assistant", parts: [{
+        type: "tool_use",
+        toolCall: { id: "call_false", type: "function", name: "Bash", arguments: { command: "false" } },
+      }] },
+      { role: "user", parts: [{
+        type: "tool_result",
+        toolResult: { toolUseId: "call_false", content: "exit code 1", isError: true },
+      }] },
+    ];
+  }
+
+  it("bounds identical failed tool retries without returning them to the client", async () => {
+    const repeated = '{"tool_call":{"name":"Bash","arguments":{"command":"false"}}}';
+    const { client, runCompletion } = clientWithOutputs([
+      { content: repeated },
+      { content: repeated },
+      { content: repeated },
+    ]);
+    const onToolCall = vi.fn();
+
+    await expect(client.complete(
+      request(failedBashMessages()),
+      state(),
+      { onToolCall },
+    )).rejects.toMatchObject({
+      code: "TOOL_CALL_REQUIRED",
+      status: 502,
+      message: expect.stringMatching(/failed action was not executed again/i),
+    });
+    expect(runCompletion).toHaveBeenCalledTimes(COMPLETION_GUARD_MAX_ATTEMPTS);
+    expect(runCompletion.mock.calls[1]?.[0]).toMatch(/Do NOT repeat that call unchanged/i);
+    expect(onToolCall).not.toHaveBeenCalled();
+  });
+
+  it("allows recovery through a Bash call with changed arguments", async () => {
+    const { client, runCompletion } = clientWithOutputs([{
+      content: '{"tool_call":{"name":"Bash","arguments":{"command":"printf RECOVERY-OK"}}}',
+    }]);
+    const result = await client.complete(request(failedBashMessages()), state());
+
+    expect(result.toolCall).toEqual({ name: "Bash", args: { command: "printf RECOVERY-OK" } });
+    expect(runCompletion).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns a non-empty BridgeError when repeated failure retries end in an empty final", async () => {
+    const repeated = '{"tool_call":{"name":"Bash","arguments":{"command":"false"}}}';
+    const { client, runCompletion } = clientWithOutputs([
+      { content: repeated },
+      { content: repeated },
+      { content: "" },
+    ]);
+
+    let caught: unknown;
+    try {
+      await client.complete(request(failedBashMessages()), state());
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toMatchObject({ code: "TOOL_CALL_REQUIRED", status: 502 });
+    expect((caught as Error).message.trim().length).toBeGreaterThan(0);
+    expect(runCompletion).toHaveBeenCalledTimes(COMPLETION_GUARD_MAX_ATTEMPTS);
   });
 });
 

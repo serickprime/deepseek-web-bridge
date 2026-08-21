@@ -27,6 +27,7 @@ import {
   looksLikeFakeToolTrace,
   looksLikeActionSuccessClaim,
   inspectCurrentToolCycle,
+  isRepeatedFailedToolCall,
   type CurrentToolCycleEvidence,
   COMPLETION_GUARD_MAX_ATTEMPTS,
   buildUpstreamPrompt,
@@ -171,6 +172,7 @@ export class DeepSeekClient {
 
     const inspection = inspectToolCallFromOutput(output, allowedNames);
     let toolCall = inspection.toolCall;
+    let sawRepeatedFailedToolCall = isRepeatedFailedToolCall(toolCall, guardEvidence);
 
     // Bounded completion guard loop: retry when the current user turn requires
     // real environment evidence but has no current-cycle tool_result, or when
@@ -178,14 +180,19 @@ export class DeepSeekClient {
     let retries = 0;
     while (shouldRetry(hasTools, toolCall, output.content, output.reasoning, allowedNames, guardEvidence) && retries < COMPLETION_GUARD_MAX_ATTEMPTS - 1) {
       retries++;
+      const repeatedFailedToolName = isRepeatedFailedToolCall(toolCall, guardEvidence)
+        ? toolCall?.name
+        : undefined;
       const retryPrompt = createToolRetryPrompt(allowedNames, {
         unavailableToolNames: toolSelection.unavailableNames,
         failedToolNames: guardEvidence.failedToolNames,
         missingActionKinds: guardEvidence.missingActionKinds,
+        repeatedFailedToolName,
       });
       output = await this.runCompletion(retryPrompt, state, authGeneration, modelSelection);
       const retryInspection = inspectToolCallFromOutput(output, allowedNames);
       toolCall = retryInspection.toolCall;
+      sawRepeatedFailedToolCall ||= isRepeatedFailedToolCall(toolCall, guardEvidence);
       if (toolCall) {
         output = { ...output, content: "", reasoning: "" };
       }
@@ -199,9 +206,12 @@ export class DeepSeekClient {
         has_current_tool_result: guardEvidence.hasCurrentToolResult,
         has_successful_current_tool_result: guardEvidence.hasSuccessfulCurrentToolResult,
         has_failed_current_tool_result: guardEvidence.hasFailedCurrentToolResult,
+        repeated_failed_tool_call: sawRepeatedFailedToolCall,
       });
       throw new BridgeError(
-        "DeepSeek did not produce the required real tool call. The requested environment data or external action was not successfully verified, so no fabricated success result was returned.",
+        sawRepeatedFailedToolCall
+          ? "DeepSeek repeated a tool call that already failed in this user action cycle and did not provide a safe alternative or a non-empty honest failure. The failed action was not executed again."
+          : "DeepSeek did not produce the required real tool call. The requested environment data or external action was not successfully verified, so no fabricated success result was returned.",
         { code: "TOOL_CALL_REQUIRED", status: 502, retryable: true },
       );
     }
@@ -497,17 +507,19 @@ export function shouldRetry(
   allowedToolNames: string[] = [],
   evidence?: CurrentToolCycleEvidence,
 ): boolean {
-  if (!hasTools || toolCall) return false;
+  if (!hasTools) return false;
+  if (toolCall) return isRepeatedFailedToolCall(toolCall, evidence);
   if (evidence?.requiresEnvironmentToolResult || evidence?.requiresActionToolResult) {
     if (evidence.hasUnavailableToolFailure) return true;
     if (!evidence.hasFailedCurrentToolResult) return true;
-    if (content.trim() === "" && reasoning.trim() !== "") return true;
+    if (content.trim() === "") return true;
     if (content.trim() !== "" && looksLikeActionSuccessClaim(content)) return true;
     if (content.trim() !== "" && looksLikeToolIntentText(content, allowedToolNames)) return true;
     if (content.trim() !== "" && looksLikeFakeToolTrace(content, allowedToolNames)) return true;
     return false;
   }
   if (evidence?.hasSuccessfulCurrentToolResult) return false;
+  if (evidence?.hasFailedCurrentToolResult && content.trim() === "") return true;
   if (content.trim() === "" && reasoning.trim() !== "") return true;
   if (content.trim() !== "" && looksLikeToolIntentText(content, allowedToolNames)) return true;
   if (content.trim() !== "" && looksLikeFakeToolTrace(content, allowedToolNames)) return true;

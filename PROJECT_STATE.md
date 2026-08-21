@@ -1,6 +1,6 @@
 # Состояние проекта
 
-> **Актуально на:** 2026-08-20.
+> **Актуально на:** 2026-08-21.
 > Этот файл — главный источник правды о стадии проекта. Любой агент обязан
 > прочитать его перед началом работы и обновить после внесения изменений.
 > Обязательный порядок чтения перед задачей: `AGENTS.md` → `PROJECT_STATE.md`
@@ -80,14 +80,14 @@ OpenCode в этой итерации deferred и не являются теку
 | 7. DeepSeek | pow (WASM), sseParser, updateParser, client | ✅ готово |
 | 8. Server | middleware, output-адаптеры, protocolStream, routes, server | ✅ готово |
 | 9. Entrypoint | app.ts, index.ts, start.ts | ✅ готово |
-| 10. Тесты | 25 файлов, 440 тестов | ✅ готово |
+| 10. Тесты | 25 файлов, 451 тест | ✅ готово |
 | 11. Скрипты | desktopStart, cdp, auth, doctor, launcher, live, real-OS platform smoke | ✅ live-часть работает |
 | 12. Веб-интерфейс | Bridge Console на `GET /` (Mileo dark theme, two-panel, diagnostics, model picker) | ✅ готово |
 
 **Проверки сейчас:**
 - `npm run typecheck` — ✅ без ошибок.
 - `npm run build` — ✅ собирается.
-- `npm test` — ✅ 440/440.
+- `npm test` — ✅ 451/451.
 - `npm run test:platform` — ✅ локально на Windows: real process/platform,
   `buildConfig`, Bridge HTTP, Unicode cwd и env propagation без DeepSeek auth.
 - `npm run auth` / Web UI AUTH — ✅ Bearer захватывается из сети, HIF читается из
@@ -256,8 +256,32 @@ OpenCode config не изменялся.
   `MindfulSpace — медитация и осознанность`.
 - Failure live: `Bash(false)` возвращал `is_error:true`; модель не заявила
   «готово»/успех. Она повторила failed call пять раз и завершила пустым final;
-  защита от ложного success подтверждена, но model-side повторение одинаковой
-  ошибки не считается исправленным этой итерацией.
+  это исходное наблюдение закрыто отдельным repeated-failure guard ниже.
+
+### Repeated failed tool-call guard — 2026-08-21
+
+- Для каждого коррелированного `tool_use` → `tool_result is_error:true` после
+  последнего текстового user request сохраняется fingerprint: точное имя tool +
+  рекурсивно key-sorted JSON arguments. Для Bash служебный `description` не
+  участвует в fingerprint, поскольку Claude Code меняет его между вызовами, но
+  он не меняет исполняемое действие; `command`, `timeout` и остальные
+  execution-поля остаются значимыми.
+- Повтор failed fingerprint не возвращается Claude Code как новый `tool_use`.
+  Bridge делает не более трёх upstream completion attempts и требует другой
+  tool, исправленные arguments либо честный непустой failure. При исчерпании
+  попыток возвращается `TOOL_CALL_REQUIRED`, а не пустой final.
+- Cycle начинается с последнего текстового user message без `tool_result`.
+  Поэтому historical/compact failures и предыдущая пользовательская задача не
+  блокируют новый явный запрос «попробуй эту команду ещё раз». Successful
+  results не добавляются в failed fingerprints.
+- Offline: 11 новых regression cases; итого 451/451 tests.
+- Windows production live через Claude Code 2.1.238 в `D:\test CC NODE`:
+  точный `Bash(command:"false")` реально исполнился один раз в одном request;
+  неизменный повтор клиенту не выдавался, изменённые executable commands были
+  разрешены, final остался непустым и честно описал exit code 1. Отдельный
+  recovery прошёл `Bash(false)` → error result →
+  `Bash(printf RECOVERY-OK-482)` → successful result → final
+  `RECOVERY-OK-482`.
 
 ## Стабильная live-точка — 2026-08-20
 
@@ -346,10 +370,11 @@ OpenCode config не изменялся.
       create, mutation, execution, launch и install требуют соответствующего
       successful evidence текущего canonical cycle. Live landing workflow
       прошёл Write → result → Bash launch → result → final без Artifact.
-- [ ] **Повтор одинакового failed tool call** — failure live-test не дал ложного
-      success, но DeepSeek повторил `Bash(false)` пять раз перед пустым final.
-      Возможный отдельный bounded repeated-failure guard требует собственного
-      дизайна/live-test и не входит в текущий action-integrity scope.
+- [x] **Повтор одинакового failed tool call** — stable current-cycle fingerprint
+      блокирует повтор после `is_error:true`, bounded retry требует изменённые
+      arguments/другой tool/честный failure, а exhaustion не возвращает пустой
+      final. Live: точный `Bash(false)` исполнился один раз; изменённый
+      `printf RECOVERY-OK-482` после ошибки успешно выполнился.
 
 ### Приоритет 2 (расхождения README с кодом) — все закрыты
 
@@ -368,6 +393,12 @@ OpenCode config не изменялся.
       `deepseek-chat`/`deepseek-reasoner` принимаются, но не рекламируются.
 
 ### Приоритет 3 (улучшения, не блокеры)
+- [ ] **Повторно проверить production SHUTDOWN/PID lifecycle** — после
+      action-integrity live-run наблюдалось, что `/bridge/shutdown` закрывал HTTP
+      listener, но исходный Node PID дважды оставался жив и требовал точечного
+      завершения. Ранее успешные SHUTDOWN сценарии также зафиксированы выше;
+      root cause нового наблюдения не установлен. В repeated-failure задаче
+      shutdown-код не менялся.
 - [x] В `src/api/handler.ts` переменная `turn` не используется — tool-цикл
       (повтор после tool_result) не замкнут, история ведётся только в
       `SessionStore`. Продумать и реализовать полный цикл tool calling либо

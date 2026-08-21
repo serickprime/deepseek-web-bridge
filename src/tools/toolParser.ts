@@ -261,6 +261,7 @@ export interface CurrentToolCycleEvidence {
   fulfilledActionKinds: ExternalActionKind[];
   missingActionKinds: ExternalActionKind[];
   failedToolNames: string[];
+  failedToolFingerprints: string[];
   hasUnavailableToolFailure: boolean;
 }
 
@@ -361,6 +362,37 @@ function toolArgumentText(toolCall: CanonicalToolCall): string {
   }
 }
 
+function normalizeToolArgumentValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(normalizeToolArgumentValue);
+  if (!value || typeof value !== "object") return value;
+
+  const normalized: Record<string, unknown> = {};
+  for (const key of Object.keys(value as Record<string, unknown>).sort()) {
+    const item = (value as Record<string, unknown>)[key];
+    if (item !== undefined) normalized[key] = normalizeToolArgumentValue(item);
+  }
+  return normalized;
+}
+
+export function toolCallFingerprint(name: string, argumentsValue: Record<string, unknown>): string {
+  const normalizedArguments = { ...argumentsValue };
+  if (name.trim().toLowerCase() === "bash") delete normalizedArguments.description;
+  return `${name.trim()}\n${JSON.stringify(normalizeToolArgumentValue(normalizedArguments))}`;
+}
+
+export function isRepeatedFailedToolCall(
+  toolCall: unknown,
+  evidence?: CurrentToolCycleEvidence,
+): boolean {
+  if (!evidence || !toolCall || typeof toolCall !== "object") return false;
+  const candidate = toolCall as { name?: unknown; arguments?: unknown };
+  if (typeof candidate.name !== "string" || !isPlainObject(candidate.arguments)) return false;
+  return evidence.failedToolFingerprints.includes(toolCallFingerprint(
+    candidate.name,
+    candidate.arguments as Record<string, unknown>,
+  ));
+}
+
 function fulfilledKindsForTool(toolCall: CanonicalToolCall): ExternalActionKind[] {
   const name = toolCall.name.toLowerCase();
   const args = toolArgumentText(toolCall);
@@ -399,6 +431,7 @@ function emptyCurrentToolCycleEvidence(): CurrentToolCycleEvidence {
     fulfilledActionKinds: [],
     missingActionKinds: [],
     failedToolNames: [],
+    failedToolFingerprints: [],
     hasUnavailableToolFailure: false,
   };
 }
@@ -437,6 +470,7 @@ export function inspectCurrentToolCycle(
   let hasFailedCurrentToolResult = false;
   const fulfilledActionKinds = new Set<ExternalActionKind>();
   const failedToolNames = new Set<string>();
+  const failedToolFingerprints = new Set<string>();
   for (const message of currentMessages) {
     for (const part of message.parts) {
       if (part.type !== "tool_result" || !part.toolResult) continue;
@@ -446,6 +480,7 @@ export function inspectCurrentToolCycle(
       if (part.toolResult.isError) {
         hasFailedCurrentToolResult = true;
         failedToolNames.add(toolCall.name);
+        failedToolFingerprints.add(toolCallFingerprint(toolCall.name, toolCall.arguments));
         continue;
       }
       hasSuccessfulCurrentToolResult = true;
@@ -467,6 +502,7 @@ export function inspectCurrentToolCycle(
     fulfilledActionKinds: [...fulfilledActionKinds],
     missingActionKinds,
     failedToolNames: [...failedToolNames],
+    failedToolFingerprints: [...failedToolFingerprints],
     hasUnavailableToolFailure: [...failedToolNames].some(name => name.toLowerCase() === "artifact"),
   };
 }
@@ -598,6 +634,7 @@ export interface ToolRetryPromptContext {
   unavailableToolNames?: string[];
   failedToolNames?: string[];
   missingActionKinds?: ExternalActionKind[];
+  repeatedFailedToolName?: string;
 }
 
 export function createToolRetryPrompt(
@@ -619,6 +656,12 @@ export function createToolRetryPrompt(
   }
   if ((context.failedToolNames ?? []).length > 0) {
     lines.push(`Failed tools in the current cycle: ${JSON.stringify(context.failedToolNames)}`);
+  }
+  if (context.repeatedFailedToolName) {
+    lines.push(
+      `The exact ${JSON.stringify(context.repeatedFailedToolName)} call with the same normalized arguments already ran in this user action cycle and returned tool_result is_error=true.`,
+      "Do NOT repeat that call unchanged. Choose a different tool, correct the arguments, or honestly explain why the task cannot be completed.",
+    );
   }
   if ((context.missingActionKinds ?? []).length > 0) {
     lines.push(`Still-unverified action kinds: ${JSON.stringify(context.missingActionKinds)}`);
