@@ -80,14 +80,14 @@ OpenCode в этой итерации deferred и не являются теку
 | 7. DeepSeek | pow (WASM), sseParser, updateParser, client | ✅ готово |
 | 8. Server | middleware, output-адаптеры, protocolStream, routes, server | ✅ готово |
 | 9. Entrypoint | app.ts, index.ts, start.ts | ✅ готово |
-| 10. Тесты | 25 файлов, 459 тестов | ✅ готово |
+| 10. Тесты | 25 файлов, 480 тестов | ✅ готово |
 | 11. Скрипты | desktopStart, cdp, auth, doctor, launcher, live, real-OS platform smoke | ✅ live-часть работает |
 | 12. Веб-интерфейс | Bridge Console на `GET /` (Mileo dark theme, two-panel, diagnostics, model picker) | ✅ готово |
 
 **Проверки сейчас:**
 - `npm run typecheck` — ✅ без ошибок.
 - `npm run build` — ✅ собирается.
-- `npm test` — ✅ 459/459.
+- `npm test` — ✅ 480/480.
 - `npm run test:platform` — ✅ локально на Windows: real process/platform,
   `buildConfig`, Bridge HTTP, Unicode cwd и env propagation без DeepSeek auth.
 - `npm run auth` / Web UI AUTH — ✅ Bearer захватывается из сети, HIF читается из
@@ -305,6 +305,38 @@ OpenCode config не изменялся.
   UTF-8 arguments и преждевременно описала более слабую проверку; это вынесено
   в отдельный TODO ниже.
 
+### Multi-step current-user obligation guard — 2026-08-21
+
+- Последний реальный текстовый user request преобразуется в ограниченный набор
+  проверяемых `ToolObligation`: file/data mutation, command execution,
+  API/file verification, test execution, launch/server verification и install.
+  Standalone `<system-reminder>` удаляется до выбора request; historical turns,
+  compact/history и предыдущие user tasks не становятся evidence нового cycle.
+- Каждое требование закрывается независимо только коррелированным successful
+  `tool_use` → `tool_result` подходящего типа. Edit/Write не подтверждает API,
+  API не подтверждает storage, Jest не подтверждает listener. Retry перечисляет
+  missing requirements и отдельно уже fulfilled requirements, чтобы не
+  заставлять модель повторять подтверждённые шаги.
+- Exact title/name, description, content/marker, path и URL сохраняются как
+  исходные Unicode strings и сравниваются после NFC normalization. Arguments
+  должны реально содержать literal; JSON result проверяется по равным string
+  values, а не по escaped/mojibake representation или подстроке. Structured
+  `{"error":...}` не считается successful application action.
+- Test evidence требует реальный test command, а не `--version`, `--help` или
+  `--listTests`. Явные Jest failure summaries не закрывают obligation даже при
+  shell exit code 0. Text continuation (`Let me ... rerun`) и raw XML marker
+  при missing steps получают bounded retry; exhaustion даёт непустой
+  `TOOL_CALL_REQUIRED`.
+- Offline: 21 новый regression case; итого 480/480 tests.
+- Windows TaskFlow live без command hints: Flash не принял mojibake/failed Jest.
+  Pro самостоятельно создал exact Unicode record через Node request, проверил
+  API/storage, нашёл parallel storage race и выполнил `npx jest --runInBand`
+  (29/29), затем поднял `node server.js`, проверил HTTP 200 и восстановил exact
+  record после тестов. Независимо подтверждены API/storage exact values,
+  listener PID 21104 и isolated Jest 29/29. Полный clean final остаётся partial:
+  CLI harness истёк после последнего Read до captured final, и upstream модель
+  повторно создала ту же exact запись; TODO ниже не закрыт.
+
 ## Стабильная live-точка — 2026-08-20
 
 Подтверждено live-тестами Claude Code (полный workflow «кодирование через бридж»):
@@ -402,6 +434,11 @@ OpenCode config не изменялся.
       неоднозначные backslashes не ремонтируются, exhaustion возвращает
       непустой `TOOL_CALL_REQUIRED`. Production TaskFlow reproduction вернул
       настоящий `Edit tool_use`/`tool_result` вместо raw JSON.
+- [x] **Multi-step current-user obligations** — exact Unicode literals и
+      отдельные mutation/API/storage/test/server requirements требуют
+      соответствующего current-cycle evidence. Один successful result не
+      закрывает весь request; missing steps получают bounded retry, а failed
+      Jest pipeline/structured application error не считаются успехом.
 
 ### Приоритет 2 (расхождения README с кодом) — все закрыты
 
@@ -420,13 +457,12 @@ OpenCode config не изменялся.
       `deepseek-chat`/`deepseek-reasoner` принимаются, но не рекламируются.
 
 ### Приоритет 3 (улучшения, не блокеры)
-- [ ] **Повторить полный autonomous TaskFlow semantic live-test** — malformed
-      `Edit` recovery, реальный Edit result, clean Jest 13/13 и отдельный server
-      listener подтверждены. Однако затем DeepSeek проигнорировал exact UTF-8
-      title/description, повторно выбрал Windows curl и выдал преждевременный
-      success text после failed file check. Не смешивать это с исправленной
-      parser-утечкой; требуется отдельное усиление exact-argument/multi-step
-      completion integrity и новый end-to-end live-run.
+- [~] **Повторить полный autonomous TaskFlow semantic live-test** — obligation
+      guard реализован. Pro live без command hints подтвердил exact UTF-8 через
+      API и storage, serial Jest 29/29 и HTTP listener; независимые проверки
+      совпали. Но 10-минутный CLI harness закончился после последнего Read без
+      captured final, а модель создала две одинаковые exact записи. Нужен один
+      чистый desktop turn с одной записью и видимым final после всех evidence.
 - [ ] **Повторно проверить production SHUTDOWN/PID lifecycle** — после
       action-integrity live-run наблюдалось, что `/bridge/shutdown` закрывал HTTP
       listener, но исходный Node PID дважды оставался жив и требовал точечного

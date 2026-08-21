@@ -3,6 +3,50 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-21 — Enforce multi-step Claude Code completion integrity
+
+- Root cause: completion guard хранил только coarse action kinds и разрешал
+  final после любого подходящего successful `tool_result`. Он не представлял
+  отдельные требования текущего user request, не связывал exact title/
+  description/path/URL с arguments и не требовал раздельных API, storage,
+  test и server evidence. Кроме того, standalone Claude `system-reminder`
+  мог быть ошибочно выбран как последний текстовый user request.
+- `src/tools/toolParser.ts` теперь строит консервативный current-cycle набор
+  `ToolObligation`: file/data mutation, command, API/file verification, tests,
+  launch/server и install. Каждый obligation закрывается только подходящим
+  коррелированным successful `tool_use` → `tool_result`; historical turns,
+  compact/history и standalone system reminders не учитываются.
+- Явно заданные user literals (title/name, description, content/marker, path,
+  URL) сохраняются без перекодирования и сравниваются как Unicode NFC. Tool
+  arguments должны содержать исходное значение; JSON results сравниваются по
+  точным string values, поэтому mojibake, weaker/suffixed values и structured
+  `{"error":...}` не подтверждают obligation.
+- Jest version/help probes не считаются test execution. Явный failed Jest
+  summary (`FAIL`, `Test Suites: ... failed`, `Tests: ... failed`) не считается
+  success даже если shell pipeline скрыл exit code. Raw XML continuation и
+  обещание вроде `Let me ... rerun` не выходят как final при незакрытых шагах.
+- `src/deepseek/client.ts` передаёт bounded retry точный список ещё не
+  подтверждённых requirements и уже закрытых evidence, запрещает объявлять
+  успех и просит не повторять завершённые шаги. После трёх неудачных attempts
+  возвращается непустой `TOOL_CALL_REQUIRED`; логи содержат только count/kinds,
+  без пользовательских literals.
+- `tests/unit/tools.test.ts` — 21 новый regression: exact Unicode, weaker и
+  suffixed values, structured application error, отдельные API/storage/test/
+  launch obligations, failed Jest через успешный pipeline, promised/raw XML
+  continuation, masked file/server failures, Edit-only partial evidence,
+  fulfilled/historical/new-cycle semantics, system reminder, informational
+  request и bounded root rejection.
+- Windows live TaskFlow: Flash корректно отклонил mojibake и failed Jest вместо
+  ложного success. Pro без command hints самостоятельно использовал Unicode-safe
+  Node request, `npx jest --runInBand` (29/29), поднял `node server.js`, получил
+  HTTP 200 и повторно подтвердил exact API/storage после тестов. Независимая
+  проверка: API и JSON содержали exact title `Проверка UTF-8 — ёжик №482` и
+  description `Съешь ещё этих мягких французских булок`, listener PID 21104;
+  изолированный повтор Jest — 29/29. Чистый end-to-end final не заявляется:
+  10-минутный CLI harness завершился после последнего Read без captured final,
+  а модель создала две одинаковые записи. TODO остаётся частично открытым.
+- Итого: 25 test files, 480 tests.
+
 ## 2026-08-21 — Recover malformed Claude Code tool calls
 
 - Root cause: `extractToolCallFromText()` уже находил JSON-кандидат с доступным

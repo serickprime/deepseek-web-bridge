@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { parseToolInvocation, hasToolTag, createToolRetryPrompt, historicalToolInvocationText, sanitizedToolInvocationText, toolResultText, looksLikeToolIntentText, looksLikeFakeToolTrace, looksLikeEnvironmentDataRequest, looksLikeExternalActionRequest, looksLikeActionSuccessClaim, inspectCurrentToolCycle, inspectToolCallFromOutput, looksLikeMalformedToolIntent, toolCallFingerprint, isRepeatedFailedToolCall, COMPLETION_GUARD_MAX_ATTEMPTS, buildUpstreamPrompt } from "../../src/tools/toolParser.js";
+import { parseToolInvocation, hasToolTag, createToolRetryPrompt, historicalToolInvocationText, sanitizedToolInvocationText, toolResultText, looksLikeToolIntentText, looksLikeFakeToolTrace, looksLikeEnvironmentDataRequest, looksLikeExternalActionRequest, looksLikeActionSuccessClaim, inspectCurrentToolCycle, inferToolObligations, inspectToolCallFromOutput, looksLikeMalformedToolIntent, toolCallFingerprint, isRepeatedFailedToolCall, COMPLETION_GUARD_MAX_ATTEMPTS, buildUpstreamPrompt } from "../../src/tools/toolParser.js";
 import { buildToolPrompt, selectBridgeTools } from "../../src/tools/toolPrompt.js";
 import { ToolRetryTracker } from "../../src/tools/toolRetry.js";
 import { DeepSeekClient, shouldRetry, buildToolUseIdMap } from "../../src/deepseek/client.js";
@@ -1084,6 +1084,281 @@ describe("external action completion integrity", () => {
     expect(evidence.missingActionKinds).toEqual(["file_mutation"]);
   });
 
+  const exactTitle = "Проверка UTF-8 — ёжик №482";
+  const exactDescription = "Съешь ещё этих мягких французских булок";
+  const semanticPrompt = `создай задачу с названием "${exactTitle}" и описанием "${exactDescription}"`;
+  const exactPostCommand = `node -e "fetch('http://127.0.0.1:3000/api/tasks', {method:'POST', body: JSON.stringify({title:'${exactTitle}', description:'${exactDescription}'})})"`;
+
+  it("requires exact Unicode title and description in successful mutation arguments", () => {
+    const obligations = inferToolObligations(semanticPrompt, tools);
+    expect(obligations.find(obligation => obligation.kind === "data_mutation")).toMatchObject({
+      argumentLiterals: [exactTitle, exactDescription],
+    });
+
+    const evidence = inspectCurrentToolCycle(cycle(semanticPrompt, [{
+      id: "call_post",
+      name: "Bash",
+      arguments: { command: exactPostCommand },
+      result: JSON.stringify({ title: exactTitle, description: exactDescription }),
+    }]), tools);
+    expect(evidence.fulfilledObligationIds).toContain("data_mutation");
+    expect(evidence.missingExactLiterals).toEqual([]);
+  });
+
+  it("does not fulfill exact-value mutation with a weaker value", () => {
+    const evidence = inspectCurrentToolCycle(cycle(semanticPrompt, [{
+      id: "call_wrong_post",
+      name: "Bash",
+      arguments: { command: "node -e \"fetch('http://127.0.0.1:3000/api/tasks', {method:'POST', body: JSON.stringify({title:'LIVE'})})\"" },
+      result: '{"title":"LIVE"}',
+    }]), tools);
+    expect(evidence.fulfilledObligationIds).not.toContain("data_mutation");
+    expect(evidence.missingExactLiterals).toEqual([exactTitle, exactDescription]);
+    expect(shouldRetry(true, null, "Готово, задача создана.", "", tools, evidence)).toBe(true);
+  });
+
+  it("does not fulfill a mutation when the application returns a structured error", () => {
+    const evidence = inspectCurrentToolCycle(cycle(semanticPrompt, [{
+      id: "call_rejected_post",
+      name: "Bash",
+      arguments: { command: exactPostCommand },
+      result: '{"error":"Title is required"}',
+    }]), tools);
+    expect(evidence.fulfilledObligationIds).not.toContain("data_mutation");
+    expect(evidence.missingActionKinds).toEqual(["data_mutation"]);
+  });
+
+  it("requires a separate API verification result with exact values", () => {
+    const prompt = `${semanticPrompt}; проверь результат через API`;
+    const postOnly = inspectCurrentToolCycle(cycle(prompt, [{
+      id: "call_post",
+      name: "Bash",
+      arguments: { command: exactPostCommand },
+      result: JSON.stringify({ title: exactTitle, description: exactDescription }),
+    }]), tools);
+    expect(postOnly.fulfilledObligationIds).toContain("data_mutation");
+    expect(postOnly.missingActionKinds).toContain("api_verification");
+    expect(shouldRetry(true, null, "Задача создана и всё проверено.", "", tools, postOnly)).toBe(true);
+
+    const verified = inspectCurrentToolCycle(cycle(prompt, [
+      { id: "call_post", name: "Bash", arguments: { command: exactPostCommand }, result: "created" },
+      {
+        id: "call_get",
+        name: "Bash",
+        arguments: { command: "node -e \"fetch('http://127.0.0.1:3000/api/tasks').then(r => r.text()).then(console.log)\"" },
+        result: JSON.stringify({ title: exactTitle, description: exactDescription }),
+      },
+    ]), tools);
+    expect(verified.fulfilledObligationIds).toEqual(expect.arrayContaining(["data_mutation", "api_verification"]));
+    expect(verified.missingActionKinds).toEqual([]);
+  });
+
+  it("does not accept an API value that merely contains the requested exact literal", () => {
+    const prompt = `${semanticPrompt}; проверь результат через API`;
+    const evidence = inspectCurrentToolCycle(cycle(prompt, [
+      { id: "call_post", name: "Bash", arguments: { command: exactPostCommand }, result: "created" },
+      {
+        id: "call_get",
+        name: "Bash",
+        arguments: { command: "curl http://127.0.0.1:3000/api/tasks" },
+        result: JSON.stringify({ title: `${exactTitle} extra`, description: exactDescription }),
+      },
+    ]), tools);
+    expect(evidence.fulfilledObligationIds).toContain("data_mutation");
+    expect(evidence.fulfilledObligationIds).not.toContain("api_verification");
+    expect(evidence.missingExactLiterals).toEqual([exactTitle, exactDescription]);
+  });
+
+  it("requires storage verification through Read or file-reading Bash evidence", () => {
+    const prompt = `${semanticPrompt}; проверь файл хранения data/tasks.json`;
+    const withoutRead = inspectCurrentToolCycle(cycle(prompt, [{
+      id: "call_post", name: "Bash", arguments: { command: exactPostCommand }, result: "created",
+    }]), tools);
+    expect(withoutRead.missingActionKinds).toContain("file_verification");
+
+    const withRead = inspectCurrentToolCycle(cycle(prompt, [
+      { id: "call_post", name: "Bash", arguments: { command: exactPostCommand }, result: "created" },
+      {
+        id: "call_read",
+        name: "Read",
+        arguments: { file_path: "data/tasks.json" },
+        result: JSON.stringify({ title: exactTitle, description: exactDescription }),
+      },
+    ]), tools);
+    expect(withRead.fulfilledObligationIds).toContain("file_verification");
+    expect(withRead.missingActionKinds).toEqual([]);
+  });
+
+  it("does not fulfill file verification with a not-found result masked as success", () => {
+    const prompt = "проверь файл хранения data/tasks.json";
+    const evidence = inspectCurrentToolCycle(cycle(prompt, [{
+      id: "call_missing",
+      name: "Bash",
+      arguments: { command: 'cat data/tasks.json || echo "File not found"' },
+      result: "File not found",
+    }]), tools);
+    expect(evidence.missingActionKinds).toEqual(["file_verification"]);
+  });
+
+  it("does not fulfill server verification with a masked connection failure", () => {
+    const prompt = "убедись, что server отвечает";
+    const evidence = inspectCurrentToolCycle(cycle(prompt, [{
+      id: "call_health",
+      name: "Bash",
+      arguments: { command: 'curl http://localhost:3000 || echo "Server not responding"' },
+      result: "Server not responding",
+    }]), tools);
+    expect(evidence.missingActionKinds).toEqual(["server_verification"]);
+  });
+
+  it("keeps test execution and launch as separate obligations", () => {
+    const prompt = "запусти Jest и запусти приложение";
+    const tested = inspectCurrentToolCycle(cycle(prompt, [{
+      id: "call_test", name: "Bash", arguments: { command: "npx jest" }, result: "13 passed",
+    }]), tools);
+    expect(tested.fulfilledObligationIds).toContain("test_execution");
+    expect(tested.missingActionKinds).toContain("launch");
+    expect(shouldRetry(true, null, "Тесты прошли, приложение запущено.", "", tools, tested)).toBe(true);
+  });
+
+  it("does not treat a Jest version probe as test execution", () => {
+    const prompt = "запусти Jest";
+    const evidence = inspectCurrentToolCycle(cycle(prompt, [{
+      id: "call_version",
+      name: "Bash",
+      arguments: { command: "npm test -- --version" },
+      result: "29.7.0",
+    }]), tools);
+    expect(evidence.fulfilledObligationIds).not.toContain("test_execution");
+    expect(evidence.missingActionKinds).toEqual(["test_execution"]);
+  });
+
+  it("does not fulfill test execution when a successful transport contains failed Jest output", () => {
+    const evidence = inspectCurrentToolCycle(cycle("run Jest", [{
+      id: "call_test",
+      name: "Bash",
+      arguments: { command: "npm test | head -50" },
+      result: "Test Suites: 2 failed, 1 passed, 3 total\nTests: 3 failed, 26 passed, 29 total",
+    }]), tools);
+    expect(evidence.fulfilledObligationIds).not.toContain("test_execution");
+    expect(evidence.missingActionKinds).toEqual(["test_execution"]);
+  });
+
+  it("retries a promised continuation instead of returning it as a final answer", () => {
+    const evidence = inspectCurrentToolCycle(cycle("run Jest and leave the server running", [{
+      id: "call_test",
+      name: "Bash",
+      arguments: { command: "npm test" },
+      result: "3 tests failed",
+      error: true,
+    }]), tools);
+    expect(shouldRetry(
+      true,
+      null,
+      "3 tests failed. Let me start the server and rerun the tests.",
+      "",
+      tools,
+      evidence,
+    )).toBe(true);
+  });
+
+  it("retries a raw XML tool marker after a failed multi-step action", () => {
+    const prompt = "запусти Jest и запусти приложение";
+    const evidence = inspectCurrentToolCycle(cycle(prompt, [{
+      id: "call_test",
+      name: "Bash",
+      arguments: { command: "npm test" },
+      result: "3 tests failed",
+      error: true,
+    }]), tools);
+    const rawContinuation = "Jest failed, so I will continue with the remaining work.\n<tool_calls><invoke name=\"Bash\"><parameter name=\"command\">npm test -- --runInBand</parameter></invoke></tool_calls>";
+    expect(shouldRetry(true, null, rawContinuation, "", tools, evidence)).toBe(true);
+  });
+
+  it("does not let a successful Edit close a multi-step request", () => {
+    const prompt = "измени server.js, проверь через API, проверь файл хранения data/tasks.json, запусти тесты и оставь приложение работающим";
+    const evidence = inspectCurrentToolCycle(cycle(prompt, [{
+      id: "call_edit", name: "Edit", arguments: { file_path: "server.js" }, result: "updated",
+    }]), tools);
+    expect(evidence.fulfilledObligationIds).toContain("file_mutation");
+    expect(evidence.missingActionKinds).toEqual(expect.arrayContaining([
+      "api_verification",
+      "file_verification",
+      "test_execution",
+      "server_verification",
+    ]));
+  });
+
+  it("retry prompt names only missing obligations and preserves completed evidence", () => {
+    const prompt = `${semanticPrompt}; проверь результат через API`;
+    const evidence = inspectCurrentToolCycle(cycle(prompt, [{
+      id: "call_post", name: "Bash", arguments: { command: exactPostCommand }, result: "created",
+    }]), tools);
+    const fulfilled = evidence.obligations
+      .filter(obligation => evidence.fulfilledObligationIds.includes(obligation.id))
+      .map(obligation => obligation.description);
+    const retry = createToolRetryPrompt(tools, {
+      missingObligations: evidence.missingObligations.map(obligation => obligation.description),
+      fulfilledObligations: fulfilled,
+    });
+    expect(retry).toContain("verify the result through the API");
+    expect(retry).toContain("Already verified requirements");
+    expect(retry).toContain("Do not repeat already verified steps");
+  });
+
+  it("distinguishes Claude task tracking from an application data mutation", () => {
+    const evidence = inspectCurrentToolCycle(cycle(semanticPrompt), tools);
+    const retry = createToolRetryPrompt(tools, {
+      missingActionKinds: evidence.missingActionKinds,
+      missingObligations: evidence.missingObligations.map(obligation => obligation.description),
+    });
+    expect(retry).toContain("TaskCreate and TaskUpdate only manage Claude's internal task list");
+  });
+
+  it("does not apply historical obligation evidence to the current request", () => {
+    const messages = cycle(semanticPrompt, [{
+      id: "call_old_post", name: "Bash", arguments: { command: exactPostCommand }, result: "created",
+    }]);
+    messages.push({ role: "assistant", parts: [{ type: "text", text: "Старая задача завершена" }] });
+    messages.push({ role: "user", parts: [{ type: "text", text: "запусти тесты" }] });
+    const evidence = inspectCurrentToolCycle(messages, tools);
+    expect(evidence.requiredActionKinds).toEqual(["test_execution"]);
+    expect(evidence.fulfilledObligationIds).toEqual([]);
+  });
+
+  it("does not let a standalone Claude system-reminder replace the current user obligations", () => {
+    const messages = cycle(semanticPrompt);
+    messages.push({
+      role: "user",
+      parts: [{
+        type: "text",
+        text: "<system-reminder>Remember to inspect files and run tests when appropriate.</system-reminder>",
+      }],
+    });
+    const evidence = inspectCurrentToolCycle(messages, tools);
+    expect(evidence.currentUserText).toBe(semanticPrompt);
+    expect(evidence.requiredActionKinds).toContain("data_mutation");
+    expect(evidence.missingExactLiterals).toEqual([exactTitle, exactDescription]);
+  });
+
+  it("starts a new obligation set for a new user request", () => {
+    const messages = cycle("запусти тесты", [{
+      id: "call_test", name: "Bash", arguments: { command: "npm test" }, result: "passed",
+    }]);
+    messages.push({ role: "assistant", parts: [{ type: "text", text: "Тесты прошли" }] });
+    messages.push({ role: "user", parts: [{ type: "text", text: "оставь приложение работающим" }] });
+    const evidence = inspectCurrentToolCycle(messages, tools);
+    expect(evidence.requiredActionKinds).toEqual(["server_verification"]);
+    expect(evidence.missingActionKinds).toEqual(["server_verification"]);
+  });
+
+  it("does not create obligations for an informational request", () => {
+    expect(inferToolObligations("как проверить API и запустить Jest?", tools)).toEqual([]);
+    const evidence = inspectCurrentToolCycle(cycle("что означает title \"Проверка UTF-8 — ёжик №482\"?"), tools);
+    expect(evidence.obligations).toEqual([]);
+    expect(evidence.requiresActionToolResult).toBe(false);
+  });
+
   it("recognizes success claims without treating negated failures as success", () => {
     expect(looksLikeActionSuccessClaim("Готово, файл создан и сайт запущен.")).toBe(true);
     expect(looksLikeActionSuccessClaim("Ошибка: файл не был создан, сайт не был запущен.")).toBe(false);
@@ -1490,6 +1765,29 @@ describe("DeepSeekClient action completion guard", () => {
       parts: [{ type: "text", text: "создай index.html" }],
     }]), actionState())).rejects.toMatchObject({ code: "TOOL_CALL_REQUIRED", status: 502 });
     expect(runCompletion).toHaveBeenCalledTimes(COMPLETION_GUARD_MAX_ATTEMPTS);
+  });
+
+  it("returns non-empty TOOL_CALL_REQUIRED after multi-step obligation exhaustion", async () => {
+    const falseSuccess = "Готово: задача создана, API и storage проверены, тесты прошли, сервер работает.";
+    const { client, runCompletion } = actionClient([falseSuccess, falseSuccess, falseSuccess]);
+    const prompt = 'создай задачу с названием "Проверка UTF-8 — ёжик №482" и описанием "Съешь ещё этих мягких французских булок"; проверь через API; проверь файл хранения data/tasks.json; запусти тесты; оставь приложение работающим';
+
+    let caught: unknown;
+    try {
+      await client.complete(actionRequest([{
+        role: "user",
+        parts: [{ type: "text", text: prompt }],
+      }]), actionState());
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toMatchObject({ code: "TOOL_CALL_REQUIRED", status: 502 });
+    expect((caught as Error).message).toMatch(/every current-user obligation/i);
+    expect((caught as Error).message.trim().length).toBeGreaterThan(0);
+    expect(runCompletion).toHaveBeenCalledTimes(COMPLETION_GUARD_MAX_ATTEMPTS);
+    expect(runCompletion.mock.calls[1]?.[0]).toContain("Still-unverified current-user requirements");
+    expect(runCompletion.mock.calls[1]?.[0]).toContain("Проверка UTF-8 — ёжик №482");
   });
 
   it("retries fabricated success after an Artifact error", async () => {

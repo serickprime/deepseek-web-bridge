@@ -342,9 +342,38 @@ export interface CurrentToolCycleEvidence {
   failedToolNames: string[];
   failedToolFingerprints: string[];
   hasUnavailableToolFailure: boolean;
+  obligations: ToolObligation[];
+  fulfilledObligationIds: string[];
+  missingObligations: ToolObligation[];
+  exactLiterals: string[];
+  missingExactLiterals: string[];
 }
 
-export type ExternalActionKind = "file_mutation" | "command_execution" | "launch" | "dependency_install";
+export type ExternalActionKind =
+  | "file_mutation"
+  | "data_mutation"
+  | "command_execution"
+  | "api_verification"
+  | "file_verification"
+  | "test_execution"
+  | "launch"
+  | "server_verification"
+  | "dependency_install";
+
+type ExactLiteralRole = "title" | "description" | "content" | "marker" | "path" | "url" | "generic";
+
+interface ExactUserLiteral {
+  value: string;
+  role: ExactLiteralRole;
+}
+
+export interface ToolObligation {
+  id: string;
+  kind: ExternalActionKind;
+  description: string;
+  argumentLiterals: string[];
+  resultLiterals: string[];
+}
 
 const INFORMATIONAL_PREFIXES = [
   "что такое ",
@@ -424,12 +453,144 @@ function inferExternalActionKinds(content: string, allowedToolNames: string[]): 
 
   const commandExecution = /выполн\S*(?:\s+команд\S*)?|запуст\S*\s+команд\S*|run (?:the )?command|execute (?:the )?command/i.test(trimmed);
   const launch = !commandExecution
-    && /запуст\S*|открой\S*|подними\S*(?:\s+(?:сайт|сервер|приложен))?|launch|start|open|serve/i.test(trimmed);
+    && /(?:запуст\S*|открой\S*|подними\S*)[\s\S]{0,60}(?:сайт|сервер|приложен|лендинг|страниц|его|её|их)|(?:launch|start|open|serve)[\s\S]{0,60}(?:app|server|site|website|page|\b(?:it|them)\b)/i.test(trimmed);
   if (hasLauncher && launch) kinds.add("launch");
 
   if (hasShell && commandExecution) kinds.add("command_execution");
 
   return [...kinds];
+}
+
+function classifyLiteralRole(prefix: string): ExactLiteralRole | null {
+  if (/(?:названи\S*|title|name)\s*[:=]?\s*$/i.test(prefix)) return "title";
+  if (/(?:описани\S*|description)\s*[:=]?\s*$/i.test(prefix)) return "description";
+  if (/(?:содержим\S*|content|text)\s*[:=]?\s*$/i.test(prefix)) return "content";
+  if (/(?:маркер\S*|marker)\s*[:=]?\s*$/i.test(prefix)) return "marker";
+  if (/(?:путь|path|file|файл\S*)\s*[:=]?\s*$/i.test(prefix)) return "path";
+  if (/(?:url|адрес|endpoint)\s*[:=]?\s*$/i.test(prefix)) return "url";
+  if (/(?:точн\S*|exact(?:ly)?|равн\S*|значени\S*)[\s\S]{0,24}$/i.test(prefix)) return "generic";
+  return null;
+}
+
+function extractExactUserLiterals(content: string): ExactUserLiteral[] {
+  const literals: ExactUserLiteral[] = [];
+  const seen = new Set<string>();
+  const quoted = /"([^"\r\n]{1,512})"|'([^'\r\n]{1,512})'|«([^»\r\n]{1,512})»|`([^`\r\n]{1,512})`/g;
+  for (const match of content.matchAll(quoted)) {
+    const value = match[1] ?? match[2] ?? match[3] ?? match[4] ?? "";
+    const prefix = content.slice(Math.max(0, (match.index ?? 0) - 64), match.index);
+    const role = classifyLiteralRole(prefix);
+    const normalized = value.normalize("NFC");
+    if (!role || !normalized.trim() || seen.has(normalized)) continue;
+    seen.add(normalized);
+    literals.push({ value, role });
+    if (literals.length >= 8) return literals;
+  }
+
+  const labeled = /(?:путь|path)\s*[:=]\s*([^\s,;]+)|(?:url|адрес|endpoint)\s*[:=]\s*(https?:\/\/[^\s,;]+)/gi;
+  for (const match of content.matchAll(labeled)) {
+    const value = match[1] ?? match[2] ?? "";
+    const normalized = value.normalize("NFC");
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    literals.push({ value, role: match[1] ? "path" : "url" });
+    if (literals.length >= 8) return literals;
+  }
+
+  const pathLike = /(?:^|[\s(])((?:[A-Za-z]:\\[^\r\n"'<>|?*]+|(?:[\w.-]+[\\/])*[\w.-]+\.(?:json|md|txt|html?|jsx?|tsx?|ya?ml|toml)))(?=$|[\s),.;])/g;
+  for (const match of content.matchAll(pathLike)) {
+    const value = match[1] ?? "";
+    const normalized = value.normalize("NFC");
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    literals.push({ value, role: "path" });
+    if (literals.length >= 8) break;
+  }
+  return literals;
+}
+
+function literalValues(literals: ExactUserLiteral[], roles: ExactLiteralRole[]): string[] {
+  const allowed = new Set(roles);
+  return literals.filter(literal => allowed.has(literal.role)).map(literal => literal.value);
+}
+
+function obligationDescription(kind: ExternalActionKind, argumentLiterals: string[], resultLiterals: string[]): string {
+  const exact = [...argumentLiterals, ...resultLiterals]
+    .filter((value, index, values) => values.indexOf(value) === index)
+    .map(value => JSON.stringify(value));
+  const suffix = exact.length > 0 ? ` with exact values ${exact.join(", ")}` : "";
+  switch (kind) {
+    case "file_mutation": return `perform the requested file mutation${suffix}`;
+    case "data_mutation": return `create or update the requested data${suffix}`;
+    case "command_execution": return `execute the requested command${suffix}`;
+    case "api_verification": return `verify the result through the API${suffix}`;
+    case "file_verification": return `read and verify the requested storage/file${suffix}`;
+    case "test_execution": return `run the requested test suite${suffix}`;
+    case "launch": return "launch or leave the requested application/server running";
+    case "server_verification": return "verify that the application/server is responding";
+    case "dependency_install": return "install the requested dependencies";
+  }
+}
+
+export function inferToolObligations(content: string, allowedToolNames: string[]): ToolObligation[] {
+  if (allowedToolNames.length === 0 || isInformationalRequest(content)) return [];
+  const hasShell = hasToolMatching(allowedToolNames, /bash|shell|powershell|terminal|command|exec/);
+  const literals = extractExactUserLiterals(content);
+  const contentLiterals = literalValues(literals, ["title", "description", "content", "marker", "generic"]);
+  const pathLiterals = literalValues(literals, ["path"]);
+  const urlLiterals = literalValues(literals, ["url"]);
+  const kinds = new Set<ExternalActionKind>(inferExternalActionKinds(content, allowedToolNames));
+
+  const dataMutation = /(?:созда\S*|добав\S*|измен\S*|обнов\S*|create|add|update|change)[\s\S]{0,100}(?:задач|запис|данн|task|record|item)/i.test(content);
+  if (hasShell && dataMutation) {
+    kinds.add("data_mutation");
+    const explicitFileMutation = /(?:созда\S*|сделай|сохран\S*|запиш\S*|измен\S*|отредактир\S*|удал\S*|create|make|save|write|modify|change|edit|delete)[\s\S]{0,48}(?:файл|server\.[a-z0-9_-]+|\b[\w.-]+\.(?:json|md|txt|html?|jsx?|tsx?)\b)/i.test(content);
+    if (!explicitFileMutation) kinds.delete("file_mutation");
+  }
+
+  const apiVerification = /(?:проверь|проверить|провер\S*|убед\S*|verify|check|inspect)[\s\S]{0,100}(?:через\s+api|\bapi\b|endpoint)|(?:через\s+api|via\s+(?:the\s+)?api)[\s\S]{0,80}(?:проверь|verify|check)?/i.test(content);
+  if (hasShell && apiVerification) kinds.add("api_verification");
+
+  const fileVerification = /(?:проверь|проверить|провер\S*|прочитай|прочесть|убед\S*|verify|check|read|inspect)[\s\S]{0,100}(?:файл\S*\s+хранен|storage\s+(?:file|json)|json[- ]?файл|\b[\w.-]+\.json\b|\b[\w.-]+\.(?:md|txt|html?|jsx?|tsx?)\b)/i.test(content);
+  if (fileVerification && hasToolMatching(allowedToolNames, /read|cat|bash|shell|powershell|command|exec/)) {
+    kinds.add("file_verification");
+  }
+
+  const testExecution = /(?:запуст\S*|выполн\S*|прогон\S*|снова\s+запуст\S*|run|execute|rerun)[\s\S]{0,60}(?:тест|tests?|jest|vitest|pytest)|\b(?:npm\s+(?:run\s+)?test|jest|vitest|pytest)\b/i.test(content);
+  if (hasShell && testExecution) kinds.add("test_execution");
+
+  const serverVerification = /(?:проверь|проверить|провер\S*|убед\S*|verify|check|ensure)[\s\S]{0,100}(?:сервер|приложен|server|app)[\s\S]{0,80}(?:отвеч|работ|доступ|respond|running|reachable|health)|(?:сервер|приложен|server|app)[\s\S]{0,80}(?:отвеч|respond|reachable|health)|остав\S*[\s\S]{0,80}(?:прилож|сервер)[\s\S]{0,40}(?:работ|запущ)|leave[\s\S]{0,60}(?:app|server)[\s\S]{0,40}(?:running|up)/i.test(content);
+  if (hasShell && serverVerification) kinds.add("server_verification");
+
+  return [...kinds].map(kind => {
+    let argumentLiterals: string[] = [];
+    let resultLiterals: string[] = [];
+    if (kind === "file_mutation") {
+      argumentLiterals = [...contentLiterals, ...pathLiterals.slice(0, 1), ...urlLiterals];
+    } else if (kind === "data_mutation" || kind === "command_execution") {
+      argumentLiterals = [...contentLiterals, ...urlLiterals];
+    } else if (kind === "api_verification") {
+      argumentLiterals = urlLiterals;
+      resultLiterals = contentLiterals;
+    } else if (kind === "file_verification") {
+      argumentLiterals = pathLiterals;
+      resultLiterals = contentLiterals;
+    } else if (kind === "test_execution") {
+      argumentLiterals = literalValues(literals, ["generic"])
+        .filter(value => /test|jest|vitest|pytest/i.test(value));
+    } else if (kind === "launch") {
+      argumentLiterals = [];
+    } else if (kind === "server_verification") {
+      argumentLiterals = urlLiterals;
+    }
+    return {
+      id: kind,
+      kind,
+      description: obligationDescription(kind, argumentLiterals, resultLiterals),
+      argumentLiterals,
+      resultLiterals,
+    };
+  });
 }
 
 export function looksLikeExternalActionRequest(content: string, allowedToolNames: string[]): boolean {
@@ -441,6 +602,36 @@ function toolArgumentText(toolCall: CanonicalToolCall): string {
     return JSON.stringify(toolCall.arguments);
   } catch {
     return "";
+  }
+}
+
+function collectStringValues(value: unknown, output: string[] = []): string[] {
+  if (typeof value === "string") {
+    output.push(value);
+    return output;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) collectStringValues(item, output);
+    return output;
+  }
+  if (value && typeof value === "object") {
+    for (const item of Object.values(value as Record<string, unknown>)) collectStringValues(item, output);
+  }
+  return output;
+}
+
+function containsExactUnicode(values: string[], literal: string): boolean {
+  const normalizedLiteral = literal.normalize("NFC");
+  return values.some(value => value.normalize("NFC").includes(normalizedLiteral));
+}
+
+function resultContainsExactUnicode(resultContent: string, literal: string): boolean {
+  try {
+    const parsed = JSON.parse(resultContent) as unknown;
+    const normalizedLiteral = literal.normalize("NFC");
+    return collectStringValues(parsed).some(value => value.normalize("NFC") === normalizedLiteral);
+  } catch {
+    return containsExactUnicode([resultContent], literal);
   }
 }
 
@@ -478,12 +669,20 @@ export function isRepeatedFailedToolCall(
 function fulfilledKindsForTool(toolCall: CanonicalToolCall): ExternalActionKind[] {
   const name = toolCall.name.toLowerCase();
   const args = toolArgumentText(toolCall);
+  const argumentStrings = collectStringValues(toolCall.arguments);
+  const command = argumentStrings.join("\n");
   const kinds = new Set<ExternalActionKind>();
   const isShell = /bash|shell|powershell|terminal|command|exec/.test(name);
+  const isApiCommand = /\b(?:curl|wget)\b|\bfetch\s*\(|\binvoke-(?:restmethod|webrequest)\b|https?:\/\/|\/api\//i.test(command);
+  const isApiMutation = isApiCommand
+    && /(?:\s-X|--request|\bmethod\s*:)\s*["']?(?:POST|PUT|PATCH|DELETE)\b|\bMethod\s+(?:POST|PUT|PATCH|DELETE)\b/i.test(command);
+  const isTestExecution = /\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?test\b|\bnpx\s+(?:jest|vitest)\b|(?:^|[\s;&])(?:jest|vitest|pytest)(?:[\s;&]|$)/i.test(command)
+    && !/(?:--version|--help|--listTests|(?:^|\s)-v(?:\s|$))/i.test(command);
 
   if (/write|edit|create|delete|remove|rename|move|copy/.test(name)) {
     kinds.add("file_mutation");
   }
+  if (/^(?:read|cat)$|read.?file/.test(name)) kinds.add("file_verification");
   if (/browser|open|launch/.test(name)) kinds.add("launch");
   if (/install|package/.test(name)) kinds.add("dependency_install");
   if (isShell) {
@@ -491,14 +690,72 @@ function fulfilledKindsForTool(toolCall: CanonicalToolCall): ExternalActionKind[
     if (/>>?|\b(?:tee|touch|mkdir|rm|mv|cp|del|copy|move|remove-item|new-item|set-content|add-content|out-file)\b/i.test(args)) {
       kinds.add("file_mutation");
     }
-    if (/\b(?:start|open|xdg-open|explorer|start-process|invoke-item)\b|\bpython(?:3)?\s+-m\s+http\.server\b|\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:start|dev|preview)\b|\bnpx\s+(?:vite|serve|http-server)\b|\b(?:node|python|python3)\s+[^;\r\n]+/i.test(args)) {
+    if (/\b(?:start|open|xdg-open|explorer|start-process|invoke-item)\b|\bpython(?:3)?\s+-m\s+http\.server\b|\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:start|dev|preview)\b|\bnpx\s+(?:vite|serve|http-server)\b|\bnode\s+(?!-e\b|--eval\b)[^;\r\n]+/i.test(command)) {
       kinds.add("launch");
     }
-    if (/\b(?:npm|pnpm|yarn|bun)\s+(?:install|add)\b|\bpip(?:3)?\s+install\b|\b(?:brew|apt(?:-get)?|dnf|yum)\s+install\b/i.test(args)) {
+    if (/\b(?:npm|pnpm|yarn|bun)\s+(?:install|add)\b|\bpip(?:3)?\s+install\b|\b(?:brew|apt(?:-get)?|dnf|yum)\s+install\b/i.test(command)) {
       kinds.add("dependency_install");
+    }
+    if (isTestExecution) {
+      kinds.add("test_execution");
+    }
+    if (isApiMutation) kinds.add("data_mutation");
+    if (isApiCommand && !isApiMutation) kinds.add("api_verification");
+    if (/\b(?:cat|type|get-content|read-file)\b[^\r\n]*(?:\.json\b|storage|data[\\/])/i.test(command)) {
+      kinds.add("file_verification");
+    }
+    if (isApiCommand && !isApiMutation && /(?:localhost|127\.0\.0\.1|\[::1\])/i.test(command)) {
+      kinds.add("server_verification");
     }
   }
   return [...kinds];
+}
+
+function fulfillsObligation(
+  obligation: ToolObligation,
+  toolCall: CanonicalToolCall,
+  resultContent: string,
+): boolean {
+  if (!fulfilledKindsForTool(toolCall).includes(obligation.kind)) return false;
+  if (looksLikeStructuredToolError(resultContent)) return false;
+  if (looksLikeFailedObligationOutput(obligation.kind, resultContent)) return false;
+  if (obligation.kind === "test_execution" && looksLikeFailedTestOutput(resultContent)) return false;
+  const argumentStrings = collectStringValues(toolCall.arguments);
+  if (!obligation.argumentLiterals.every(literal => containsExactUnicode(argumentStrings, literal))) return false;
+  return obligation.resultLiterals.every(literal => resultContainsExactUnicode(resultContent, literal));
+}
+
+function looksLikeFailedObligationOutput(kind: ExternalActionKind, content: string): boolean {
+  if (kind === "launch") {
+    return /\bEADDRINUSE\b|\b(?:failed|unable) to (?:start|launch|open)\b/i.test(content);
+  }
+  if (kind === "api_verification" || kind === "server_verification") {
+    return /\b(?:ECONNREFUSED|ENOTFOUND)\b|\bserver (?:is )?not (?:responding|ready|running|reachable)\b|\b(?:connection refused|failed to connect|could(?:n't| not) connect)\b|\bHTTP\/?\d(?:\.\d)?\s+[45]\d\d\b/i.test(content);
+  }
+  if (kind === "file_verification") {
+    return /\b(?:ENOENT|no such file(?: or directory)?|file not found|cannot find (?:the )?(?:file|path))\b/i.test(content);
+  }
+  return false;
+}
+
+function looksLikeStructuredToolError(content: string): boolean {
+  try {
+    const parsed = JSON.parse(content) as unknown;
+    return isPlainObject(parsed)
+      && "error" in (parsed as Record<string, unknown>)
+      && Boolean((parsed as Record<string, unknown>).error);
+  } catch {
+    return false;
+  }
+}
+
+function looksLikeFailedTestOutput(content: string): boolean {
+  return /(?:^|\n)\s*FAIL\b|\b(?:test suites?|tests?)\s*:\s*[^\r\n]*\bfailed\b|\b\d+\s+(?:tests?\s+)?failed\b|\bfailed\s+(?:tests?|test suites?)\b/i.test(content);
+}
+
+export function looksLikePromisedActionContinuation(content: string): boolean {
+  return /(?:^|[.!?]\s+)(?:let me|i(?:'ll| will)|next,?\s+i(?:'ll| will))\s+(?:start|run|rerun|retry|check|verify|fix|create|update|continue|inspect|read|open)\b/i.test(content)
+    || /(?:^|[.!?]\s+)(?:\u0434\u0430\u0439(?:\u0442\u0435)?\s+(?:\u044f\s+)?|\u0441\u0435\u0439\u0447\u0430\u0441\s+(?:\u044f\s+)?|\u044f\s+)(?:\u0437\u0430\u043f\u0443\u0449\u0443|\u043f\u0435\u0440\u0435\u0437\u0430\u043f\u0443\u0449\u0443|\u043f\u043e\u0432\u0442\u043e\u0440\u044e|\u043f\u0440\u043e\u0432\u0435\u0440\u044e|\u0438\u0441\u043f\u0440\u0430\u0432\u043b\u044e|\u043f\u0440\u043e\u0434\u043e\u043b\u0436\u0443|\u043e\u0442\u043a\u0440\u043e\u044e|\u043f\u0440\u043e\u0447\u0438\u0442\u0430\u044e)\b/i.test(content);
 }
 
 function emptyCurrentToolCycleEvidence(): CurrentToolCycleEvidence {
@@ -516,6 +773,11 @@ function emptyCurrentToolCycleEvidence(): CurrentToolCycleEvidence {
     failedToolNames: [],
     failedToolFingerprints: [],
     hasUnavailableToolFailure: false,
+    obligations: [],
+    fulfilledObligationIds: [],
+    missingObligations: [],
+    exactLiterals: [],
+    missingExactLiterals: [],
   };
 }
 
@@ -524,22 +786,25 @@ export function inspectCurrentToolCycle(
   allowedToolNames: string[],
 ): CurrentToolCycleEvidence {
   let currentUserIndex = -1;
+  let currentUserText = "";
   for (let index = messages.length - 1; index >= 0; index--) {
     const message = messages[index]!;
-    const hasText = message.parts.some(part => part.type === "text" && Boolean(part.text?.trim()));
+    const actionText = message.parts
+      .filter(part => part.type === "text")
+      .map(part => part.text ?? "")
+      .join("\n")
+      .replace(/<system-reminder\b[^>]*>[\s\S]*?<\/system-reminder>/gi, "")
+      .trim();
     const hasToolResult = message.parts.some(part => part.type === "tool_result");
-    if (message.role === "user" && hasText && !hasToolResult) {
+    if (message.role === "user" && actionText && !hasToolResult) {
       currentUserIndex = index;
+      currentUserText = actionText;
       break;
     }
   }
   if (currentUserIndex < 0) return emptyCurrentToolCycleEvidence();
 
-  const currentUserText = messages[currentUserIndex]!.parts
-    .filter(part => part.type === "text")
-    .map(part => part.text ?? "")
-    .filter(Boolean)
-    .join("\n");
+  const obligations = inferToolObligations(currentUserText, allowedToolNames);
   const currentMessages = messages.slice(currentUserIndex + 1);
   const currentToolCalls = new Map<string, CanonicalToolCall>();
   for (const message of currentMessages) {
@@ -554,6 +819,7 @@ export function inspectCurrentToolCycle(
   const fulfilledActionKinds = new Set<ExternalActionKind>();
   const failedToolNames = new Set<string>();
   const failedToolFingerprints = new Set<string>();
+  const successfulEvidence: Array<{ toolCall: CanonicalToolCall; resultContent: string }> = [];
   for (const message of currentMessages) {
     for (const part of message.parts) {
       if (part.type !== "tool_result" || !part.toolResult) continue;
@@ -567,12 +833,30 @@ export function inspectCurrentToolCycle(
         continue;
       }
       hasSuccessfulCurrentToolResult = true;
+      successfulEvidence.push({ toolCall, resultContent: part.toolResult.content });
       for (const kind of fulfilledKindsForTool(toolCall)) fulfilledActionKinds.add(kind);
     }
   }
 
-  const requiredActionKinds = inferExternalActionKinds(currentUserText, allowedToolNames);
-  const missingActionKinds = requiredActionKinds.filter(kind => !fulfilledActionKinds.has(kind));
+  const fulfilledObligationIds = obligations
+    .filter(obligation => successfulEvidence.some(evidence => fulfillsObligation(
+      obligation,
+      evidence.toolCall,
+      evidence.resultContent,
+    )))
+    .map(obligation => obligation.id);
+  const fulfilledIds = new Set(fulfilledObligationIds);
+  const missingObligations = obligations.filter(obligation => !fulfilledIds.has(obligation.id));
+  const requiredActionKinds = obligations.map(obligation => obligation.kind);
+  const missingActionKinds = missingObligations.map(obligation => obligation.kind);
+  const exactLiterals = [...new Set(obligations.flatMap(obligation => [
+    ...obligation.argumentLiterals,
+    ...obligation.resultLiterals,
+  ]))];
+  const missingExactLiterals = [...new Set(missingObligations.flatMap(obligation => [
+    ...obligation.argumentLiterals,
+    ...obligation.resultLiterals,
+  ]))];
   return {
     currentUserText,
     isInformationalRequest: isInformationalRequest(currentUserText),
@@ -588,6 +872,11 @@ export function inspectCurrentToolCycle(
     failedToolNames: [...failedToolNames],
     failedToolFingerprints: [...failedToolFingerprints],
     hasUnavailableToolFailure: [...failedToolNames].some(name => name.toLowerCase() === "artifact"),
+    obligations,
+    fulfilledObligationIds,
+    missingObligations,
+    exactLiterals,
+    missingExactLiterals,
   };
 }
 
@@ -718,6 +1007,8 @@ export interface ToolRetryPromptContext {
   unavailableToolNames?: string[];
   failedToolNames?: string[];
   missingActionKinds?: ExternalActionKind[];
+  missingObligations?: string[];
+  fulfilledObligations?: string[];
   repeatedFailedToolName?: string;
   malformedToolIntent?: boolean;
 }
@@ -757,6 +1048,21 @@ export function createToolRetryPrompt(
   }
   if ((context.missingActionKinds ?? []).length > 0) {
     lines.push(`Still-unverified action kinds: ${JSON.stringify(context.missingActionKinds)}`);
+    if (context.missingActionKinds?.includes("data_mutation")) {
+      lines.push("Claude Code TaskCreate and TaskUpdate only manage Claude's internal task list; they do NOT create or update data in the user's application. Use an application-facing tool action for this requirement.");
+    }
+  }
+  if ((context.missingObligations ?? []).length > 0) {
+    lines.push(
+      `Still-unverified current-user requirements: ${JSON.stringify(context.missingObligations)}`,
+      "Do not claim success. Use real tools to complete only these missing requirements.",
+    );
+  }
+  if ((context.fulfilledObligations ?? []).length > 0) {
+    lines.push(
+      `Already verified requirements: ${JSON.stringify(context.fulfilledObligations)}`,
+      "Do not repeat already verified steps unless a missing requirement genuinely depends on doing so.",
+    );
   }
   lines.push(
     "For a request about the real environment or an external action, return a real tool_call JSON now.",
