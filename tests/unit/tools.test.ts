@@ -1352,6 +1352,144 @@ describe("external action completion integrity", () => {
     expect(evidence.missingActionKinds).toEqual(["server_verification"]);
   });
 
+  const finalTitle = "FINAL-CHECK — ёжик №731";
+  const finalDescription = "Проверка единственного создания и полного цикла UTF-8";
+  const finalStatePrompt = [
+    "Создай ровно одну новую задачу:",
+    "title:",
+    finalTitle,
+    "description:",
+    finalDescription,
+    "Затем проверь итог через API, проверь storage-файл data/tasks.json, запусти все тесты, проверь, что сервер отвечает, и оставь его работающим.",
+  ].join("\n");
+  const finalPost = `node -e "fetch('http://127.0.0.1:3000/api/tasks', {method:'POST', body: JSON.stringify({title:'${finalTitle}', description:'${finalDescription}'})})"`;
+  const finalRecord = { title: finalTitle, description: finalDescription };
+
+  it("invalidates API evidence when tests run after verification", () => {
+    const evidence = inspectCurrentToolCycle(cycle(finalStatePrompt, [
+      { id: "post", name: "Bash", arguments: { command: finalPost }, result: JSON.stringify(finalRecord) },
+      { id: "api", name: "Bash", arguments: { command: "curl http://127.0.0.1:3000/api/tasks" }, result: JSON.stringify([finalRecord]) },
+      { id: "tests", name: "Bash", arguments: { command: "npm test" }, result: "29 tests passed" },
+    ]), tools);
+    expect(evidence.fulfilledObligationIds).toContain("data_mutation");
+    expect(evidence.fulfilledObligationIds).not.toContain("api_verification");
+    expect(evidence.staleObligations.map(obligation => obligation.id)).toContain("api_verification");
+  });
+
+  it("invalidates storage evidence after a later Write", () => {
+    const evidence = inspectCurrentToolCycle(cycle(finalStatePrompt, [
+      { id: "post", name: "Bash", arguments: { command: finalPost }, result: "created" },
+      { id: "storage", name: "Read", arguments: { file_path: "data/tasks.json" }, result: JSON.stringify([finalRecord]) },
+      { id: "write", name: "Write", arguments: { file_path: "server.js", content: "updated" }, result: "updated" },
+    ]), tools);
+    expect(evidence.fulfilledObligationIds).not.toContain("file_verification");
+    expect(evidence.staleObligations.map(obligation => obligation.id)).toContain("file_verification");
+  });
+
+  it("asks for re-verification without repeating a successful POST", () => {
+    const evidence = inspectCurrentToolCycle(cycle(finalStatePrompt, [
+      { id: "post", name: "Bash", arguments: { command: finalPost }, result: "created" },
+      { id: "api", name: "Bash", arguments: { command: "curl http://127.0.0.1:3000/api/tasks" }, result: JSON.stringify([finalRecord]) },
+      { id: "tests", name: "Bash", arguments: { command: "npm test" }, result: "29 tests passed" },
+    ]), tools);
+    const fulfilled = evidence.obligations
+      .filter(obligation => evidence.fulfilledObligationIds.includes(obligation.id))
+      .map(obligation => obligation.description);
+    const retry = createToolRetryPrompt(tools, {
+      missingObligations: evidence.missingObligations.map(obligation => obligation.description),
+      fulfilledObligations: fulfilled,
+      staleObligations: evidence.staleObligations.map(obligation => obligation.description),
+    });
+    expect(retry).toContain("Re-check the final state now with a fresh GET, Read, or health request");
+    expect(retry).toContain("Do NOT repeat an already successful mutation or POST");
+    expect(fulfilled).toContainEqual(expect.stringContaining("create or update the requested data"));
+  });
+
+  it("requires both API and storage verification again after tests", () => {
+    const evidence = inspectCurrentToolCycle(cycle(finalStatePrompt, [
+      { id: "post", name: "Bash", arguments: { command: finalPost }, result: "created" },
+      { id: "api", name: "Bash", arguments: { command: "curl http://127.0.0.1:3000/api/tasks" }, result: JSON.stringify([finalRecord]) },
+      { id: "storage", name: "Read", arguments: { file_path: "data/tasks.json" }, result: JSON.stringify([finalRecord]) },
+      { id: "tests", name: "Bash", arguments: { command: "npm test" }, result: "29 tests passed" },
+    ]), tools);
+    expect(evidence.staleObligations.map(obligation => obligation.id)).toEqual(expect.arrayContaining([
+      "api_verification",
+      "file_verification",
+    ]));
+    expect(evidence.requiresActionToolResult).toBe(true);
+  });
+
+  it.each([
+    { records: [] as typeof finalRecord[], expectedCount: 0, fulfilled: false },
+    { records: [finalRecord], expectedCount: 1, fulfilled: true },
+    { records: [finalRecord, finalRecord], expectedCount: 2, fulfilled: false },
+  ])("enforces exactly one final API record when count is $expectedCount", ({ records, expectedCount, fulfilled }) => {
+    const evidence = inspectCurrentToolCycle(cycle(finalStatePrompt, [
+      { id: "post", name: "Bash", arguments: { command: finalPost }, result: "created" },
+      { id: "api", name: "Bash", arguments: { command: "curl http://127.0.0.1:3000/api/tasks" }, result: JSON.stringify(records) },
+    ]), tools);
+    expect(evidence.fulfilledObligationIds.includes("api_verification")).toBe(fulfilled);
+    if (fulfilled) {
+      expect(evidence.cardinalityFailures).toEqual([]);
+    } else {
+      expect(evidence.cardinalityFailures).toContainEqual({
+        obligationId: "api_verification",
+        expectedCount: 1,
+        observedCount: expectedCount,
+      });
+    }
+  });
+
+  it("does not invalidate final API evidence after an unrelated Read", () => {
+    const evidence = inspectCurrentToolCycle(cycle(finalStatePrompt, [
+      { id: "post", name: "Bash", arguments: { command: finalPost }, result: "created" },
+      { id: "api", name: "Bash", arguments: { command: "curl http://127.0.0.1:3000/api/tasks" }, result: JSON.stringify([finalRecord]) },
+      { id: "read", name: "Read", arguments: { file_path: "README.md" }, result: "documentation" },
+    ]), tools);
+    expect(evidence.fulfilledObligationIds).toContain("api_verification");
+    expect(evidence.staleObligations).toEqual([]);
+  });
+
+  it("does not invalidate final evidence after an informational command", () => {
+    const evidence = inspectCurrentToolCycle(cycle(finalStatePrompt, [
+      { id: "post", name: "Bash", arguments: { command: finalPost }, result: "created" },
+      { id: "api", name: "Bash", arguments: { command: "curl http://127.0.0.1:3000/api/tasks" }, result: JSON.stringify([finalRecord]) },
+      { id: "pwd", name: "Bash", arguments: { command: "pwd" }, result: "/workspace" },
+    ]), tools);
+    expect(evidence.fulfilledObligationIds).toContain("api_verification");
+  });
+
+  it("requires a new health result after a server restart", () => {
+    const stale = inspectCurrentToolCycle(cycle(finalStatePrompt, [
+      { id: "health1", name: "Bash", arguments: { command: "curl http://127.0.0.1:3000/health" }, result: "HTTP 200" },
+      { id: "restart", name: "Bash", arguments: { command: "npm start" }, result: "server listening" },
+    ]), tools);
+    expect(stale.fulfilledObligationIds).not.toContain("server_verification");
+    expect(stale.staleObligations.map(obligation => obligation.id)).toContain("server_verification");
+
+    const fresh = inspectCurrentToolCycle(cycle(finalStatePrompt, [
+      { id: "health1", name: "Bash", arguments: { command: "curl http://127.0.0.1:3000/health" }, result: "HTTP 200" },
+      { id: "restart", name: "Bash", arguments: { command: "npm start" }, result: "server listening" },
+      { id: "health2", name: "Bash", arguments: { command: "curl http://127.0.0.1:3000/health" }, result: "HTTP 200" },
+    ]), tools);
+    expect(fresh.fulfilledObligationIds).toContain("server_verification");
+  });
+
+  it("allows final only after fresh postconditions follow every relevant mutation", () => {
+    const evidence = inspectCurrentToolCycle(cycle(finalStatePrompt, [
+      { id: "post", name: "Bash", arguments: { command: finalPost }, result: "created" },
+      { id: "tests", name: "Bash", arguments: { command: "npm test" }, result: "29 tests passed" },
+      { id: "server", name: "Bash", arguments: { command: "npm start" }, result: "server listening" },
+      { id: "api", name: "Bash", arguments: { command: "curl http://127.0.0.1:3000/api/tasks" }, result: JSON.stringify([finalRecord]) },
+      { id: "storage", name: "Read", arguments: { file_path: "data/tasks.json" }, result: JSON.stringify([finalRecord]) },
+      { id: "health", name: "Bash", arguments: { command: "curl http://127.0.0.1:3000/health" }, result: "HTTP 200" },
+    ]), tools);
+    expect(evidence.missingObligations).toEqual([]);
+    expect(evidence.staleObligations).toEqual([]);
+    expect(evidence.cardinalityFailures).toEqual([]);
+    expect(shouldRetry(true, null, "Задача завершена и финальное состояние проверено.", "", tools, evidence)).toBe(false);
+  });
+
   it("does not create obligations for an informational request", () => {
     expect(inferToolObligations("как проверить API и запустить Jest?", tools)).toEqual([]);
     const evidence = inspectCurrentToolCycle(cycle("что означает title \"Проверка UTF-8 — ёжик №482\"?"), tools);
@@ -1788,6 +1926,36 @@ describe("DeepSeekClient action completion guard", () => {
     expect(runCompletion).toHaveBeenCalledTimes(COMPLETION_GUARD_MAX_ATTEMPTS);
     expect(runCompletion.mock.calls[1]?.[0]).toContain("Still-unverified current-user requirements");
     expect(runCompletion.mock.calls[1]?.[0]).toContain("Проверка UTF-8 — ёжик №482");
+  });
+
+  it("retries stale final-state evidence with a fresh GET instead of accepting final text", async () => {
+    const title = "FINAL-CHECK — ёжик №731";
+    const description = "Проверка единственного создания и полного цикла UTF-8";
+    const prompt = `Создай ровно одну новую задачу:\ntitle:\n${title}\ndescription:\n${description}\nЗатем проверь итог через API, проверь storage-файл data/tasks.json и запусти все тесты.`;
+    const post = `node -e "fetch('http://127.0.0.1:3000/api/tasks', {method:'POST', body: JSON.stringify({title:'${title}', description:'${description}'})})"`;
+    const messages: CanonicalMessage[] = [
+      { role: "user", parts: [{ type: "text", text: prompt }] },
+      { role: "assistant", parts: [{ type: "tool_use", toolCall: { id: "post", type: "function", name: "Bash", arguments: { command: post } } }] },
+      { role: "user", parts: [{ type: "tool_result", toolResult: { toolUseId: "post", content: "created" } }] },
+      { role: "assistant", parts: [{ type: "tool_use", toolCall: { id: "api", type: "function", name: "Bash", arguments: { command: "curl http://127.0.0.1:3000/api/tasks" } } }] },
+      { role: "user", parts: [{ type: "tool_result", toolResult: { toolUseId: "api", content: JSON.stringify([{ title, description }]) } }] },
+      { role: "assistant", parts: [{ type: "tool_use", toolCall: { id: "tests", type: "function", name: "Bash", arguments: { command: "npm test" } } }] },
+      { role: "user", parts: [{ type: "tool_result", toolResult: { toolUseId: "tests", content: "29 tests passed" } }] },
+    ];
+    const { client, runCompletion } = actionClient([
+      "Готово: финальное состояние проверено.",
+      '{"tool_call":{"name":"Bash","arguments":{"command":"curl http://127.0.0.1:3000/api/tasks"}}}',
+    ]);
+
+    const result = await client.complete(actionRequest(messages), actionState());
+
+    expect(result.toolCall).toEqual({
+      name: "Bash",
+      args: { command: "curl http://127.0.0.1:3000/api/tasks" },
+    });
+    expect(runCompletion).toHaveBeenCalledTimes(2);
+    expect(runCompletion.mock.calls[1]?.[0]).toContain("Stale final-state verifications");
+    expect(runCompletion.mock.calls[1]?.[0]).toContain("Do NOT repeat an already successful mutation or POST");
   });
 
   it("retries fabricated success after an Artifact error", async () => {

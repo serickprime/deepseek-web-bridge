@@ -3,6 +3,46 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-21 — Require fresh final-state evidence
+
+- Root cause: current-cycle `ToolObligation` evidence было монотонным. После
+  первого successful API/Read/health result obligation оставался fulfilled,
+  даже если более поздний POST/Write/Edit, test, install/build или server
+  restart мог изменить проверенное состояние. Guard не сохранял порядок
+  evidence и поэтому мог принять устаревшую проверку как финальную.
+- `src/tools/toolParser.ts` теперь назначает каждому коррелированному
+  `tool_result` sequence и вычисляет последнюю релевантную invalidation для
+  API, storage/file и server postconditions. Финальная verification должна
+  быть новее этой точки; обычные Read и информационные команды вроде `pwd`
+  ничего не инвалидируют. Successful mutation остаётся fulfilled, поэтому
+  stale verification требует новый GET/Read/health, а не повторный POST.
+- State-changing actions учитывают Write/Edit и другие file tools, HTTP
+  POST/PUT/PATCH/DELETE, test execution, dependency install, build commands и
+  server launch/restart. Неуспешная потенциально mutating action также
+  инвалидирует старое evidence консервативно, поскольку могла частично изменить
+  состояние до ошибки.
+- Labeled multiline `title`/`description` теперь извлекаются как exact Unicode
+  literals. Для запросов `ровно одну`/`exactly one` API и storage JSON должны
+  содержать ровно один объект с одновременно совпадающими exact полями; count
+  0 и count 2 не закрывают obligation. Поддерживается детерминированный JSON из
+  обычного tool result и line-numbered Claude `Read`; неоднозначный текст не
+  угадывается.
+- Retry сообщает отдельно stale postconditions и cardinality mismatch,
+  запрещает слепо повторять уже successful mutation/POST и требует свежую
+  финальную проверку. Также исправлена классификация shell redirection: стрелка
+  JavaScript `=>` больше не считается файловой записью `>`.
+- `tests/unit/tools.test.ts` — 12 новых regression cases: API→tests и
+  storage→Write invalidation, reverify без повторного POST, post-test API/storage,
+  exact count 0/1/2, unrelated Read и `pwd`, restart→new health, fresh ordered
+  final и корневой `DeepSeekClient` retry→real GET.
+- Windows live TaskFlow с точным prompt: первый Pro-run после tests восстановил
+  exact record; независимые API/storage дали count=1, Jest прошёл 29/29, HTTP
+  200 и listener PID 21104. Однако CLI не вернул captured final до 15-минутного
+  timeout. Чистые Flash и Pro повторы завершились непустым HTTP 502
+  `TOOL_CALL_REQUIRED` до mutation (exact count оставался 0), не ложным success.
+  Полный autonomous final поэтому не заявляется и live TODO остаётся `[~]`.
+- Итого: 25 test files, 492 tests.
+
 ## 2026-08-21 — Enforce multi-step Claude Code completion integrity
 
 - Root cause: completion guard хранил только coarse action kinds и разрешал

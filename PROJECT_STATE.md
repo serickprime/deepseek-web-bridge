@@ -80,14 +80,14 @@ OpenCode в этой итерации deferred и не являются теку
 | 7. DeepSeek | pow (WASM), sseParser, updateParser, client | ✅ готово |
 | 8. Server | middleware, output-адаптеры, protocolStream, routes, server | ✅ готово |
 | 9. Entrypoint | app.ts, index.ts, start.ts | ✅ готово |
-| 10. Тесты | 25 файлов, 480 тестов | ✅ готово |
+| 10. Тесты | 25 файлов, 492 теста | ✅ готово |
 | 11. Скрипты | desktopStart, cdp, auth, doctor, launcher, live, real-OS platform smoke | ✅ live-часть работает |
 | 12. Веб-интерфейс | Bridge Console на `GET /` (Mileo dark theme, two-panel, diagnostics, model picker) | ✅ готово |
 
 **Проверки сейчас:**
 - `npm run typecheck` — ✅ без ошибок.
 - `npm run build` — ✅ собирается.
-- `npm test` — ✅ 480/480.
+- `npm test` — ✅ 492/492.
 - `npm run test:platform` — ✅ локально на Windows: real process/platform,
   `buildConfig`, Bridge HTTP, Unicode cwd и env propagation без DeepSeek auth.
 - `npm run auth` / Web UI AUTH — ✅ Bearer захватывается из сети, HIF читается из
@@ -337,6 +337,39 @@ OpenCode config не изменялся.
   CLI harness истёк после последнего Read до captured final, и upstream модель
   повторно создала ту же exact запись; TODO ниже не закрыт.
 
+### Fresh final-state evidence — 2026-08-21
+
+- Obligations больше не считаются монотонными. Correlated tool results получают
+  sequence внутри последнего user action cycle; API, storage/file и server
+  postconditions засчитываются только если их evidence новее последней
+  релевантной state-changing action.
+- API evidence инвалидируют последующие data/file mutations, tests,
+  dependency install, build и server launch/restart. Storage evidence
+  инвалидируют data/file mutations, tests, install и build. Health/server
+  evidence требует нового HTTP result после launch/restart, install или build.
+  Обычный Read и информационный Bash (`pwd`) не инвалидируют состояние.
+- Successful mutation остаётся fulfilled при stale verification. Bounded retry
+  прямо требует свежий GET/Read/health и запрещает повторять уже successful
+  POST только потому, что более позднее действие сделало старую проверку stale.
+  Если свежая проверка показывает неверное состояние, guard требует безопасно
+  reconcile текущий state без слепого создания дубликата.
+- Multiline labels `title:`/`description:` извлекаются как exact NFC literals.
+  Для `ровно одну`/`exactly one` API и storage JSON закрывают obligation только
+  при count=1 объекта, содержащего оба exact значения; count=0 и count=2 —
+  явные cardinality failures. Claude Read с детерминированной нумерацией строк
+  разбирается как JSON; неоднозначный output требует повторной проверки.
+- Offline: 12 новых regression cases; итого 492/492 tests. Покрыты stale
+  API→tests, storage→Write, reverify без повторного POST, count 0/1/2,
+  non-invalidating Read/pwd, restart→new health, correct final order и root
+  `DeepSeekClient` retry к настоящему GET.
+- Windows TaskFlow live с дословным prompt: первый Pro-run реально дошёл через
+  tests до восстановления exact final state. Независимо подтверждены API 200,
+  storage/API exact count=1, Jest 29/29, HTTP listener PID 21104. Captured final
+  до 15-минутного timeout не получен. Два чистых повтора (Flash и Pro) не
+  получили первый real mutation и завершились честным непустым HTTP 502
+  `TOOL_CALL_REQUIRED`, exact count оставался 0. Полный autonomous success не
+  заявляется; TODO ниже остаётся `[~]`.
+
 ## Стабильная live-точка — 2026-08-20
 
 Подтверждено live-тестами Claude Code (полный workflow «кодирование через бридж»):
@@ -439,6 +472,11 @@ OpenCode config не изменялся.
       соответствующего current-cycle evidence. Один successful result не
       закрывает весь request; missing steps получают bounded retry, а failed
       Jest pipeline/structured application error не считаются успехом.
+- [x] **Fresh final-state evidence и exact cardinality** — API/storage/health
+      verification инвалидируется более поздней релевантной mutation, tests,
+      build/install или restart и должна быть повторена перед final. Уже
+      successful POST остаётся fulfilled; stale retry просит GET/Read/health,
+      а `ровно одну` требует final exact count=1 (0 и 2 отклоняются).
 
 ### Приоритет 2 (расхождения README с кодом) — все закрыты
 
@@ -458,11 +496,13 @@ OpenCode config не изменялся.
 
 ### Приоритет 3 (улучшения, не блокеры)
 - [~] **Повторить полный autonomous TaskFlow semantic live-test** — obligation
-      guard реализован. Pro live без command hints подтвердил exact UTF-8 через
-      API и storage, serial Jest 29/29 и HTTP listener; независимые проверки
-      совпали. Но 10-минутный CLI harness закончился после последнего Read без
-      captured final, а модель создала две одинаковые exact записи. Нужен один
-      чистый desktop turn с одной записью и видимым final после всех evidence.
+      guard и final-state freshness реализованы. Новый Pro live без command
+      hints после tests восстановил exact UTF-8 state; независимые API/storage
+      дали exact count=1, serial Jest 29/29, HTTP 200 и listener PID 21104.
+      Однако CLI не дал captured final до 15-минутного timeout. Чистые Flash/Pro
+      повторы безопасно вернули непустой `TOOL_CALL_REQUIRED` до mutation, без
+      fabricated success. Нужен один desktop turn с exact count=1 и видимым
+      final после свежих API/storage/HTTP evidence.
 - [ ] **Повторно проверить production SHUTDOWN/PID lifecycle** — после
       action-integrity live-run наблюдалось, что `/bridge/shutdown` закрывал HTTP
       listener, но исходный Node PID дважды оставался жив и требовал точечного

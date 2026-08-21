@@ -197,6 +197,8 @@ export class DeepSeekClient {
         missingActionKinds: guardEvidence.missingActionKinds,
         missingObligations: guardEvidence.missingObligations.map(obligation => obligation.description),
         fulfilledObligations: fulfilledObligationDescriptions,
+        staleObligations: guardEvidence.staleObligations.map(obligation => obligation.description),
+        cardinalityFailures: guardEvidence.cardinalityFailures,
         repeatedFailedToolName,
         malformedToolIntent,
       });
@@ -221,6 +223,8 @@ export class DeepSeekClient {
         has_successful_current_tool_result: guardEvidence.hasSuccessfulCurrentToolResult,
         has_failed_current_tool_result: guardEvidence.hasFailedCurrentToolResult,
         missing_obligation_count: guardEvidence.missingObligations.length,
+        stale_obligation_count: guardEvidence.staleObligations.length,
+        cardinality_failure_count: guardEvidence.cardinalityFailures.length,
         missing_obligation_kinds: guardEvidence.missingActionKinds,
         repeated_failed_tool_call: sawRepeatedFailedToolCall,
         malformed_tool_intent: sawMalformedToolIntent,

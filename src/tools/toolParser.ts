@@ -345,6 +345,8 @@ export interface CurrentToolCycleEvidence {
   obligations: ToolObligation[];
   fulfilledObligationIds: string[];
   missingObligations: ToolObligation[];
+  staleObligations: ToolObligation[];
+  cardinalityFailures: ObligationCardinalityFailure[];
   exactLiterals: string[];
   missingExactLiterals: string[];
 }
@@ -373,6 +375,13 @@ export interface ToolObligation {
   description: string;
   argumentLiterals: string[];
   resultLiterals: string[];
+  requiredExactResultCount?: number;
+}
+
+export interface ObligationCardinalityFailure {
+  obligationId: string;
+  expectedCount: number;
+  observedCount: number;
 }
 
 const INFORMATIONAL_PREFIXES = [
@@ -487,6 +496,18 @@ function extractExactUserLiterals(content: string): ExactUserLiteral[] {
     if (literals.length >= 8) return literals;
   }
 
+  const labeledContent = /(?:^|\n)\s*(title|название|description|описание)\s*:?\s*(?:\r?\n\s*)?([^\r\n]{1,512})/gi;
+  for (const match of content.matchAll(labeledContent)) {
+    const label = (match[1] ?? "").toLowerCase();
+    const value = (match[2] ?? "").trim();
+    const role: ExactLiteralRole = /title|название/.test(label) ? "title" : "description";
+    const normalized = value.normalize("NFC");
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    literals.push({ value, role });
+    if (literals.length >= 8) return literals;
+  }
+
   const labeled = /(?:путь|path)\s*[:=]\s*([^\s,;]+)|(?:url|адрес|endpoint)\s*[:=]\s*(https?:\/\/[^\s,;]+)/gi;
   for (const match of content.matchAll(labeled)) {
     const value = match[1] ?? match[2] ?? "";
@@ -562,6 +583,8 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
   const serverVerification = /(?:проверь|проверить|провер\S*|убед\S*|verify|check|ensure)[\s\S]{0,100}(?:сервер|приложен|server|app)[\s\S]{0,80}(?:отвеч|работ|доступ|respond|running|reachable|health)|(?:сервер|приложен|server|app)[\s\S]{0,80}(?:отвеч|respond|reachable|health)|остав\S*[\s\S]{0,80}(?:прилож|сервер)[\s\S]{0,40}(?:работ|запущ)|leave[\s\S]{0,60}(?:app|server)[\s\S]{0,40}(?:running|up)/i.test(content);
   if (hasShell && serverVerification) kinds.add("server_verification");
 
+  const requiresExactlyOne = /(?:ровно|точно)\s+одн(?:у|о|ой)?(?=\s|[.,:;!?]|$)|\bexactly\s+one\b|\ba\s+single\b/i.test(content);
+
   return [...kinds].map(kind => {
     let argumentLiterals: string[] = [];
     let resultLiterals: string[] = [];
@@ -583,12 +606,19 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
     } else if (kind === "server_verification") {
       argumentLiterals = urlLiterals;
     }
+    const requiredExactResultCount = requiresExactlyOne
+      && resultLiterals.length > 0
+      && (kind === "api_verification" || kind === "file_verification")
+      ? 1
+      : undefined;
     return {
       id: kind,
       kind,
-      description: obligationDescription(kind, argumentLiterals, resultLiterals),
+      description: obligationDescription(kind, argumentLiterals, resultLiterals)
+        + (requiredExactResultCount === 1 ? " occurring exactly once in the final state" : ""),
       argumentLiterals,
       resultLiterals,
+      requiredExactResultCount,
     };
   });
 }
@@ -625,14 +655,55 @@ function containsExactUnicode(values: string[], literal: string): boolean {
   return values.some(value => value.normalize("NFC").includes(normalizedLiteral));
 }
 
+function parseToolResultJson(resultContent: string): unknown | undefined {
+  const candidates = [
+    resultContent,
+    resultContent.split(/\r?\n/).map(line => line.replace(/^\s*\d+\s*[→│|:]?\s*/, "")).join("\n"),
+  ];
+  for (const candidate of candidates) {
+    try {
+      return JSON.parse(candidate) as unknown;
+    } catch {
+      // Only deterministic representations are repaired; ambiguous output must be re-verified.
+    }
+  }
+  return undefined;
+}
+
 function resultContainsExactUnicode(resultContent: string, literal: string): boolean {
-  try {
-    const parsed = JSON.parse(resultContent) as unknown;
+  const parsed = parseToolResultJson(resultContent);
+  if (parsed !== undefined) {
     const normalizedLiteral = literal.normalize("NFC");
     return collectStringValues(parsed).some(value => value.normalize("NFC") === normalizedLiteral);
-  } catch {
-    return containsExactUnicode([resultContent], literal);
   }
+  return containsExactUnicode([resultContent], literal);
+}
+
+function countExactRecords(value: unknown, literals: string[]): number {
+  if (Array.isArray(value)) {
+    return value.reduce((count, item) => count + countExactRecords(item, literals), 0);
+  }
+  if (!value || typeof value !== "object") return 0;
+
+  const record = value as Record<string, unknown>;
+  const directStrings = Object.values(record).filter((item): item is string => typeof item === "string");
+  const isExactRecord = literals.every(literal => directStrings.some(
+    value => value.normalize("NFC") === literal.normalize("NFC"),
+  ));
+  let nestedCount = 0;
+  for (const item of Object.values(record)) nestedCount += countExactRecords(item, literals);
+  return (isExactRecord ? 1 : 0) + nestedCount;
+}
+
+function observedExactResultCount(obligation: ToolObligation, resultContent: string): number | undefined {
+  if (obligation.requiredExactResultCount === undefined || obligation.resultLiterals.length === 0) return undefined;
+  const parsed = parseToolResultJson(resultContent);
+  return parsed === undefined ? undefined : countExactRecords(parsed, obligation.resultLiterals);
+}
+
+function resultSatisfiesCardinality(obligation: ToolObligation, resultContent: string): boolean {
+  if (obligation.requiredExactResultCount === undefined) return true;
+  return observedExactResultCount(obligation, resultContent) === obligation.requiredExactResultCount;
 }
 
 function normalizeToolArgumentValue(value: unknown): unknown {
@@ -687,7 +758,7 @@ function fulfilledKindsForTool(toolCall: CanonicalToolCall): ExternalActionKind[
   if (/install|package/.test(name)) kinds.add("dependency_install");
   if (isShell) {
     kinds.add("command_execution");
-    if (/>>?|\b(?:tee|touch|mkdir|rm|mv|cp|del|copy|move|remove-item|new-item|set-content|add-content|out-file)\b/i.test(args)) {
+    if (/(?:^|[\s;&|])>>?\s*|\b(?:tee|touch|mkdir|rm|mv|cp|del|copy|move|remove-item|new-item|set-content|add-content|out-file)\b/i.test(args)) {
       kinds.add("file_mutation");
     }
     if (/\b(?:start|open|xdg-open|explorer|start-process|invoke-item)\b|\bpython(?:3)?\s+-m\s+http\.server\b|\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:start|dev|preview)\b|\bnpx\s+(?:vite|serve|http-server)\b|\bnode\s+(?!-e\b|--eval\b)[^;\r\n]+/i.test(command)) {
@@ -711,6 +782,33 @@ function fulfilledKindsForTool(toolCall: CanonicalToolCall): ExternalActionKind[
   return [...kinds];
 }
 
+function isFinalStateObligation(obligation: ToolObligation): boolean {
+  return obligation.kind === "api_verification"
+    || obligation.kind === "file_verification"
+    || obligation.kind === "server_verification";
+}
+
+function isBuildCommand(toolCall: CanonicalToolCall): boolean {
+  if (!/bash|shell|powershell|terminal|command|exec/i.test(toolCall.name)) return false;
+  const command = collectStringValues(toolCall.arguments).join("\n");
+  return /\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?build\b|\b(?:tsc|vite|webpack|rollup|esbuild)\b/i.test(command);
+}
+
+function invalidatesFinalState(obligation: ToolObligation, toolCall: CanonicalToolCall): boolean {
+  if (!isFinalStateObligation(obligation)) return false;
+  const kinds = new Set(fulfilledKindsForTool(toolCall));
+  const changesPersistentState = kinds.has("file_mutation")
+    || kinds.has("data_mutation")
+    || kinds.has("test_execution")
+    || kinds.has("dependency_install")
+    || isBuildCommand(toolCall);
+  if (obligation.kind === "server_verification") {
+    return kinds.has("launch") || kinds.has("dependency_install") || isBuildCommand(toolCall);
+  }
+  if (obligation.kind === "api_verification") return changesPersistentState || kinds.has("launch");
+  return changesPersistentState;
+}
+
 function fulfillsObligation(
   obligation: ToolObligation,
   toolCall: CanonicalToolCall,
@@ -722,7 +820,8 @@ function fulfillsObligation(
   if (obligation.kind === "test_execution" && looksLikeFailedTestOutput(resultContent)) return false;
   const argumentStrings = collectStringValues(toolCall.arguments);
   if (!obligation.argumentLiterals.every(literal => containsExactUnicode(argumentStrings, literal))) return false;
-  return obligation.resultLiterals.every(literal => resultContainsExactUnicode(resultContent, literal));
+  return obligation.resultLiterals.every(literal => resultContainsExactUnicode(resultContent, literal))
+    && resultSatisfiesCardinality(obligation, resultContent);
 }
 
 function looksLikeFailedObligationOutput(kind: ExternalActionKind, content: string): boolean {
@@ -776,6 +875,8 @@ function emptyCurrentToolCycleEvidence(): CurrentToolCycleEvidence {
     obligations: [],
     fulfilledObligationIds: [],
     missingObligations: [],
+    staleObligations: [],
+    cardinalityFailures: [],
     exactLiterals: [],
     missingExactLiterals: [],
   };
@@ -819,12 +920,16 @@ export function inspectCurrentToolCycle(
   const fulfilledActionKinds = new Set<ExternalActionKind>();
   const failedToolNames = new Set<string>();
   const failedToolFingerprints = new Set<string>();
-  const successfulEvidence: Array<{ toolCall: CanonicalToolCall; resultContent: string }> = [];
+  const successfulEvidence: Array<{ toolCall: CanonicalToolCall; resultContent: string; sequence: number }> = [];
+  const completedEvidence: Array<{ toolCall: CanonicalToolCall; sequence: number }> = [];
+  let sequence = 0;
   for (const message of currentMessages) {
     for (const part of message.parts) {
+      sequence++;
       if (part.type !== "tool_result" || !part.toolResult) continue;
       const toolCall = currentToolCalls.get(part.toolResult.toolUseId);
       if (!toolCall) continue;
+      completedEvidence.push({ toolCall, sequence });
       hasCurrentToolResult = true;
       if (part.toolResult.isError) {
         hasFailedCurrentToolResult = true;
@@ -833,18 +938,48 @@ export function inspectCurrentToolCycle(
         continue;
       }
       hasSuccessfulCurrentToolResult = true;
-      successfulEvidence.push({ toolCall, resultContent: part.toolResult.content });
+      successfulEvidence.push({ toolCall, resultContent: part.toolResult.content, sequence });
       for (const kind of fulfilledKindsForTool(toolCall)) fulfilledActionKinds.add(kind);
     }
   }
 
-  const fulfilledObligationIds = obligations
-    .filter(obligation => successfulEvidence.some(evidence => fulfillsObligation(
+  const staleObligations: ToolObligation[] = [];
+  const cardinalityFailures: ObligationCardinalityFailure[] = [];
+  const fulfilledObligationIds = obligations.filter(obligation => {
+    const lastInvalidation = isFinalStateObligation(obligation)
+      ? completedEvidence.reduce((latest, evidence) => (
+        invalidatesFinalState(obligation, evidence.toolCall) ? Math.max(latest, evidence.sequence) : latest
+      ), -1)
+      : -1;
+    const matchingEvidence = successfulEvidence.filter(evidence => fulfillsObligation(
       obligation,
       evidence.toolCall,
       evidence.resultContent,
-    )))
-    .map(obligation => obligation.id);
+    ));
+    if (matchingEvidence.some(evidence => evidence.sequence > lastInvalidation)) return true;
+
+    const freshVerificationEvidence = successfulEvidence.filter(evidence => (
+      evidence.sequence > lastInvalidation
+      && fulfilledKindsForTool(evidence.toolCall).includes(obligation.kind)
+      && !looksLikeStructuredToolError(evidence.resultContent)
+      && !looksLikeFailedObligationOutput(obligation.kind, evidence.resultContent)
+    ));
+    const latestFresh = freshVerificationEvidence.at(-1);
+    const observedCount = latestFresh ? observedExactResultCount(obligation, latestFresh.resultContent) : undefined;
+    if (observedCount !== undefined && obligation.requiredExactResultCount !== undefined) {
+      cardinalityFailures.push({
+        obligationId: obligation.id,
+        expectedCount: obligation.requiredExactResultCount,
+        observedCount,
+      });
+    }
+    if (isFinalStateObligation(obligation)
+      && matchingEvidence.some(evidence => evidence.sequence <= lastInvalidation)
+      && freshVerificationEvidence.length === 0) {
+      staleObligations.push(obligation);
+    }
+    return false;
+  }).map(obligation => obligation.id);
   const fulfilledIds = new Set(fulfilledObligationIds);
   const missingObligations = obligations.filter(obligation => !fulfilledIds.has(obligation.id));
   const requiredActionKinds = obligations.map(obligation => obligation.kind);
@@ -875,6 +1010,8 @@ export function inspectCurrentToolCycle(
     obligations,
     fulfilledObligationIds,
     missingObligations,
+    staleObligations,
+    cardinalityFailures,
     exactLiterals,
     missingExactLiterals,
   };
@@ -1009,6 +1146,8 @@ export interface ToolRetryPromptContext {
   missingActionKinds?: ExternalActionKind[];
   missingObligations?: string[];
   fulfilledObligations?: string[];
+  staleObligations?: string[];
+  cardinalityFailures?: ObligationCardinalityFailure[];
   repeatedFailedToolName?: string;
   malformedToolIntent?: boolean;
 }
@@ -1056,6 +1195,19 @@ export function createToolRetryPrompt(
     lines.push(
       `Still-unverified current-user requirements: ${JSON.stringify(context.missingObligations)}`,
       "Do not claim success. Use real tools to complete only these missing requirements.",
+    );
+  }
+  if ((context.staleObligations ?? []).length > 0) {
+    lines.push(
+      `Stale final-state verifications: ${JSON.stringify(context.staleObligations)}`,
+      "A later state-changing action made that evidence stale. Re-check the final state now with a fresh GET, Read, or health request as appropriate.",
+      "Do NOT repeat an already successful mutation or POST merely because its verification became stale.",
+    );
+  }
+  if ((context.cardinalityFailures ?? []).length > 0) {
+    lines.push(
+      `Final-state exact-cardinality failures: ${JSON.stringify(context.cardinalityFailures)}`,
+      "The final state must contain the requested exact record the required number of times. Reconcile the current state safely; never create a duplicate blindly.",
     );
   }
   if ((context.fulfilledObligations ?? []).length > 0) {
