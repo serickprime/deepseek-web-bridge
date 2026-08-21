@@ -12,6 +12,18 @@ export interface ToolParseResult {
   toolCall: CanonicalToolCall | null;
 }
 
+interface ToolCallCandidateInspection {
+  toolCall: CanonicalToolCall | null;
+  reason: string;
+}
+
+export interface ToolCallOutputInspection {
+  toolCall: CanonicalToolCall | null;
+  reason: string;
+  source: string;
+  malformedToolIntent: boolean;
+}
+
 function isForbiddenKey(key: string): boolean {
   return DANGEROUS_KEYS.has(key);
 }
@@ -49,7 +61,7 @@ function inspectNestedValues(value: unknown, depth = 0): string | null {
 
 // --- Text extraction for model output that wraps JSON in prose ---
 
-function extractToolCallFromText(text: string, allowedNames: string[]): { toolCall: CanonicalToolCall | null; reason: string } {
+function extractToolCallFromText(text: string, allowedNames: string[]): ToolCallCandidateInspection {
   const toolCallIdx = text.indexOf('"tool_call"');
   const nameIdx = text.indexOf('"name"');
   const searchIdx = toolCallIdx >= 0 ? toolCallIdx : nameIdx;
@@ -122,7 +134,7 @@ function extractToolCallFromText(text: string, allowedNames: string[]): { toolCa
   return validateToolValue(toolValue, allowedNames);
 }
 
-function validateToolValue(value: unknown, allowedNames: string[]): { toolCall: CanonicalToolCall | null; reason: string } {
+function validateToolValue(value: unknown, allowedNames: string[]): ToolCallCandidateInspection {
   if (!isPlainObject(value)) return { toolCall: null, reason: "invalid_tool_shape" };
 
   const v = value as Record<string, unknown>;
@@ -156,7 +168,7 @@ function validateToolValue(value: unknown, allowedNames: string[]): { toolCall: 
   };
 }
 
-function inspectToolCall(text: string, allowedNames: string[]): { toolCall: CanonicalToolCall | null; reason: string } {
+function inspectToolCall(text: string, allowedNames: string[]): ToolCallCandidateInspection {
   if (typeof text !== "string") return { toolCall: null, reason: "input_not_string" };
   if (Buffer.byteLength(text, "utf8") > MAX_TOOL_BYTES) return { toolCall: null, reason: "input_too_large" };
   const trimmed = text.trim();
@@ -174,11 +186,19 @@ function inspectToolCall(text: string, allowedNames: string[]): { toolCall: Cano
 
   if (!isPlainObject(envelope)) return { toolCall: null, reason: "invalid_envelope" };
 
-  const value = tagMatch ? envelope : (envelope as Record<string, unknown>).tool_call;
-  if (!tagMatch && !Object.prototype.hasOwnProperty.call(envelope, "tool_call")) {
-    return { toolCall: null, reason: "unexpected_envelope_keys" };
-  }
-  if (!tagMatch && Object.keys(envelope as Record<string, unknown>).length !== 1) {
+  const envelopeRecord = envelope as Record<string, unknown>;
+  let value: unknown;
+  if (tagMatch) {
+    value = envelope;
+  } else if (Object.prototype.hasOwnProperty.call(envelopeRecord, "tool_call")) {
+    if (Object.keys(envelopeRecord).length !== 1) {
+      return { toolCall: null, reason: "unexpected_envelope_keys" };
+    }
+    value = envelopeRecord.tool_call;
+  } else if (Object.prototype.hasOwnProperty.call(envelopeRecord, "name")
+    && Object.prototype.hasOwnProperty.call(envelopeRecord, "arguments")) {
+    value = envelopeRecord;
+  } else {
     return { toolCall: null, reason: "unexpected_envelope_keys" };
   }
   if (!isPlainObject(value)) return { toolCall: null, reason: "invalid_tool_shape" };
@@ -186,19 +206,77 @@ function inspectToolCall(text: string, allowedNames: string[]): { toolCall: Cano
   return validateToolValue(value, allowedNames);
 }
 
-export function inspectToolCallFromOutput(output: { content?: string; reasoning?: string }, allowedNames: string[]): { toolCall: CanonicalToolCall | null; reason: string; source: string } {
+function regexEscape(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function looksLikeMalformedToolIntent(content: string, allowedNames: string[]): boolean {
+  if (allowedNames.length === 0 || typeof content !== "string") return false;
+  const trimmed = content.trim();
+  if (!trimmed || Buffer.byteLength(trimmed, "utf8") > MAX_TOOL_BYTES) return false;
+
+  const allowedPattern = allowedNames.map(regexEscape).join("|");
+  const jsonName = new RegExp(`["'](?:name|tool)["']\\s*:\\s*["'](?:${allowedPattern})["']`, "i");
+  const tagName = new RegExp(`<tool_call\\b[^>]*\\bname\\s*=\\s*["'](?:${allowedPattern})["']`, "i");
+  const prefixedName = new RegExp(`(?:^|\\n)\\s*Tool:\\s*(?:${allowedPattern})(?:\\s|$)`, "i");
+  const hasKnownName = jsonName.test(trimmed) || tagName.test(trimmed) || prefixedName.test(trimmed);
+  const hasNameField = /["'](?:name|tool)["']\s*:/.test(trimmed) || /<tool_call\b[^>]*\bname\s*=/.test(trimmed);
+  const hasEnvelopeMarker = /["']tool_call["']\s*:|<tool_call\b/i.test(trimmed);
+  const hasDirectShape = /["'](?:name|tool)["']\s*:/.test(trimmed) && /["']arguments["']\s*:/.test(trimmed);
+
+  if (hasNameField) return hasKnownName && (hasEnvelopeMarker || hasDirectShape || prefixedName.test(trimmed));
+  return hasEnvelopeMarker || prefixedName.test(trimmed);
+}
+
+export function inspectToolCallFromOutput(
+  output: { content?: string; reasoning?: string },
+  allowedNames: string[],
+): ToolCallOutputInspection {
   if (!output || typeof output.content !== "string") {
-    return { toolCall: null, reason: "invalid_output", source: "none" };
+    return {
+      toolCall: null,
+      reason: "invalid_output",
+      source: "none",
+      malformedToolIntent: false,
+    };
   }
+  const rejected: ToolCallOutputInspection[] = [];
   if (output.content.trim()) {
     const result = inspectToolCall(output.content, allowedNames);
-    if (result.toolCall) return { ...result, source: "content" };
+    if (result.toolCall) {
+      return {
+        ...result,
+        source: "content",
+        malformedToolIntent: false,
+      };
+    }
+    rejected.push({
+      ...result,
+      source: "content",
+      malformedToolIntent: looksLikeMalformedToolIntent(output.content, allowedNames),
+    });
   }
   if (typeof output.reasoning === "string" && output.reasoning.trim()) {
     const result = inspectToolCall(output.reasoning, allowedNames);
-    if (result.toolCall) return { ...result, source: "reasoning" };
+    if (result.toolCall) {
+      return {
+        ...result,
+        source: "reasoning",
+        malformedToolIntent: false,
+      };
+    }
+    rejected.push({
+      ...result,
+      source: "reasoning",
+      malformedToolIntent: looksLikeMalformedToolIntent(output.reasoning, allowedNames),
+    });
   }
-  return { toolCall: null, reason: "no_tool_call_found", source: "none" };
+  return rejected.find(result => result.malformedToolIntent) ?? {
+    toolCall: null,
+    reason: rejected[0]?.reason ?? "no_tool_call_found",
+    source: rejected[0]?.source ?? "none",
+    malformedToolIntent: false,
+  };
 }
 
 // --- Retry detection helpers ---
@@ -252,6 +330,7 @@ export function looksLikeToolIntentText(content: string, allowedToolNames: strin
 
 export interface CurrentToolCycleEvidence {
   currentUserText: string;
+  isInformationalRequest: boolean;
   hasCurrentToolResult: boolean;
   hasSuccessfulCurrentToolResult: boolean;
   hasFailedCurrentToolResult: boolean;
@@ -288,6 +367,11 @@ const INFORMATIONAL_PREFIXES = [
   "why ",
 ];
 
+function isInformationalRequest(content: string): boolean {
+  const normalized = content.trim().toLowerCase().replace(/\s+/g, " ");
+  return INFORMATIONAL_PREFIXES.some(prefix => normalized.startsWith(prefix));
+}
+
 function hasToolMatching(allowedToolNames: string[], pattern: RegExp): boolean {
   return allowedToolNames.some(name => pattern.test(name.toLowerCase()));
 }
@@ -296,8 +380,7 @@ export function looksLikeEnvironmentDataRequest(content: string, allowedToolName
   if (allowedToolNames.length === 0) return false;
   const trimmed = content.trim();
   if (!trimmed) return false;
-  const normalized = trimmed.toLowerCase().replace(/\s+/g, " ");
-  if (INFORMATIONAL_PREFIXES.some(prefix => normalized.startsWith(prefix))) return false;
+  if (isInformationalRequest(trimmed)) return false;
 
   const hasShell = hasToolMatching(allowedToolNames, /bash|shell|powershell|terminal|command|exec/);
   const hasReader = hasToolMatching(allowedToolNames, /^(?:read|cat)$|read.?file/);
@@ -324,8 +407,7 @@ function inferExternalActionKinds(content: string, allowedToolNames: string[]): 
   if (allowedToolNames.length === 0) return [];
   const trimmed = content.trim();
   if (!trimmed) return [];
-  const normalized = trimmed.toLowerCase().replace(/\s+/g, " ");
-  if (INFORMATIONAL_PREFIXES.some(prefix => normalized.startsWith(prefix))) return [];
+  if (isInformationalRequest(trimmed)) return [];
 
   const hasShell = hasToolMatching(allowedToolNames, /bash|shell|powershell|terminal|command|exec/);
   const hasFileWriter = hasToolMatching(allowedToolNames, /write|edit|create|delete|remove|rename|move|copy/)
@@ -422,6 +504,7 @@ function fulfilledKindsForTool(toolCall: CanonicalToolCall): ExternalActionKind[
 function emptyCurrentToolCycleEvidence(): CurrentToolCycleEvidence {
   return {
     currentUserText: "",
+    isInformationalRequest: false,
     hasCurrentToolResult: false,
     hasSuccessfulCurrentToolResult: false,
     hasFailedCurrentToolResult: false,
@@ -492,6 +575,7 @@ export function inspectCurrentToolCycle(
   const missingActionKinds = requiredActionKinds.filter(kind => !fulfilledActionKinds.has(kind));
   return {
     currentUserText,
+    isInformationalRequest: isInformationalRequest(currentUserText),
     hasCurrentToolResult,
     hasSuccessfulCurrentToolResult,
     hasFailedCurrentToolResult,
@@ -635,6 +719,7 @@ export interface ToolRetryPromptContext {
   failedToolNames?: string[];
   missingActionKinds?: ExternalActionKind[];
   repeatedFailedToolName?: string;
+  malformedToolIntent?: boolean;
 }
 
 export function createToolRetryPrompt(
@@ -661,6 +746,13 @@ export function createToolRetryPrompt(
     lines.push(
       `The exact ${JSON.stringify(context.repeatedFailedToolName)} call with the same normalized arguments already ran in this user action cycle and returned tool_result is_error=true.`,
       "Do NOT repeat that call unchanged. Choose a different tool, correct the arguments, or honestly explain why the task cannot be completed.",
+    );
+  }
+  if (context.malformedToolIntent) {
+    lines.push(
+      "Your previous output was a malformed tool call. The tool was NOT executed.",
+      "Do not describe the action as text. Return exactly one correct tool call using valid JSON.",
+      "Every backslash inside a JSON string must be correctly escaped (use \\\\ for a literal backslash).",
     );
   }
   if ((context.missingActionKinds ?? []).length > 0) {

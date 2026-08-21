@@ -80,14 +80,14 @@ OpenCode в этой итерации deferred и не являются теку
 | 7. DeepSeek | pow (WASM), sseParser, updateParser, client | ✅ готово |
 | 8. Server | middleware, output-адаптеры, protocolStream, routes, server | ✅ готово |
 | 9. Entrypoint | app.ts, index.ts, start.ts | ✅ готово |
-| 10. Тесты | 25 файлов, 451 тест | ✅ готово |
+| 10. Тесты | 25 файлов, 459 тестов | ✅ готово |
 | 11. Скрипты | desktopStart, cdp, auth, doctor, launcher, live, real-OS platform smoke | ✅ live-часть работает |
 | 12. Веб-интерфейс | Bridge Console на `GET /` (Mileo dark theme, two-panel, diagnostics, model picker) | ✅ готово |
 
 **Проверки сейчас:**
 - `npm run typecheck` — ✅ без ошибок.
 - `npm run build` — ✅ собирается.
-- `npm test` — ✅ 451/451.
+- `npm test` — ✅ 459/459.
 - `npm run test:platform` — ✅ локально на Windows: real process/platform,
   `buildConfig`, Bridge HTTP, Unicode cwd и env propagation без DeepSeek auth.
 - `npm run auth` / Web UI AUTH — ✅ Bearer захватывается из сети, HIF читается из
@@ -283,6 +283,28 @@ OpenCode config не изменялся.
   `Bash(printf RECOVERY-OK-482)` → successful result → final
   `RECOVERY-OK-482`.
 
+### Malformed tool-call recovery — 2026-08-21
+
+- Повреждённый JSON в явном envelope доступного tool больше не превращается в
+  final text. Parser сохраняет `extracted_json_invalid` и классифицирует
+  `tool_call`, bare `{name, arguments}`, `<tool_call>`, `Tool: Name` и
+  `{tool, arguments}` marker как malformed intent.
+- Неоднозначные escapes (`\a` в production `Edit.old_string`) не исправляются
+  угадыванием. Existing bounded guard требует один новый валидный JSON call и
+  явно сообщает, что предыдущий tool не выполнялся; после трёх attempts Bridge
+  возвращает непустой `TOOL_CALL_REQUIRED` без raw JSON.
+- Informational request с JSON-примером остаётся текстовым. Валидные escaped
+  Windows paths не проходят repair и сохраняются byte-for-byte после JSON
+  decode.
+- Offline: 8 новых regression cases; итого 459/459 tests.
+- Windows production reproduction в исходной Claude Code TaskFlow-сессии:
+  вместо raw malformed final клиент получил настоящий `Edit` и successful
+  `tool_result`. В продолжении также подтверждены `Edit(server.js)` → result,
+  clean Jest 13/13 и отдельный `node server.js` listener. Полный semantic
+  TaskFlow success не заявляется: последующая модель проигнорировала exact
+  UTF-8 arguments и преждевременно описала более слабую проверку; это вынесено
+  в отдельный TODO ниже.
+
 ## Стабильная live-точка — 2026-08-20
 
 Подтверждено live-тестами Claude Code (полный workflow «кодирование через бридж»):
@@ -375,6 +397,11 @@ OpenCode config не изменялся.
       arguments/другой tool/честный failure, а exhaustion не возвращает пустой
       final. Live: точный `Bash(false)` исполнился один раз; изменённый
       `printf RECOVERY-OK-482` после ошибки успешно выполнился.
+- [x] **Malformed Claude Code tool call не утекает в final** — повреждённый
+      envelope доступного tool получает bounded retry с требованием valid JSON;
+      неоднозначные backslashes не ремонтируются, exhaustion возвращает
+      непустой `TOOL_CALL_REQUIRED`. Production TaskFlow reproduction вернул
+      настоящий `Edit tool_use`/`tool_result` вместо raw JSON.
 
 ### Приоритет 2 (расхождения README с кодом) — все закрыты
 
@@ -393,6 +420,13 @@ OpenCode config не изменялся.
       `deepseek-chat`/`deepseek-reasoner` принимаются, но не рекламируются.
 
 ### Приоритет 3 (улучшения, не блокеры)
+- [ ] **Повторить полный autonomous TaskFlow semantic live-test** — malformed
+      `Edit` recovery, реальный Edit result, clean Jest 13/13 и отдельный server
+      listener подтверждены. Однако затем DeepSeek проигнорировал exact UTF-8
+      title/description, повторно выбрал Windows curl и выдал преждевременный
+      success text после failed file check. Не смешивать это с исправленной
+      parser-утечкой; требуется отдельное усиление exact-argument/multi-step
+      completion integrity и новый end-to-end live-run.
 - [ ] **Повторно проверить production SHUTDOWN/PID lifecycle** — после
       action-integrity live-run наблюдалось, что `/bridge/shutdown` закрывал HTTP
       listener, но исходный Node PID дважды оставался жив и требовал точечного

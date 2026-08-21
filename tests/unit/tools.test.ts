@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { parseToolInvocation, hasToolTag, createToolRetryPrompt, historicalToolInvocationText, sanitizedToolInvocationText, toolResultText, looksLikeToolIntentText, looksLikeFakeToolTrace, looksLikeEnvironmentDataRequest, looksLikeExternalActionRequest, looksLikeActionSuccessClaim, inspectCurrentToolCycle, toolCallFingerprint, isRepeatedFailedToolCall, COMPLETION_GUARD_MAX_ATTEMPTS, buildUpstreamPrompt } from "../../src/tools/toolParser.js";
+import { parseToolInvocation, hasToolTag, createToolRetryPrompt, historicalToolInvocationText, sanitizedToolInvocationText, toolResultText, looksLikeToolIntentText, looksLikeFakeToolTrace, looksLikeEnvironmentDataRequest, looksLikeExternalActionRequest, looksLikeActionSuccessClaim, inspectCurrentToolCycle, inspectToolCallFromOutput, looksLikeMalformedToolIntent, toolCallFingerprint, isRepeatedFailedToolCall, COMPLETION_GUARD_MAX_ATTEMPTS, buildUpstreamPrompt } from "../../src/tools/toolParser.js";
 import { buildToolPrompt, selectBridgeTools } from "../../src/tools/toolPrompt.js";
 import { ToolRetryTracker } from "../../src/tools/toolRetry.js";
 import { DeepSeekClient, shouldRetry, buildToolUseIdMap } from "../../src/deepseek/client.js";
@@ -88,6 +88,46 @@ describe("toolParser", () => {
     );
     expect(result.toolCall).not.toBeNull();
     expect(result.toolCall?.name).toBe("get_weather");
+  });
+
+  it("classifies an invalid escape inside an Edit envelope as malformed tool intent", () => {
+    const malformed = String.raw`{"tool_call":{"name":"Edit","arguments":{"file_path":"server.js","old_string":"// Middleware\napp.use(cors());\app.use(express.json())","new_string":"app.use(cors());"}}}`;
+    const inspection = inspectToolCallFromOutput({ content: malformed }, ["Edit"]);
+
+    expect(looksLikeMalformedToolIntent(malformed, ["Edit"])).toBe(true);
+    expect(inspection).toMatchObject({
+      toolCall: null,
+      reason: "extracted_json_invalid",
+      source: "content",
+      malformedToolIntent: true,
+    });
+  });
+
+  it("parses a strict bare tool-call envelope", () => {
+    const result = parseToolInvocation(
+      '{"name":"Read","arguments":{"file_path":"a.txt"}}',
+      TOOLS,
+    );
+    expect(result.toolCall).toMatchObject({ name: "Read", arguments: { file_path: "a.txt" } });
+  });
+
+  it("preserves correctly escaped Windows paths", () => {
+    const result = parseToolInvocation(
+      String.raw`{"tool_call":{"name":"Read","arguments":{"file_path":"C:\\Projects\\TaskFlow\\server.js"}}}`,
+      TOOLS,
+    );
+    expect(result.toolCall?.arguments).toEqual({ file_path: String.raw`C:\Projects\TaskFlow\server.js` });
+  });
+
+  it("classifies a fenced tool marker with an unsupported envelope as malformed intent", () => {
+    const output = '```json\n{"tool":"Edit","arguments":{"file_path":"server.js"}}\n```';
+    const inspection = inspectToolCallFromOutput({ content: output }, ["Edit"]);
+
+    expect(inspection).toMatchObject({
+      toolCall: null,
+      source: "content",
+      malformedToolIntent: true,
+    });
   });
 });
 
@@ -1474,6 +1514,91 @@ describe("DeepSeekClient action completion guard", () => {
     expect(runCompletion.mock.calls[0]?.[0]).toContain("status: error");
     expect(runCompletion.mock.calls[0]?.[0]).toContain("is_error: true");
     expect(runCompletion.mock.calls[1]?.[0]).toMatch(/Artifact failure did not create/i);
+  });
+
+  it("retries malformed Edit JSON and returns the corrected call as tool_use", async () => {
+    const malformed = String.raw`{"tool_call":{"name":"Edit","arguments":{"file_path":"server.js","old_string":"// Middleware\napp.use(cors());\app.use(express.json())","new_string":"app.use(cors());"}}}`;
+    const corrected = JSON.stringify({
+      tool_call: {
+        name: "Edit",
+        arguments: {
+          file_path: "server.js",
+          old_string: "// Middleware\napp.use(cors());\napp.use(express.json())",
+          new_string: "app.use(cors());",
+        },
+      },
+    });
+    const { client, runCompletion } = actionClient([malformed, corrected]);
+
+    const result = await client.complete(actionRequest([{
+      role: "user",
+      parts: [{ type: "text", text: "измени middleware в server.js" }],
+    }]), actionState());
+
+    expect(result.content).toBe("");
+    expect(result.toolCall).toMatchObject({ name: "Edit", args: { file_path: "server.js" } });
+    expect(runCompletion).toHaveBeenCalledTimes(2);
+    expect(runCompletion.mock.calls[1]?.[0]).toMatch(/malformed/i);
+    expect(runCompletion.mock.calls[1]?.[0]).toMatch(/was NOT executed/i);
+    expect(runCompletion.mock.calls[1]?.[0]).toMatch(/backslash/i);
+  });
+
+  it("never leaks malformed raw tool JSON after bounded retries", async () => {
+    const malformed = String.raw`{"tool_call":{"name":"Edit","arguments":{"file_path":"server.js","old_string":"a\app.use()","new_string":"b"}}}`;
+    const { client, runCompletion } = actionClient([malformed, malformed, malformed]);
+
+    let caught: unknown;
+    try {
+      await client.complete(actionRequest([{
+        role: "user",
+        parts: [{ type: "text", text: "измени server.js" }],
+      }]), actionState());
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toMatchObject({ code: "TOOL_CALL_REQUIRED", status: 502 });
+    expect((caught as Error).message).toMatch(/malformed tool-call syntax/i);
+    expect((caught as Error).message).not.toContain('{"tool_call"');
+    expect((caught as Error).message.trim().length).toBeGreaterThan(0);
+    expect(runCompletion).toHaveBeenCalledTimes(COMPLETION_GUARD_MAX_ATTEMPTS);
+  });
+
+  it("allows a JSON tool-call example in an informational answer", async () => {
+    const answer = 'Пример: {"tool_call":{"name":"Edit","arguments":{"file_path":"server.js"}}}';
+    const { client, runCompletion } = actionClient([answer]);
+
+    const result = await client.complete(actionRequest([{
+      role: "user",
+      parts: [{ type: "text", text: "что означает JSON-пример вызова Edit?" }],
+    }]), actionState());
+
+    expect(result.content).toBe(answer);
+    expect(result.toolCall).toBeUndefined();
+    expect(runCompletion).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries malformed action syntax after a successful tool_result when work remains", async () => {
+    const malformed = String.raw`{"tool_call":{"name":"Edit","arguments":{"file_path":"server.js","old_string":"a\app.listen()","new_string":"b"}}}`;
+    const corrected = '{"tool_call":{"name":"Bash","arguments":{"command":"node server.js"}}}';
+    const { client, runCompletion } = actionClient([malformed, corrected]);
+
+    const result = await client.complete(actionRequest([
+      { role: "user", parts: [{ type: "text", text: "создай server.js и запусти приложение" }] },
+      { role: "assistant", parts: [{
+        type: "tool_use",
+        toolCall: { id: "call_write", type: "function", name: "Write", arguments: { file_path: "server.js", content: "app" } },
+      }] },
+      { role: "user", parts: [{
+        type: "tool_result",
+        toolResult: { toolUseId: "call_write", content: "File written", isError: false },
+      }] },
+    ]), actionState());
+
+    expect(result.toolCall).toMatchObject({ name: "Bash", args: { command: "node server.js" } });
+    expect(runCompletion).toHaveBeenCalledTimes(2);
+    expect(runCompletion.mock.calls[1]?.[0]).toMatch(/malformed/i);
+    expect(runCompletion.mock.calls[1]?.[0]).toContain('Still-unverified action kinds: ["launch"]');
   });
 });
 

@@ -3,6 +3,44 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-21 — Recover malformed Claude Code tool calls
+
+- Root cause: `extractToolCallFromText()` уже находил JSON-кандидат с доступным
+  tool, но при `JSON.parse()` error (production пример `\app.use(...)`) причина
+  `extracted_json_invalid` терялась в `inspectToolCallFromOutput()`. Completion
+  guard получал обобщённое `no_tool_call_found`; raw JSON не совпадал с
+  text-intent/fake-trace эвристиками и выходил как успешный final вместо
+  Anthropic `tool_use`.
+- `src/tools/toolParser.ts` теперь сохраняет точную причину/source rejected
+  candidate и отдельно классифицирует явный malformed tool intent только для
+  доступных tools: `{"tool_call":...}`, bare `{"name":...,"arguments":...}`,
+  `<tool_call>`, `Tool: Name` и подтверждённый live marker
+  `{"tool":"Edit","arguments":...}`. Справочный вопрос остаётся обычным
+  text-response; строгий bare envelope поддерживается как настоящий call.
+- Неоднозначный malformed escape не ремонтируется подстановкой: `\a` может
+  означать потерянный newline, literal backslash или другой текст. Bridge не
+  меняет arguments и не применяет global backslash replace; корректно escaped
+  Windows paths проходят прежний parser без изменений.
+- `src/deepseek/client.ts` направляет malformed intent в существующий bounded
+  completion guard (три total attempts). Retry сообщает, что tool не
+  выполнялся, запрещает текстовую имитацию и требует один валидный JSON call с
+  корректно escaped backslashes. После exhaustion возвращается непустой
+  `TOOL_CALL_REQUIRED`; raw syntax пользователю не отдаётся.
+- `tests/unit/tools.test.ts` — 8 regressions: production `Edit` с `\a`, raw
+  envelope classification/no leak, corrected retry → настоящий `Edit tool_use`,
+  strict valid call, informational JSON example, сохранность escaped Windows
+  path, malformed marker и retry после successful result при незавершённом
+  action.
+- Windows production reproduction через Claude Code 2.1.238 в исходном
+  TaskFlow project больше не завершился malformed JSON: Claude Code получил
+  настоящий `Edit` и successful `tool_result`. Продолжение реально выполнило
+  `Edit(server.js)` → result, чистые Jest 13/13 и запустило отдельный
+  `node server.js`; точная UTF-8 end-to-end задача при этом не принимается как
+  полностью autonomous success — модель позже проигнорировала exact arguments
+  и преждевременно описала более слабый результат. Это отдельный model-side
+  action-integrity TODO, а не утечка malformed tool syntax.
+- Итого: 25 test files, 459 tests.
+
 ## 2026-08-21 — Prevent repeated failed tool calls
 
 - Root cause: completion guard считал любой валидный распарсенный `tool_call`

@@ -172,13 +172,16 @@ export class DeepSeekClient {
 
     const inspection = inspectToolCallFromOutput(output, allowedNames);
     let toolCall = inspection.toolCall;
+    if (guardEvidence.isInformationalRequest) toolCall = null;
+    let malformedToolIntent = inspection.malformedToolIntent && !guardEvidence.isInformationalRequest;
     let sawRepeatedFailedToolCall = isRepeatedFailedToolCall(toolCall, guardEvidence);
+    let sawMalformedToolIntent = malformedToolIntent;
 
     // Bounded completion guard loop: retry when the current user turn requires
     // real environment evidence but has no current-cycle tool_result, or when
     // the model produces intent/fabricated tool text instead of tool_call JSON.
     let retries = 0;
-    while (shouldRetry(hasTools, toolCall, output.content, output.reasoning, allowedNames, guardEvidence) && retries < COMPLETION_GUARD_MAX_ATTEMPTS - 1) {
+    while (shouldRetry(hasTools, toolCall, output.content, output.reasoning, allowedNames, guardEvidence, malformedToolIntent) && retries < COMPLETION_GUARD_MAX_ATTEMPTS - 1) {
       retries++;
       const repeatedFailedToolName = isRepeatedFailedToolCall(toolCall, guardEvidence)
         ? toolCall?.name
@@ -188,17 +191,21 @@ export class DeepSeekClient {
         failedToolNames: guardEvidence.failedToolNames,
         missingActionKinds: guardEvidence.missingActionKinds,
         repeatedFailedToolName,
+        malformedToolIntent,
       });
       output = await this.runCompletion(retryPrompt, state, authGeneration, modelSelection);
       const retryInspection = inspectToolCallFromOutput(output, allowedNames);
       toolCall = retryInspection.toolCall;
+      if (guardEvidence.isInformationalRequest) toolCall = null;
+      malformedToolIntent = retryInspection.malformedToolIntent && !guardEvidence.isInformationalRequest;
       sawRepeatedFailedToolCall ||= isRepeatedFailedToolCall(toolCall, guardEvidence);
+      sawMalformedToolIntent ||= malformedToolIntent;
       if (toolCall) {
         output = { ...output, content: "", reasoning: "" };
       }
     }
 
-    if (shouldRetry(hasTools, toolCall, output.content, output.reasoning, allowedNames, guardEvidence)) {
+    if (shouldRetry(hasTools, toolCall, output.content, output.reasoning, allowedNames, guardEvidence, malformedToolIntent)) {
       this.options.logger.warn("completion_guard_rejected", {
         attempts: retries + 1,
         requires_environment_tool_result: guardEvidence.requiresEnvironmentToolResult,
@@ -207,11 +214,14 @@ export class DeepSeekClient {
         has_successful_current_tool_result: guardEvidence.hasSuccessfulCurrentToolResult,
         has_failed_current_tool_result: guardEvidence.hasFailedCurrentToolResult,
         repeated_failed_tool_call: sawRepeatedFailedToolCall,
+        malformed_tool_intent: sawMalformedToolIntent,
       });
       throw new BridgeError(
         sawRepeatedFailedToolCall
           ? "DeepSeek repeated a tool call that already failed in this user action cycle and did not provide a safe alternative or a non-empty honest failure. The failed action was not executed again."
-          : "DeepSeek did not produce the required real tool call. The requested environment data or external action was not successfully verified, so no fabricated success result was returned.",
+          : sawMalformedToolIntent
+            ? "DeepSeek produced malformed tool-call syntax and did not repair it within the bounded retry limit. No raw tool JSON was returned and no tool was executed."
+            : "DeepSeek did not produce the required real tool call. The requested environment data or external action was not successfully verified, so no fabricated success result was returned.",
         { code: "TOOL_CALL_REQUIRED", status: 502, retryable: true },
       );
     }
@@ -506,9 +516,11 @@ export function shouldRetry(
   reasoning: string,
   allowedToolNames: string[] = [],
   evidence?: CurrentToolCycleEvidence,
+  malformedToolIntent = false,
 ): boolean {
   if (!hasTools) return false;
   if (toolCall) return isRepeatedFailedToolCall(toolCall, evidence);
+  if (malformedToolIntent && evidence && !evidence.isInformationalRequest) return true;
   if (evidence?.requiresEnvironmentToolResult || evidence?.requiresActionToolResult) {
     if (evidence.hasUnavailableToolFailure) return true;
     if (!evidence.hasFailedCurrentToolResult) return true;
