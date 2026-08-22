@@ -3,6 +3,33 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-22 — Track distinct file mutation obligations
+
+- `fix/multi-file-obligations` (поверх foundation 8dfd84f). Если пользователь явно
+  просит мутировать ДВА РАЗНЫХ файла, `inferToolObligations` теперь создаёт две
+  per-path инстанции: `file_mutation#1` / `file_mutation#2` с
+  `argumentLiterals=[pathA]` / `[pathB]`. Поддержаны ТОЛЬКО ровно 2 distinct paths;
+  same-file multi-step (Write→Edit) и 3+ paths остаются вне scope.
+- Консервативная дизамбигуация: путь — кандидат на split только если ближайший
+  глагол перед ним (в окне до 120 символов) мутационный, а не верификационный
+  («запиши отчёт в report.txt» — кандидат, «проверь storage-файл data/tasks.json» —
+  нет). Один кандидат, повторные упоминания того же пути и три и более путей —
+  fallback на исторический одиночный `id="file_mutation"`.
+- Не тронуто: Write→Edit/append одного файла, literal/content extraction,
+  file_verification regex, empty final, naked `<tool_calls>` detection,
+  replay/fingerprint logic, matcher foundation (`matchObligationsToEvidence`).
+- `tests/unit/tools.test.ts` — describe «distinct file mutation obligations»,
+  8 regression cases (два пути → #1/#2; после Write(a) → #2 missing; после обоих
+  Write → fulfilled; Write(c) вместо b → b missing; один файл → исторический id;
+  два упоминания a.txt → без split; 3 пути → fallback; один tool_result не
+  закрывает обе same-kind инстанции). Все прежние 514 тестов прошли без правок
+  ожиданий (diff тестов — только добавления). Итого 522/522 offline;
+  typecheck/build/test:platform зелёные.
+- Live deepseek-v4-pro (чистая папка): модель выполнила Write(bridge-multi-a-952.txt)
+  → Write(bridge-multi-b-952.txt) отдельными шагами, оба файла на диске с точным
+  содержимым MULTI-A-952/MULTI-B-952; completion_guard_rejected=0,
+  TOOL_CALL_REQUIRED=0, malformed/pseudo-XML=0, replay=0, normal final.
+
 ## 2026-08-22 — Support multiple obligation instances per kind
 
 - Foundation для будущей obligation granularity (`fix/obligation-granularity-foundation`,

@@ -594,7 +594,7 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
     literalValues(literals, ["title", "description"]).map(value => value.normalize("NFC")),
   );
 
-  return [...kinds].map(kind => {
+  const inferred: ToolObligation[] = [...kinds].map(kind => {
     let argumentLiterals: string[] = [];
     let resultLiterals: string[] = [];
     if (kind === "file_mutation") {
@@ -635,6 +635,68 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
       requiredExactResultCount,
     };
   });
+
+  // Conservative multi-file scope: exactly two DISTINCT path literals that both
+  // appear in a mutation-verb context split the file mutation into per-path
+  // instances (file_mutation#1/#2). Paths mentioned only as verification or
+  // read targets ("проверь файл хранения data/tasks.json") are not mutation
+  // candidates; one candidate, repeated same-path mentions and three or more
+  // paths all fall back to the historical single obligation.
+  const mutationIndex = inferred.findIndex(obligation => obligation.id === "file_mutation");
+  if (mutationIndex >= 0) {
+    const mutationVerb = /(?:созда|сделай|сохран|запиш|измен|отредактир|удал|переимен|перемест|скопир|create|make|save|write|modify|change|edit|delete|remove|rename|move|copy)/gi;
+    const verifyVerb = /(?:провер|прочит|прочти|убедись|verify|check|inspect|read|cat\b|show|display)/gi;
+    const lastVerbEnd = (pattern: RegExp, text: string): number => {
+      pattern.lastIndex = 0;
+      let last = -1;
+      let match: RegExpExecArray | null;
+      while ((match = pattern.exec(text))) {
+        last = match.index + match[0].length;
+        if (match[0].length === 0) pattern.lastIndex++;
+      }
+      return last;
+    };
+    // A path is a mutation candidate when the closest verb-like word before it
+    // (within 120 chars) is a mutation verb rather than a verification/read
+    // verb ("запиши отчёт в report.txt" vs "проверь storage-файл tasks.json").
+    const isMutationCandidate = (path: string): boolean => {
+      const needle = path.normalize("NFC");
+      let from = 0;
+      for (;;) {
+        const at = content.indexOf(needle, from);
+        if (at < 0) break;
+        const window = content.slice(Math.max(0, at - 120), at);
+        const mutationAt = lastVerbEnd(mutationVerb, window);
+        const verifyAt = lastVerbEnd(verifyVerb, window);
+        if (mutationAt >= 0 && mutationAt >= verifyAt) return true;
+        from = at + needle.length;
+      }
+      return false;
+    };
+    const mutationPaths = [...new Set(pathLiterals.map(path => path.normalize("NFC")))]
+      .filter(isMutationCandidate);
+    if (mutationPaths.length === 2) {
+      inferred.splice(mutationIndex, 1,
+        {
+          id: "file_mutation#1",
+          kind: "file_mutation",
+          description: obligationDescription("file_mutation", [mutationPaths[0]!], []),
+          argumentLiterals: [mutationPaths[0]!],
+          resultLiterals: [],
+          requiredExactResultCount: undefined,
+        },
+        {
+          id: "file_mutation#2",
+          kind: "file_mutation",
+          description: obligationDescription("file_mutation", [mutationPaths[1]!], []),
+          argumentLiterals: [mutationPaths[1]!],
+          resultLiterals: [],
+          requiredExactResultCount: undefined,
+        },
+      );
+    }
+  }
+  return inferred;
 }
 
 export function looksLikeExternalActionRequest(content: string, allowedToolNames: string[]): boolean {

@@ -2222,6 +2222,91 @@ describe("multiple obligation instances per kind", () => {
   });
 });
 
+describe("distinct file mutation obligations", () => {
+  const multiTools = [
+    { name: "Read", description: "Read a file", inputSchema: { type: "object", properties: { file_path: { type: "string" } } } },
+    { name: "Write", description: "Write a file", inputSchema: { type: "object", properties: { file_path: { type: "string" }, content: { type: "string" } } } },
+    { name: "Edit", description: "Edit a file", inputSchema: {} },
+    { name: "Bash", description: "Run a command", inputSchema: { type: "object", properties: { command: { type: "string" } } } },
+  ];
+  const multiNames = multiTools.map(tool => tool.name);
+
+  function msg(role: "user" | "assistant", parts: unknown[]): CanonicalMessage {
+    return { role, parts } as unknown as CanonicalMessage;
+  }
+  const tu = (id: string, name: string, args: Record<string, unknown>): CanonicalMessage =>
+    msg("assistant", [{ type: "tool_use", toolCall: { id, type: "function", name, arguments: args } }]);
+  const tr = (id: string, content: string): CanonicalMessage =>
+    msg("user", [{ type: "tool_result", toolResult: { toolUseId: id, content, isError: false } }]);
+  const cycle = (prompt: string, calls: CanonicalMessage[]) =>
+    inspectCurrentToolCycle([msg("user", [{ type: "text", text: prompt }]), ...calls], multiNames);
+
+  it("infers two file_mutation obligations for two distinct paths", () => {
+    const obligations = inferToolObligations('Создай файл a.txt со строкой "XA". Создай файл b.txt со строкой "XB".', multiNames);
+    const mutationIds = obligations.filter(o => o.kind === "file_mutation").map(o => o.id);
+    expect(mutationIds).toEqual(["file_mutation#1", "file_mutation#2"]);
+    expect(obligations.find(o => o.id === "file_mutation#1")?.argumentLiterals).toEqual(["a.txt"]);
+    expect(obligations.find(o => o.id === "file_mutation#2")?.argumentLiterals).toEqual(["b.txt"]);
+  });
+
+  it("keeps the second obligation missing after only the first write", () => {
+    const evidence = cycle('Создай файл a.txt со строкой "XA". Создай файл b.txt со строкой "XB".', [
+      tu("c1", "Write", { file_path: "a.txt", content: "XA" }),
+      tr("c1", "File created successfully"),
+    ]);
+    expect(evidence.fulfilledObligationIds).toContain("file_mutation#1");
+    expect(evidence.missingObligations.map(o => o.id)).toContain("file_mutation#2");
+    expect(evidence.requiresActionToolResult).toBe(true);
+  });
+
+  it("fulfills both after both files are written once", () => {
+    const evidence = cycle('Создай файл a.txt со строкой "XA". Создай файл b.txt со строкой "XB".', [
+      tu("c1", "Write", { file_path: "a.txt", content: "XA" }),
+      tr("c1", "ok"),
+      tu("c2", "Write", { file_path: "b.txt", content: "XB" }),
+      tr("c2", "ok"),
+    ]);
+    expect(evidence.fulfilledObligationIds).toEqual(expect.arrayContaining(["file_mutation#1", "file_mutation#2"]));
+    expect(evidence.missingObligations).toHaveLength(0);
+    expect(evidence.requiresActionToolResult).toBe(false);
+  });
+
+  it("keeps b.txt missing when an unrelated c.txt is written instead", () => {
+    const evidence = cycle('Создай файл a.txt со строкой "XA". Создай файл b.txt со строкой "XB".', [
+      tu("c1", "Write", { file_path: "a.txt", content: "XA" }),
+      tr("c1", "ok"),
+      tu("c2", "Write", { file_path: "c.txt", content: "XC" }),
+      tr("c2", "ok"),
+    ]);
+    expect(evidence.missingObligations.map(o => o.id)).toContain("file_mutation#2");
+    expect(evidence.requiresActionToolResult).toBe(true);
+  });
+
+  it("keeps the historical single obligation for one path", () => {
+    const obligations = inferToolObligations('Создай файл report.txt со строкой "XR" и проверь его.', multiNames);
+    expect(obligations.filter(o => o.kind === "file_mutation").map(o => o.id)).toEqual(["file_mutation"]);
+  });
+
+  it("does not split when the same path is mentioned twice", () => {
+    const obligations = inferToolObligations('Создай файл a.txt со строкой "XA". Затем обнови a.txt ещё раз.', multiNames);
+    expect(obligations.filter(o => o.kind === "file_mutation").map(o => o.id)).toEqual(["file_mutation"]);
+  });
+
+  it("does not split for three distinct paths (fallback)", () => {
+    const obligations = inferToolObligations("Создай a.txt, b.txt и c.txt.", multiNames);
+    expect(obligations.filter(o => o.kind === "file_mutation").map(o => o.id)).toEqual(["file_mutation"]);
+  });
+
+  it("one tool result cannot close both same-kind instances", () => {
+    const evidence = cycle('Создай файл a.txt со строкой "XA". Создай файл b.txt со строкой "XB".', [
+      tu("c1", "Write", { file_path: "a.txt", content: "XA b.txt" }),
+      tr("c1", "ok"),
+    ]);
+    expect(evidence.fulfilledObligationIds).not.toContain("file_mutation#2");
+    expect(evidence.missingObligations.map(o => o.id)).toContain("file_mutation#2");
+  });
+});
+
 describe("DeepSeekClient action completion guard", () => {
   const actionTools = [
     { name: "Artifact", description: "Create an artifact", inputSchema: {} },

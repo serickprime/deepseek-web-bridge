@@ -437,6 +437,26 @@ OpenCode config не изменялся.
   tests; typecheck, build, platform-smoke зелёные. Следующий шаг — собственно
   step-level split в инференсе с консервативными условиями и капом шагов.
 
+### Distinct multi-file mutation obligations — 2026-08-22
+
+- Первый пользовательский эффект поверх foundation (`fix/multi-file-obligations`):
+  если запрос явно требует мутировать ровно ДВА РАЗНЫХ файла,
+  `inferToolObligations` создаёт `file_mutation#1`/`file_mutation#2` с
+  per-path `argumentLiterals`; матчер foundation закрывает их разными Write'ами.
+  Поддержаны только 2 distinct paths: same-file multi-step (Write→Edit/append)
+  и 3+ paths вне scope (fallback на исторический одиночный obligation).
+- Кандидат пути на split — только при ближайшем мутационном глаголе перед ним;
+  верификационные упоминания («проверь storage-файл data/tasks.json») не
+  считаются мутациями, что сохраняет прежнее поведение существующих сценариев.
+  Не тронуто: literal/content extraction, file_verification regex, empty final,
+  naked `<tool_calls>`, replay/fingerprint, matcher.
+- Offline: 8 новых regression cases; все прежние тесты прошли без правок
+  ожиданий; итого 522/522 tests; typecheck/build/test:platform зелёные.
+- Live deepseek-v4-pro (чистая папка): два отдельных Write по двум файлам
+  (bridge-multi-a-952.txt / bridge-multi-b-952.txt), содержимое точное,
+  completion_guard_rejected=0, TOOL_CALL_REQUIRED=0, malformed=0, replay=0,
+  normal final.
+
 ## Стабильная live-точка — 2026-08-20
 
 Подтверждено live-тестами Claude Code (полный workflow «кодирование через бридж»):
