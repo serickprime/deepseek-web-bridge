@@ -3,6 +3,32 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-22 — Support multiple obligation instances per kind
+
+- Foundation для будущей obligation granularity (`fix/obligation-granularity-foundation`,
+  ответ на расследование схлопывания нескольких мутаций одного файла в одну
+  `file_mutation`). Пользовательское поведение НЕ расширено: `inferToolObligations`
+  не менялся — никаких новых regex, без step splitting, `pathLiterals.slice(0, 1)`
+  и извлечение литералов сохранены как есть.
+- Новый `matchObligationsToEvidence` (`src/tools/toolParser.ts`): one-to-one
+  binding внутри одного `ExternalActionKind` (аугментационные пути Кузена) — один
+  успешный tool_result закрывает максимум один instance того же kind; разные
+  instances могут закрываться разными evidence; evidence остаётся разделяемым
+  между РАЗНЫМИ kinds (прежняя семантика сохранена).
+- `inspectCurrentToolCycle` использует матчер вместо экзистенциальной проверки:
+  bound-evidence участвует в прямой ветке fulfillment и stale-проверке;
+  fresh-verification/cardinality/inconclusive ветки не изменились. Сканирование
+  latest-first сохраняет историческую freshness-семантику финальных состояний.
+  Для сегодняшних одиночных obligations поведение идентично прежнему.
+- Ownership-карты изолированы per-kind: внутри kind evidence обслуживает одну
+  obligation, между kinds шаринг разрешён.
+- `tests/unit/tools.test.ts` — describe «multiple obligation instances per kind»,
+  6 unit cases: 2×file_mutation + 1 evidence → закрыт один; последовательные
+  evidence → оба; неверные literals второго шага не закрывают его; один Bash
+  append удовлетворяет file_mutation + command_execution одновременно;
+  реассигнация при конфликте; structured-error/пустые входы игнорируются.
+  Итого 514/514 offline.
+
 ## 2026-08-22 — Block pseudo XML tool call leakage
 
 - Закрыта **pre-existing** утечка: модель иногда эмитировала OpenAI-style

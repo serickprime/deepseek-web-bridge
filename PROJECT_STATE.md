@@ -418,6 +418,25 @@ OpenCode config не изменялся.
   регрессии. Pseudo-XML live воспроизвести не удалось (эпизодический формат);
   корректность блокировки покрыта regression-тестами.
 
+### Obligation granularity foundation — 2026-08-22
+
+- Расследование (см. анализ multi-step мутаций одного файла) подтвердило root
+  cause схлопывания: `inferToolObligations` строит строго один obligation на
+  `ExternalActionKind`, поэтому create+append одного файла закрывается первым
+  же успешным Write. Полный step-level inference пока не реализуем — сначала
+  foundation.
+- Foundation (`fix/obligation-granularity-foundation`, поведение пользователя
+  НЕ меняется): новый `matchObligationsToEvidence` делает one-to-one binding
+  внутри одного kind через аугментационные пути; evidence шарится между разными
+  kinds как раньше. `inspectCurrentToolCycle` использует матчер; latest-first
+  сканирование сохраняет freshness/stale семантику финальных состояний;
+  fresh-verification/cardinality/inconclusive ветки и replay-fingerprint
+  protection не тронуты. `inferToolObligations` без изменений (без новых regex,
+  без step splitting, `pathLiterals.slice(0, 1)` сохранён).
+- Offline: 6 новых unit cases на multiple instances per kind; итого 514/514
+  tests; typecheck, build, platform-smoke зелёные. Следующий шаг — собственно
+  step-level split в инференсе с консервативными условиями и капом шагов.
+
 ## Стабильная live-точка — 2026-08-20
 
 Подтверждено live-тестами Claude Code (полный workflow «кодирование через бридж»):

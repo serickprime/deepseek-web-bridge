@@ -906,6 +906,65 @@ function emptyCurrentToolCycleEvidence(): CurrentToolCycleEvidence {
   };
 }
 
+export interface ObligationEvidenceRef {
+  toolCall: CanonicalToolCall;
+  resultContent: string;
+  sequence: number;
+}
+
+// One-to-one binding within each ExternalActionKind: a single successful
+// evidence item closes at most one obligation instance of the same kind, while
+// different instances may be closed by different items. Evidence remains
+// shareable across different kinds. Augmenting paths keep the matching maximal
+// when earlier obligations could fall back to other evidence. Obligations must
+// have unique ids; single-instance inference keeps the historical bare-kind id.
+export function matchObligationsToEvidence(
+  obligations: ToolObligation[],
+  evidence: ObligationEvidenceRef[],
+): Map<number, ObligationEvidenceRef> {
+  const matches = new Map<number, ObligationEvidenceRef>();
+  if (obligations.length === 0 || evidence.length === 0) return matches;
+
+  const tryBind = (obligationIndex: number, visited: Set<number>, ownerByEvidence: Map<number, number>): boolean => {
+    if (visited.has(obligationIndex)) return false;
+    visited.add(obligationIndex);
+    const obligation = obligations[obligationIndex]!;
+    // Latest-first scan keeps historical freshness semantics: a final-state
+    // obligation binds to its newest satisfying evidence, mirroring the
+    // previous "any match newer than the last invalidation" behavior.
+    for (let e = evidence.length - 1; e >= 0; e--) {
+      const candidate = evidence[e]!;
+      if (!fulfillsObligation(obligation, candidate.toolCall, candidate.resultContent)) continue;
+      const previousOwner = ownerByEvidence.get(e);
+      if (previousOwner === undefined) {
+        matches.set(obligationIndex, candidate);
+        ownerByEvidence.set(e, obligationIndex);
+        return true;
+      }
+      if (tryBind(previousOwner, visited, ownerByEvidence)) {
+        matches.set(obligationIndex, candidate);
+        ownerByEvidence.set(e, obligationIndex);
+        return true;
+      }
+    }
+    return false;
+  };
+
+  const kindGroups = new Map<ExternalActionKind, number[]>();
+  obligations.forEach((obligation, index) => {
+    const group = kindGroups.get(obligation.kind) ?? [];
+    group.push(index);
+    kindGroups.set(obligation.kind, group);
+  });
+  for (const group of kindGroups.values()) {
+    // Ownership is scoped per kind: within a kind an evidence item serves at
+    // most one instance, while different kinds may share the same item.
+    const ownerByEvidence = new Map<number, number>();
+    for (const obligationIndex of group) tryBind(obligationIndex, new Set(), ownerByEvidence);
+  }
+  return matches;
+}
+
 export function inspectCurrentToolCycle(
   messages: CanonicalMessage[],
   allowedToolNames: string[],
@@ -970,17 +1029,17 @@ export function inspectCurrentToolCycle(
   const staleObligations: ToolObligation[] = [];
   const inconclusiveObligations: ToolObligation[] = [];
   const cardinalityFailures: ObligationCardinalityFailure[] = [];
-  const fulfilledObligationIds = obligations.filter(obligation => {
+  const boundEvidence = matchObligationsToEvidence(obligations, successfulEvidence);
+  const fulfilledObligationIds = obligations.filter((obligation, obligationIndex) => {
     const lastInvalidation = isFinalStateObligation(obligation)
       ? completedEvidence.reduce((latest, evidence) => (
         invalidatesFinalState(obligation, evidence.toolCall) ? Math.max(latest, evidence.sequence) : latest
       ), -1)
       : -1;
-    const matchingEvidence = successfulEvidence.filter(evidence => fulfillsObligation(
-      obligation,
-      evidence.toolCall,
-      evidence.resultContent,
-    ));
+    // Per-kind one-to-one binding: the matched item for this instance cannot
+    // simultaneously satisfy another instance of the same kind.
+    const boundItem = boundEvidence.get(obligationIndex);
+    const matchingEvidence: ObligationEvidenceRef[] = boundItem ? [boundItem] : [];
     if (matchingEvidence.some(evidence => evidence.sequence > lastInvalidation)) return true;
 
     const freshVerificationEvidence = successfulEvidence.filter(evidence => (

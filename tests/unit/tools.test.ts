@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { parseToolInvocation, hasToolTag, createToolRetryPrompt, historicalToolInvocationText, sanitizedToolInvocationText, toolResultText, looksLikeToolIntentText, looksLikeFakeToolTrace, looksLikeEnvironmentDataRequest, looksLikeExternalActionRequest, looksLikeActionSuccessClaim, inspectCurrentToolCycle, inferToolObligations, inspectToolCallFromOutput, looksLikeMalformedToolIntent, toolCallFingerprint, isRepeatedFailedToolCall, COMPLETION_GUARD_MAX_ATTEMPTS, buildUpstreamPrompt } from "../../src/tools/toolParser.js";
+import { parseToolInvocation, hasToolTag, createToolRetryPrompt, historicalToolInvocationText, sanitizedToolInvocationText, toolResultText, looksLikeToolIntentText, looksLikeFakeToolTrace, looksLikeEnvironmentDataRequest, looksLikeExternalActionRequest, looksLikeActionSuccessClaim, inspectCurrentToolCycle, inferToolObligations, inspectToolCallFromOutput, looksLikeMalformedToolIntent, matchObligationsToEvidence, toolCallFingerprint, isRepeatedFailedToolCall, COMPLETION_GUARD_MAX_ATTEMPTS, buildUpstreamPrompt } from "../../src/tools/toolParser.js";
+import type { ToolObligation } from "../../src/tools/toolParser.js";
 import { buildToolPrompt, selectBridgeTools } from "../../src/tools/toolPrompt.js";
 import { ToolRetryTracker } from "../../src/tools/toolRetry.js";
 import { DeepSeekClient, shouldRetry, buildToolUseIdMap } from "../../src/deepseek/client.js";
@@ -2147,6 +2148,77 @@ describe("pseudo-xml tool intent leakage", () => {
     expect(retryPrompt).toContain("Do not repeat already verified steps unless a missing requirement genuinely depends on doing so.");
     expect(retryPrompt).toContain("note-927.txt");
     expect(result.content).toBe("");
+  });
+});
+
+describe("multiple obligation instances per kind", () => {
+  function ob(id: string, kind: ToolObligation["kind"], argumentLiterals: string[], resultLiterals: string[] = []): ToolObligation {
+    return { id, kind, description: id, argumentLiterals, resultLiterals };
+  }
+  function ev(sequence: number, name: string, args: Record<string, unknown>, content = "ok") {
+    return {
+      toolCall: { id: `c${sequence}`, type: "function" as const, name, arguments: args },
+      resultContent: content,
+      sequence,
+    };
+  }
+  const mutation = (sequence: number, path: string) => ev(sequence, "Write", { file_path: path });
+
+  it("binds one evidence to a single same-kind instance only", () => {
+    const obligations = [ob("file_mutation#1", "file_mutation", ["a.txt"]), ob("file_mutation#2", "file_mutation", ["b.txt"])];
+    const matches = matchObligationsToEvidence(obligations, [mutation(1, "a.txt")]);
+    expect(matches.size).toBe(1);
+    expect(matches.has(0)).toBe(true);
+    expect(matches.has(1)).toBe(false);
+  });
+
+  it("binds sequential evidence to distinct same-kind instances in order", () => {
+    const obligations = [ob("file_mutation#1", "file_mutation", ["a.txt"]), ob("file_mutation#2", "file_mutation", ["b.txt"])];
+    const matches = matchObligationsToEvidence(obligations, [mutation(1, "a.txt"), mutation(2, "b.txt")]);
+    expect(matches.size).toBe(2);
+    expect(matches.get(0)?.sequence).toBe(1);
+    expect(matches.get(1)?.sequence).toBe(2);
+  });
+
+  it("does not bind the second step when its literals are missing", () => {
+    const obligations = [ob("file_mutation#1", "file_mutation", ["a.txt"]), ob("file_mutation#2", "file_mutation", ["b.txt"])];
+    const matches = matchObligationsToEvidence(obligations, [mutation(1, "a.txt"), mutation(2, "a-copy.txt")]);
+    expect(matches.size).toBe(1);
+    expect(matches.has(0)).toBe(true);
+  });
+
+  it("still lets one evidence satisfy obligations of different kinds", () => {
+    const obligations = [
+      ob("file_mutation#1", "file_mutation", ["a.txt"]),
+      ob("command_execution#1", "command_execution", []),
+    ];
+    const bashAppend = {
+      toolCall: { id: "c1", type: "function" as const, name: "Bash", arguments: { command: 'echo hi >> a.txt' } },
+      resultContent: "ok",
+      sequence: 1,
+    };
+    const matches = matchObligationsToEvidence(obligations, [bashAppend]);
+    expect(matches.size).toBe(2);
+    expect(matches.get(0)?.toolCall.id).toBe("c1");
+    expect(matches.get(1)?.toolCall.id).toBe("c1");
+  });
+
+  it("reassigns earlier bindings so both instances stay served", () => {
+    const wide = ob("wide", "file_mutation", ["tok-a"]);
+    const unique = ob("unique", "file_mutation", ["tok-q"]);
+    const evidence = [ev(1, "Write", { content: "tok-a tok-q" }), ev(2, "Write", { content: "tok-a" })];
+    const matches = matchObligationsToEvidence([wide, unique], evidence);
+    expect(matches.size).toBe(2);
+    expect(matches.get(0)?.sequence).toBe(2);
+    expect(matches.get(1)?.sequence).toBe(1);
+  });
+
+  it("ignores structured-error results and empty inputs", () => {
+    const obligations = [ob("file_mutation#1", "file_mutation", ["a.txt"])];
+    const failed = { ...mutation(1, "a.txt"), resultContent: '{"error":"ENOENT"}' };
+    expect(matchObligationsToEvidence(obligations, [failed]).size).toBe(0);
+    expect(matchObligationsToEvidence([], []).size).toBe(0);
+    expect(matchObligationsToEvidence(obligations, []).size).toBe(0);
   });
 });
 
