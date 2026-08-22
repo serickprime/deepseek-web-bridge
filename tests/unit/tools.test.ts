@@ -2011,6 +2011,134 @@ describe("DeepSeekClient environment completion guard", () => {
   });
 });
 
+describe("pseudo-xml tool intent leakage", () => {
+  const xmlTools = [
+    { name: "Read", description: "Read a file", inputSchema: { type: "object", properties: { file_path: { type: "string" } } } },
+    { name: "Write", description: "Write a file", inputSchema: { type: "object", properties: { file_path: { type: "string" }, content: { type: "string" } } } },
+    { name: "Bash", description: "Run a command", inputSchema: { type: "object", properties: { command: { type: "string" } } } },
+  ];
+  const xmlNames = xmlTools.map(tool => tool.name);
+  const pseudoXml = '<tool_calls>\n<invoke name="Bash">\n<parameter name="command">pwd</parameter>\n</invoke>\n</tool_calls>';
+
+  function fulfilledMutationEvidence() {
+    return inspectCurrentToolCycle([
+      { role: "user", parts: [{ type: "text", text: "Создай файл note-927.txt с текстом DONE-927 и проверь его." }] },
+      { role: "assistant", parts: [{
+        type: "tool_use",
+        toolCall: { id: "call_w927", type: "function", name: "Write", arguments: { file_path: "note-927.txt", content: "DONE-927" } },
+      }] },
+      { role: "user", parts: [{
+        type: "tool_result",
+        toolResult: { toolUseId: "call_w927", content: "File created successfully", isError: false },
+      }] },
+    ], xmlNames);
+  }
+
+  it("blocks pseudo-xml final after obligations are already fulfilled", () => {
+    const evidence = fulfilledMutationEvidence();
+    expect(evidence.missingObligations).toHaveLength(0);
+    expect(looksLikeMalformedToolIntent(pseudoXml, xmlNames)).toBe(true);
+    const malformed = looksLikeMalformedToolIntent(pseudoXml, xmlNames);
+    expect(shouldRetry(true, null, pseudoXml, "", xmlNames, evidence, malformed)).toBe(true);
+  });
+
+  it("blocks pseudo-xml while an obligation is still pending", () => {
+    const evidence = inspectCurrentToolCycle([
+      { role: "user", parts: [{ type: "text", text: "Создай файл note-927.txt с текстом DONE-927 и проверь его." }] },
+    ], xmlNames);
+    expect(looksLikeMalformedToolIntent(pseudoXml, xmlNames)).toBe(true);
+    expect(shouldRetry(true, null, pseudoXml, "", xmlNames, evidence, true)).toBe(true);
+  });
+
+  it("blocks pseudo-xml after a failed tool_result", () => {
+    const evidence = inspectCurrentToolCycle([
+      { role: "user", parts: [{ type: "text", text: "Прочитай note-927.txt и проверь его содержимое." }] },
+      { role: "assistant", parts: [{
+        type: "tool_use",
+        toolCall: { id: "call_r927", type: "function", name: "Read", arguments: { file_path: "note-927.txt" } },
+      }] },
+      { role: "user", parts: [{
+        type: "tool_result",
+        toolResult: { toolUseId: "call_r927", content: "ENOENT: no such file", isError: true },
+      }] },
+    ], xmlNames);
+    expect(shouldRetry(true, null, pseudoXml, "", xmlNames, evidence, true)).toBe(true);
+  });
+
+  it("does not block ordinary XML/HTML or unknown-name invokes", () => {
+    const harmless = [
+      "<tool_calls>\n</tool_calls>",
+      '<invoke name="NotATool"><parameter name="x">1</parameter></invoke>',
+      '<tool_calls><invoke name="NotATool"></invoke></tool_calls>',
+      '<div class="note">note-927.txt готов</div>',
+      "<ul><li>пункт</li></ul>",
+    ];
+    for (const snippet of harmless) {
+      expect(looksLikeMalformedToolIntent(snippet, xmlNames)).toBe(false);
+    }
+    const evidence = fulfilledMutationEvidence();
+    for (const snippet of harmless) {
+      expect(shouldRetry(true, null, snippet, "", xmlNames, evidence)).toBe(false);
+    }
+  });
+
+  it("keeps canonical tool_call parsing intact", () => {
+    const envelope = inspectToolCallFromOutput({ content: '{"tool_call":{"name":"Bash","arguments":{"command":"pwd"}}}', reasoning: "" }, xmlNames);
+    expect(envelope.toolCall?.name).toBe("Bash");
+    expect(envelope.malformedToolIntent).toBe(false);
+    const wrapped = inspectToolCallFromOutput({ content: '<tool_call>{"name":"Write","arguments":{"file_path":"a.txt","content":"b"}}</tool_call>', reasoning: "" }, xmlNames);
+    expect(wrapped.toolCall?.name).toBe("Write");
+    expect(wrapped.malformedToolIntent).toBe(false);
+  });
+
+  it("requests a canonical tool call without replaying successful mutations", async () => {
+    const client = new DeepSeekClient({
+      baseUrl: "https://example.com",
+      auth: { token: "test-token", cookie: "test-cookie" },
+      sessionManager: {} as never,
+      solver: {} as never,
+      logger: { info: () => {}, warn: () => {}, error: () => {} } as never,
+      redactor: { addSecret: () => {}, redactText: (text: string) => text } as never,
+      timeoutMs: 10_000,
+      maxRetries: 0,
+    });
+    const queue = [pseudoXml, '{"tool_call":{"name":"Bash","arguments":{"command":"cat note-927.txt"}}}'];
+    const runCompletion = vi.fn(async (_prompt: string, _state: UpstreamSessionState, _authGeneration: number) => ({
+      content: queue.shift() ?? "",
+      reasoning: "",
+      parentMessageId: null,
+    }));
+    Object.defineProperty(client, "runCompletion", { value: runCompletion });
+
+    const result = await client.complete({
+      model: "deepseek-v4-flash",
+      stream: false,
+      system: "cwd: D:/landing-live",
+      messages: [
+        { role: "user", parts: [{ type: "text", text: "Создай файл note-927.txt с текстом DONE-927 и проверь его." }] },
+        { role: "assistant", parts: [{
+          type: "tool_use",
+          toolCall: { id: "call_w927", type: "function", name: "Write", arguments: { file_path: "note-927.txt", content: "DONE-927" } },
+        }] },
+        { role: "user", parts: [{
+          type: "tool_result",
+          toolResult: { toolUseId: "call_w927", content: "File created successfully", isError: false },
+        }] },
+      ],
+      tools: xmlTools,
+    }, { chatSessionId: "xml-session", parentMessageId: null, history: [], updatedAt: 0 });
+
+    expect(result.toolCall?.name).toBe("Bash");
+    expect(runCompletion).toHaveBeenCalledTimes(2);
+    const retryPrompt = runCompletion.mock.calls[1]?.[0] ?? "";
+    expect(retryPrompt).toMatch(/malformed tool call/i);
+    expect(retryPrompt).toContain("Return exactly one correct tool call using valid JSON.");
+    expect(retryPrompt).toContain("Do not repeat already verified steps unless a missing requirement genuinely depends on doing so.");
+    expect(retryPrompt).toContain("note-927.txt");
+    expect(result.content).toBe("");
+  });
+});
+
 describe("DeepSeekClient action completion guard", () => {
   const actionTools = [
     { name: "Artifact", description: "Create an artifact", inputSchema: {} },

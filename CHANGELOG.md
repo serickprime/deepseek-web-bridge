@@ -3,6 +3,34 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-22 — Block pseudo XML tool call leakage
+
+- Закрыта **pre-existing** утечка: модель иногда эмитировала OpenAI-style
+  pseudo-XML (`<tool_calls><invoke name="Bash"><parameter ...>`) вместо
+  canonical tool call. Парсер такой формат не понимал
+  (`no_tool_call_in_text`, `malformedToolIntent=false`), а guard пропускал его
+  как обычный текстовый final, когда obligations уже были закрыты успешным
+  tool_result — raw псевдо-XML уходил клиенту и не исполнялся. Поведение
+  идентично на `67c6f689`, `06b1e4e8` и `c8693ac` (эмпирический repro на dist
+  каждой сборки) — это не регрессия ветки tool-flow fix.
+- `looksLikeMalformedToolIntent` теперь распознаёт `<invoke name="<allowed>">`
+  как malformed tool intent (`src/tools/toolParser.ts`). XML Bridge
+  самостоятельно НЕ исполняет: recovery использует существующий bounded
+  canonical tool-call retry («Return exactly one correct tool call using valid
+  JSON»), successful side effects не повторяются.
+- Обычный XML/HTML и `<invoke>` с недоступным именем инструмента не
+  блокируются; canonical JSON envelope и `<tool_call>{...}</tool_call>` парсятся
+  как раньше.
+- `tests/unit/tools.test.ts` — 6 новых regression cases: блокировка после
+  fulfilled obligations (сам сценарий утечки), при pending obligation, после
+  failed tool_result; безвредный XML/HTML не блокируется; canonical parsing
+  цел; root-тест «retry запрашивает canonical call без replay успешных мутаций».
+  Итого 507/507 offline.
+- Live smoke (Write/Read/Bash, deepseek-v4-pro через Claude Code): инструменты
+  исполнились реально, `completion_guard_rejected=0` — нормальный tool flow не
+  сломан. Сам pseudo-XML в live не воспроизведён (формат эпизодический);
+  корректность блокировки подтверждена regression-тестами.
+
 ## 2026-08-21 — Fix final-state guard tool flow regression
 
 - Root cause (эмпирически подтверждён A/B-сборками `67c6f689` vs `06b1e4e8`):

@@ -1,6 +1,6 @@
 # Состояние проекта
 
-> **Актуально на:** 2026-08-21.
+> **Актуально на:** 2026-08-22.
 > Этот файл — главный источник правды о стадии проекта. Любой агент обязан
 > прочитать его перед началом работы и обновить после внесения изменений.
 > Обязательный порядок чтения перед задачей: `AGENTS.md` → `PROJECT_STATE.md`
@@ -392,6 +392,28 @@ OpenCode config не изменялся.
 - Offline: 9 новых regression cases; итого 501/501 tests; typecheck, build и
   platform-smoke зелёные.
 
+### Pseudo-XML tool intent blocking — 2026-08-22
+
+- Расследована утечка pre-existing (не регрессия `c8693ac`: repro идентичен на
+  `67c6f689`, `06b1e4e8`, `c8693ac`): модель эпизодически эмитировала
+  OpenAI-style `<tool_calls><invoke name="..."><parameter ...>` вместо
+  canonical call. Парсер возвращал `no_tool_call_in_text` с
+  `malformedToolIntent=false`, а guard пропускал такой текст как final ровно в
+  состоянии «obligations закрыты + успешный tool_result» (`shouldRetry`
+  post-success ветка) — raw псевдо-XML уходил клиенту неисполненным.
+- Классификация: `looksLikeMalformedToolIntent` теперь помечает
+  `<invoke name="<allowed-tool>">` как malformed tool intent. Bridge XML сам не
+  исполняет; recovery — существующий bounded retry с требованием одного
+  canonical JSON tool call, уже успешные side effects не повторяются.
+  Обычный XML/HTML и invoke неизвестного инструмента не блокируются.
+- Offline: 6 новых regression cases (блокировка при fulfilled/pending/failed,
+  безвредный XML не блокируется, canonical parsing цел, root «retry без replay»);
+  итого 507/507 tests; typecheck, build, platform-smoke зелёные.
+- Live smoke (Write/Read/Bash через Claude Code, deepseek-v4-pro): инструменты
+  исполнились реально, `completion_guard_rejected=0` — нормальный flow без
+  регрессии. Pseudo-XML live воспроизвести не удалось (эпизодический формат);
+  корректность блокировки покрыта regression-тестами.
+
 ## Стабильная live-точка — 2026-08-20
 
 Подтверждено live-тестами Claude Code (полный workflow «кодирование через бридж»):
@@ -499,6 +521,12 @@ OpenCode config не изменялся.
       build/install или restart и должна быть повторена перед final. Уже
       successful POST остаётся fulfilled; stale retry просит GET/Read/health,
       а `ровно одну` требует final exact count=1 (0 и 2 отклоняются).
+- [x] **Pseudo-XML tool intent не утекает в final** — `<invoke name="...">`
+      распознаётся как malformed tool intent; bounded retry требует canonical
+      JSON call, успешные мутации не повторяются. Pre-existing gap (не
+      регрессия tool-flow fix), закрыт 2026-08-22 на ветке
+      `fix/pseudo-xml-tool-intent`; live pseudo-XML не воспроизведён,
+      нормальный tool flow подтверждён без регрессии (`guard_rejected=0`).
 
 ### Приоритет 2 (расхождения README с кодом) — все закрыты
 
@@ -517,6 +545,13 @@ OpenCode config не изменялся.
       `deepseek-chat`/`deepseek-reasoner` принимаются, но не рекламируются.
 
 ### Приоритет 3 (улучшения, не блокеры)
+- [ ] **Obligation granularity: несколько мутаций одного файла схлопываются** —
+      live smoke 2026-08-22 (после pseudo-XML фикса): prompt требовал Write +
+      append + Read + Bash verify, модель выполнила только первый Write и
+      заявила полный успех; guard не заблокировал, потому что обе мутации того
+      же файла инферировались как один `file_mutation`, закрытый единственным
+      успешным результатом. Pre-existing obligations gap, вне scope pseudo-XML
+      фикса; нужен per-step учёт при нескольких изменениях одного файла.
 - [~] **Повторить полный autonomous TaskFlow semantic live-test** — obligation
       guard и final-state freshness реализованы. Новый Pro live без command
       hints после tests восстановил exact UTF-8 state; независимые API/storage

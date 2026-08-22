@@ -219,13 +219,16 @@ export function looksLikeMalformedToolIntent(content: string, allowedNames: stri
   const jsonName = new RegExp(`["'](?:name|tool)["']\\s*:\\s*["'](?:${allowedPattern})["']`, "i");
   const tagName = new RegExp(`<tool_call\\b[^>]*\\bname\\s*=\\s*["'](?:${allowedPattern})["']`, "i");
   const prefixedName = new RegExp(`(?:^|\\n)\\s*Tool:\\s*(?:${allowedPattern})(?:\\s|$)`, "i");
-  const hasKnownName = jsonName.test(trimmed) || tagName.test(trimmed) || prefixedName.test(trimmed);
+  // OpenAI-style pseudo-XML envelope (<tool_calls><invoke name="...">...) is a
+  // known model output format that the Bridge cannot execute as-is.
+  const pseudoInvoke = new RegExp(`<invoke\\s+name\\s*=\\s*["'](?:${allowedPattern})["']`, "i");
+  const hasKnownName = jsonName.test(trimmed) || tagName.test(trimmed) || prefixedName.test(trimmed) || pseudoInvoke.test(trimmed);
   const hasNameField = /["'](?:name|tool)["']\s*:/.test(trimmed) || /<tool_call\b[^>]*\bname\s*=/.test(trimmed);
   const hasEnvelopeMarker = /["']tool_call["']\s*:|<tool_call\b/i.test(trimmed);
   const hasDirectShape = /["'](?:name|tool)["']\s*:/.test(trimmed) && /["']arguments["']\s*:/.test(trimmed);
 
   if (hasNameField) return hasKnownName && (hasEnvelopeMarker || hasDirectShape || prefixedName.test(trimmed));
-  return hasEnvelopeMarker || prefixedName.test(trimmed);
+  return hasEnvelopeMarker || prefixedName.test(trimmed) || pseudoInvoke.test(trimmed);
 }
 
 export function inspectToolCallFromOutput(
