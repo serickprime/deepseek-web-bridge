@@ -401,14 +401,18 @@ OpenCode config не изменялся.
   `malformedToolIntent=false`, а guard пропускал такой текст как final ровно в
   состоянии «obligations закрыты + успешный tool_result» (`shouldRetry`
   post-success ветка) — raw псевдо-XML уходил клиенту неисполненным.
-- Классификация: `looksLikeMalformedToolIntent` теперь помечает
-  `<invoke name="<allowed-tool>">` как malformed tool intent. Bridge XML сам не
-  исполняет; recovery — существующий bounded retry с требованием одного
-  canonical JSON tool call, уже успешные side effects не повторяются.
-  Обычный XML/HTML и invoke неизвестного инструмента не блокируются.
-- Offline: 6 новых regression cases (блокировка при fulfilled/pending/failed,
-  безвредный XML не блокируется, canonical parsing цел, root «retry без replay»);
-  итого 507/507 tests; typecheck, build, platform-smoke зелёные.
+- Классификация: `looksLikeMalformedToolIntent` помечает исполнимый
+  pseudo-XML shape (`<invoke name="<allowed>">`, за которым следует
+  `<parameter>`) как malformed tool intent. Bridge XML сам не исполняет;
+  recovery — существующий bounded retry с требованием одного canonical JSON
+  tool call, уже успешные side effects не повторяются. После safety-review
+  `baf72a6` detection сужён: голая цитата `<invoke ...>` в тексте/reasoning и
+  пустой `<invoke>` без `<parameter>` больше не считаются intent; обычный
+  XML/HTML и invoke неизвестного инструмента не блокируются.
+- Offline: 7 regression cases (блокировка при fulfilled/pending/failed,
+  invoke+parameter и multiline без wrapper, проза/пустой invoke/безвредный XML
+  не блокируются, canonical parsing цел, root «retry без replay»);
+  итого 508/508 tests; typecheck, build, platform-smoke зелёные.
 - Live smoke (Write/Read/Bash через Claude Code, deepseek-v4-pro): инструменты
   исполнились реально, `completion_guard_rejected=0` — нормальный flow без
   регрессии. Pseudo-XML live воспроизвести не удалось (эпизодический формат);
@@ -521,10 +525,12 @@ OpenCode config не изменялся.
       build/install или restart и должна быть повторена перед final. Уже
       successful POST остаётся fulfilled; stale retry просит GET/Read/health,
       а `ровно одну` требует final exact count=1 (0 и 2 отклоняются).
-- [x] **Pseudo-XML tool intent не утекает в final** — `<invoke name="...">`
-      распознаётся как malformed tool intent; bounded retry требует canonical
-      JSON call, успешные мутации не повторяются. Pre-existing gap (не
-      регрессия tool-flow fix), закрыт 2026-08-22 на ветке
+- [x] **Pseudo-XML tool intent не утекает в final** — исполнимый
+      `<invoke name="...">…<parameter>` shape распознаётся как malformed tool
+      intent (после safety-review `baf72a6` голая цитата `<invoke>` в прозе и
+      пустой `<invoke>` без параметров не блокируются); bounded retry требует
+      canonical JSON call, успешные мутации не повторяются. Pre-existing gap
+      (не регрессия tool-flow fix), закрыт 2026-08-22 на ветке
       `fix/pseudo-xml-tool-intent`; live pseudo-XML не воспроизведён,
       нормальный tool flow подтверждён без регрессии (`guard_rejected=0`).
 

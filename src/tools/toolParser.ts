@@ -220,8 +220,10 @@ export function looksLikeMalformedToolIntent(content: string, allowedNames: stri
   const tagName = new RegExp(`<tool_call\\b[^>]*\\bname\\s*=\\s*["'](?:${allowedPattern})["']`, "i");
   const prefixedName = new RegExp(`(?:^|\\n)\\s*Tool:\\s*(?:${allowedPattern})(?:\\s|$)`, "i");
   // OpenAI-style pseudo-XML envelope (<tool_calls><invoke name="...">...) is a
-  // known model output format that the Bridge cannot execute as-is.
-  const pseudoInvoke = new RegExp(`<invoke\\s+name\\s*=\\s*["'](?:${allowedPattern})["']`, "i");
+  // known model output format that the Bridge cannot execute as-is. Only an
+  // executable shape counts: an <invoke> opening tag followed by a
+  // <parameter> child. A bare quoted <invoke ...> in prose is not intent.
+  const pseudoInvoke = new RegExp(`<invoke\\s+name\\s*=\\s*["'](?:${allowedPattern})["'][^>]*>\\s*<parameter\\b`, "i");
   const hasKnownName = jsonName.test(trimmed) || tagName.test(trimmed) || prefixedName.test(trimmed) || pseudoInvoke.test(trimmed);
   const hasNameField = /["'](?:name|tool)["']\s*:/.test(trimmed) || /<tool_call\b[^>]*\bname\s*=/.test(trimmed);
   const hasEnvelopeMarker = /["']tool_call["']\s*:|<tool_call\b/i.test(trimmed);

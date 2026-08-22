@@ -2072,6 +2072,8 @@ describe("pseudo-xml tool intent leakage", () => {
       '<tool_calls><invoke name="NotATool"></invoke></tool_calls>',
       '<div class="note">note-927.txt готов</div>',
       "<ul><li>пункт</li></ul>",
+      'Пример XML: <invoke name="Bash">',
+      'Чтобы вызвать инструмент, напиши <invoke name="Bash"> с параметрами.',
     ];
     for (const snippet of harmless) {
       expect(looksLikeMalformedToolIntent(snippet, xmlNames)).toBe(false);
@@ -2080,6 +2082,15 @@ describe("pseudo-xml tool intent leakage", () => {
     for (const snippet of harmless) {
       expect(shouldRetry(true, null, snippet, "", xmlNames, evidence)).toBe(false);
     }
+  });
+
+  it("blocks executable pseudo-xml shapes without a wrapper", () => {
+    const bareInvokeParam = '<invoke name="Bash"><parameter name="command">pwd</parameter></invoke>';
+    expect(looksLikeMalformedToolIntent(bareInvokeParam, xmlNames)).toBe(true);
+    const multiline = '<invoke name="Write">\n<parameter name="file_path">\nnote-927.txt\n</parameter>\n<parameter name="content">\nDONE-927\n</parameter>\n</invoke>';
+    expect(looksLikeMalformedToolIntent(multiline, xmlNames)).toBe(true);
+    expect(looksLikeMalformedToolIntent('<invoke name="Bash"></invoke>', xmlNames)).toBe(false);
+    expect(looksLikeMalformedToolIntent('<tool_calls><invoke name="Bash"></invoke></tool_calls>', xmlNames)).toBe(false);
   });
 
   it("keeps canonical tool_call parsing intact", () => {

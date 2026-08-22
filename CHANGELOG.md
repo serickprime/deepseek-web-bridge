@@ -18,14 +18,21 @@
   самостоятельно НЕ исполняет: recovery использует существующий bounded
   canonical tool-call retry («Return exactly one correct tool call using valid
   JSON»), successful side effects не повторяются.
+- Safety-review `baf72a6` выявил false positive: голое цитирование
+  `<invoke name="Bash">` в обычном тексте/reasoning тоже считалось intent.
+  Detection сужен до исполнимого shape — открывающий тег `<invoke ...>`,
+  за которым следует `<parameter>`; plain quoted invoke больше не считается
+  tool intent.
 - Обычный XML/HTML и `<invoke>` с недоступным именем инструмента не
   блокируются; canonical JSON envelope и `<tool_call>{...}</tool_call>` парсятся
   как раньше.
-- `tests/unit/tools.test.ts` — 6 новых regression cases: блокировка после
-  fulfilled obligations (сам сценарий утечки), при pending obligation, после
-  failed tool_result; безвредный XML/HTML не блокируется; canonical parsing
-  цел; root-тест «retry запрашивает canonical call без replay успешных мутаций».
-  Итого 507/507 offline.
+- `tests/unit/tools.test.ts` — 7 regression cases: блокировка полного envelope
+  после fulfilled obligations (сценарий утечки), invoke+parameter без wrapper,
+  multiline параметры, блокировка при pending obligation и после failed
+  tool_result; проза с цитатой `<invoke ...>`, пустой `<invoke>` без параметров,
+  обычный XML/HTML и неизвестное имя не блокируются; canonical parsing цел;
+  root-тест «retry запрашивает canonical call без replay успешных мутаций».
+  Итого 508/508 offline.
 - Live smoke (Write/Read/Bash, deepseek-v4-pro через Claude Code): инструменты
   исполнились реально, `completion_guard_rejected=0` — нормальный tool flow не
   сломан. Сам pseudo-XML в live не воспроизведён (формат эпизодический);
