@@ -1,6 +1,6 @@
 # Состояние проекта
 
-> **Актуально на:** 2026-08-23.
+> **Актуально на:** 2026-08-24.
 > Этот файл — главный источник правды о стадии проекта. Любой агент обязан
 > прочитать его перед началом работы и обновить после внесения изменений.
 > Обязательный порядок чтения перед задачей: `AGENTS.md` → `PROJECT_STATE.md`
@@ -90,14 +90,14 @@ stream lifecycle реализован в PASS B и находится в `IMPLEM
 | 7. DeepSeek | pow (WASM), sseParser, updateParser, client | ✅ готово |
 | 8. Server | middleware, output-адаптеры, protocolStream, routes, server | ✅ готово |
 | 9. Entrypoint | app.ts, index.ts, start.ts | ✅ готово |
-| 10. Тесты | 29 файлов, 600 тестов | ✅ готово |
+| 10. Тесты | 29 файлов, 601 тест | ✅ готово |
 | 11. Скрипты | desktopStart, cdp, auth, doctor, launcher, live, real-OS platform smoke | ✅ live-часть работает |
 | 12. Веб-интерфейс | Bridge Console на `GET /` (Mileo dark theme, two-panel, diagnostics, model picker) | ✅ готово |
 
 **Проверки сейчас:**
 - `npm run typecheck` — ✅ без ошибок.
 - `npm run build` — ✅ собирается.
-- `npm test` — ✅ 600/600.
+- `npm test` — ✅ 601/601.
 - `npm run test:platform` — ✅ локально на Windows: real process/platform,
   `buildConfig`, Bridge HTTP, Unicode cwd и env propagation без DeepSeek auth.
 - `npm run auth` / Web UI AUTH — ✅ Bearer захватывается из сети, HIF читается из
@@ -149,8 +149,12 @@ stream lifecycle реализован в PASS B и находится в `IMPLEM
   cancel/release без abort, failure/timeout — abort + best-effort cancel/release.
   Completion POST выполняется ровно один раз; challenge JSON body также bounded,
   но безопасный challenge retry сохранён. T1–T21 и PB22–PB27 покрыты 26 новыми
-  focused cases; текущий suite — 29 files / 600 tests. D2 parent acceptance и
-  D4 downstream lifecycle намеренно не менялись.
+  focused cases. Independent-review regression T16b дополнительно подтверждает,
+  что never-settling/rejected `reader.cancel()` после authoritative terminal не
+  заменяет success на timeout/error, не abort-ит controller и не мешает
+  `releaseLock()`. Текущий suite — 29 files / 601 test. D2 parent acceptance и
+  D4 downstream lifecycle намеренно не менялись; D3 остаётся
+  `IMPLEMENTED / VERIFYING`.
 
 - Нормализация всех трёх протоколов в единый `CanonicalRequest`; tool calls,
   tool results, system prompt, reasoning/search флаги, max_tokens.

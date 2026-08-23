@@ -3,6 +3,21 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-24 — Preserve terminal success during cleanup
+
+- Independent review D3 выявил узкий cleanup edge case: после authoritative
+  `FINISHED` / old `response_message_done` зависший `reader.cancel()` ожидался
+  через оставшийся absolute deadline и мог заменить уже доказанный success на
+  `UPSTREAM_TIMEOUT`.
+- Terminal cleanup теперь вызывает `reader.cancel()` и `releaseLock()` только
+  best-effort, не abort-ит controller и не позволяет hanging/rejected cancel
+  заменить successful result. Failure/timeout path сохраняет исходный
+  `BridgeError`, abort и best-effort cleanup без изменения taxonomy/retry policy.
+- Добавлен regression T16b с never-settling `reader.cancel()`: completion
+  boundedly возвращает valid FINISHED result, releaseLock вызывается, signal
+  остаётся not aborted. Итого: 29 test files, 601 offline test. D3 остаётся
+  `IMPLEMENTED / VERIFYING`.
+
 ## 2026-08-23 — Harden DeepSeek stream lifecycle
 
 - D3 PASS B заменил неоднозначный `done` на explicit terminal classification:

@@ -479,15 +479,8 @@ export class DeepSeekClient {
 
     if (reader) {
       try {
-        const cancellation = Promise.resolve(reader.cancel());
-        if (primaryError) void cancellation.catch(() => {});
-        else await deadline.race(cancellation);
-      } catch (error) {
-        if (!primaryError && error instanceof BridgeError && error.code === "UPSTREAM_TIMEOUT") {
-          primaryError = error;
-          controller.abort();
-        }
-      }
+        void Promise.resolve(reader.cancel()).catch(() => {});
+      } catch {}
       try {
         reader.releaseLock();
       } catch {}

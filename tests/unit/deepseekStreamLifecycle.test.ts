@@ -298,9 +298,9 @@ describe("DeepSeek upstream stream lifecycle", () => {
     expect(calls.completionCalls()).toBe(1);
   });
 
-  it("T16: terminal cleanup cancels and releases the reader without aborting success", async () => {
+  it("T16: rejected terminal cancellation does not replace success or abort its controller", async () => {
     const clearTimeoutSpy = vi.spyOn(globalThis, "clearTimeout");
-    const cancel = vi.fn(async () => undefined);
+    const cancel = vi.fn(async () => { throw new Error("cancel failed"); });
     const releaseLock = vi.fn();
     const read = vi.fn(async () => ({ done: false as const, value: encoder.encode(newSnapshot("OK", "FINISHED")) }));
     const response = {
@@ -321,6 +321,29 @@ describe("DeepSeek upstream stream lifecycle", () => {
     expect(releaseLock).toHaveBeenCalledOnce();
     expect(signal?.aborted).toBe(false);
     expect(clearTimeoutSpy).toHaveBeenCalled();
+  });
+
+  it("T16b: a hanging reader cancellation cannot replace terminal success with a timeout", async () => {
+    const cancel = vi.fn(() => new Promise<void>(() => {}));
+    const releaseLock = vi.fn();
+    const read = vi.fn(async () => ({ done: false as const, value: encoder.encode(newSnapshot("OK", "FINISHED")) }));
+    const response = {
+      status: 200,
+      ok: true,
+      body: { getReader: () => ({ read, cancel, releaseLock }) },
+    } as unknown as Response;
+    let signal: AbortSignal | undefined;
+    globalThis.fetch = vi.fn(async (input, init) => {
+      if (String(input).endsWith("create_pow_challenge")) return challengeResponse();
+      signal = init?.signal as AbortSignal;
+      return response;
+    }) as typeof globalThis.fetch;
+
+    await expect(makeClient({ timeoutMs: 25 }).complete(request(), state())).resolves.toMatchObject({ content: "OK" });
+    expect(read).toHaveBeenCalledOnce();
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(releaseLock).toHaveBeenCalledOnce();
+    expect(signal?.aborted).toBe(false);
   });
 
   it("T17: transport failure exits before the completion guard", async () => {

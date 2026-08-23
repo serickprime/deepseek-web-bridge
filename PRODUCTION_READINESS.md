@@ -4,7 +4,7 @@
 >
 > **Baseline:** `bedddc006e484de57bf9cd344d421a990e94ff39` — master before D3 PASS B
 >
-> **Offline baseline:** 29 test files, 600 tests (D3 PASS B branch)
+> **Offline baseline:** 29 test files, 601 test (D3 PASS B branch)
 >
 > **Открыто:** P0 — 3, P1 — 4, P2 — 6; deferred P3 — 1
 > **Production scope:** Claude Code → Anthropic-compatible Bridge → DeepSeek Web → Bridge → Claude Code
@@ -76,7 +76,7 @@ transport, policy и persistence defects не объединяются в оди
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | **D1** | P3 | L3 / L2,L4 | `UNCONFIRMED / DEFERRED` | Full Claude transcript вместе с continuing DeepSeek parent chain может дублировать context и ухудшать long-depth flow. | `HANDOFF`: A и B имели clean full runs; поздние failures коррелировали с quota/rate limit. Controlled A/B/C не дал устойчивого подтверждения. | Все P0/P1, long-run benchmark | — |
 | **D2** | P0 | L3 / L2,L4 | `CONFIRMED` | Guard repair generations продвигают production parent; rejected generation может стать parent следующей попытки. | `HANDOFF`: 77→1001→1002→1003. `REPO`: `runCompletion()` пишет `state.parentMessageId` при каждом `chunk.messageId`, а `complete()` повторно вызывает его с тем же state. | D3 terminal semantics | — |
-| **D3** | P0 | L4 | `IMPLEMENTED / VERIFYING` | Completion имеет единый headers+body deadline и explicit terminal contract; empty/partial/INCOMPLETE не являются success, terminal завершает reader без EOF, completion POST не auto-retry. | `REPO`/`TEST`: explicit success/incomplete parser state, single normal+flush event path, abort/cancel/release cleanup и typed HTTP/transport taxonomy; T1–T21, PB22–PB27 и rate-limit invariant green. Independent review, merge и live verification ещё требуются. | D6 закрыт; формирует error contract для D4 | `fix/d3-upstream-stream-lifecycle` (PASS B) |
+| **D3** | P0 | L4 | `IMPLEMENTED / VERIFYING` | Completion имеет единый headers+body deadline и explicit terminal contract; empty/partial/INCOMPLETE не являются success, terminal завершает reader без EOF, completion POST не auto-retry. | `REPO`/`TEST`: explicit success/incomplete parser state, single normal+flush event path, abort/cancel/release cleanup и typed HTTP/transport taxonomy; T1–T21, T16b, PB22–PB27 и rate-limit invariant green. Independent review cleanup fix гарантирует, что hanging/rejected cancel не заменяет authoritative success. Merge и live verification ещё требуются. | D6 закрыт; формирует error contract для D4 | `fix/d3-upstream-stream-lifecycle` (PASS B) |
 | **D4** | P0 | L1 / L4 | `CONFIRMED` | После Anthropic HTTP 200 + `message_start` поздний `BridgeError` обрывает SSE без protocol terminal/error contract. | `REPO`: `stream.start()` вызывается до upstream completion; `routeError()` при `headersSent` делает только `res.end()`. | D3 failure taxonomy | — |
 | **D5** | P1 | L3 | `CONFIRMED` | Stale lineage может жить дольше policy; выбирается не обязательно latest relevant result. | `HANDOFF`: ~48h link использовался. `REPO`: 10m `SESSION_LINK_TTL_MS` не применяется; store hardcodes 24h only at init/size>10000; `extractToolUseIdFromMessages()` возвращает первый result. | D6 | — |
 | **D6** | P0 | L3 | `CLOSED` | Один `PersistentSessionDocument` владеет `sessions.json`; оба store делегируют ему sessions/links mutations. Schema v2, v1 migration, unknown sibling preservation, FIFO queue и init-before-listen устраняют подтверждённую collision в одном процессе. | `REPO`/`TEST`: PB31/PB33 и migration/failure/startup cases, 574/574. `LIVE` Windows, Claude Code 2.1.241, `deepseek-v4-flash`: после real Bash cycle schema v2 содержала sessions=1 и links=2; restart восстановил session и продолжил real tool-cycle с `upstream_linked:true`. | — | `7573fcd20f22890983acda3c153f1217b630ecce` |
@@ -190,7 +190,7 @@ versioned addendum; новые regressions добавляются новыми I
 | Gate | Pass condition | Baseline status |
 | --- | --- | --- |
 | G1 | `npm run typecheck` green | PASS (recheck each branch) |
-| G2 | `npm test` 100% green | PASS: 600/600 on D3 PASS B branch (recheck release commit) |
+| G2 | `npm test` 100% green | PASS: 601/601 on D3 PASS B branch (recheck release commit) |
 | G3 | `npm run build` green | PASS (recheck each branch) |
 | G4 | `npm run test:platform` green | PASS on current Windows baseline |
 | G5 | CI Windows/Linux/macOS green for release commit | NEEDS RELEASE-COMMIT VERIFICATION |
@@ -278,6 +278,7 @@ green, создавать новый mechanism при подходящем су�
 ## 12. Current decision
 
 Проект **не является Production Ready**. D6 закрыт после independent review и
-Windows Claude Code live verification. D3 PASS B реализован с 600/600 offline
-tests и остаётся `IMPLEMENTED / VERIFYING`; следующий шаг — independent review,
-merge и live verification D3. D4/D2 и остальные gates не закрыты.
+Windows Claude Code live verification. D3 PASS B и independent-review cleanup
+fix реализованы с 601/601 offline tests; D3 остаётся
+`IMPLEMENTED / VERIFYING`, следующий шаг — merge и live verification D3.
+D4/D2 и остальные gates не закрыты.
