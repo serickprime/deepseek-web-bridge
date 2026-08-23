@@ -3,6 +3,33 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-23 — Harden DeepSeek stream lifecycle
+
+- D3 PASS B заменил неоднозначный `done` на explicit terminal classification:
+  new `FINISHED` и old `response_message_done` завершают generation как success
+  без ожидания EOF; new `INCOMPLETE` немедленно даёт
+  `STREAM_INCOMPLETE`/502. Empty HTTP 200 и partial/non-terminal EOF больше не
+  возвращаются как успешный completion.
+- `DS_TIMEOUT_MS` теперь является абсолютным deadline completion от начала
+  fetch до body parsing и cleanup. Timeout/failure abort-ит controller и
+  best-effort cancel/release reader; terminal success cancel/release-ит reader
+  без abort. Mid-body/raw transport failures нормализованы в typed
+  `UPSTREAM_ERROR`, malformed supported update — в explicit
+  `STREAM_PARSE_FAILED`/502.
+- Normal chunks и trailing `SseAccumulator.flush()` проходят один processing
+  path; undelimited trailing FINISHED поддержан, а post-terminal data
+  игнорируется. Harmless raw/unknown/hint SSE остаются ignorable; closed HTTP
+  200 `rate_limit_reached` contract не изменён.
+- Completion POST всегда выполняется максимум один раз, включая HTTP 429/5xx,
+  pre-header timeout/network failure и body failure. Safe PoW challenge сохраняет
+  bounded retry, а чтение challenge JSON body также покрыто deadline.
+- Добавлен `tests/unit/deepseekStreamLifecycle.test.ts`: 26 deterministic cases
+  T1–T21 для PB22–PB27, cleanup, error taxonomy, no-guard transport failure и
+  negative controls. Payload/prompt-capture fixtures обновлены на valid FINISHED.
+  Итого: 29 test files, 600 offline tests. D3 остаётся
+  `IMPLEMENTED / VERIFYING` до independent review, merge и live verification;
+  D2/D4 не менялись.
+
 ## 2026-08-23 — Close D6 after live verification
 
 - Independent review D6 завершён успешно. Реальный Windows Bridge с отдельным

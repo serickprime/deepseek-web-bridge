@@ -89,7 +89,10 @@ async function capturePayload(model: string, reasoning?: boolean, search = false
     }
     if (url.endsWith("/api/v0/chat/completion")) {
       payload = JSON.parse(String(init?.body)) as Record<string, unknown>;
-      return new Response("", { status: 200 });
+      return new Response(
+        'data: {"v":{"response":{"fragments":[{"type":"RESPONSE","content":"OK"}],"status":"FINISHED"}}}\n\n',
+        { status: 200 },
+      );
     }
     throw new Error(`Unexpected URL: ${url}`);
   }) as typeof globalThis.fetch;

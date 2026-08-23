@@ -5,6 +5,7 @@ export type SseEventType = "text" | "reasoning" | "done" | "update" | "hint" | "
 export interface SseEvent {
   type: SseEventType;
   data: unknown;
+  jsonParseFailed: boolean;
 }
 
 export interface SseParserOptions {
@@ -77,10 +78,12 @@ export function parseSseBlock(block: string): SseEvent | null {
   if (dataLines.length === 0) return null;
   const dataText = dataLines.join("\n");
   let data: unknown = dataText;
+  let jsonParseFailed = false;
   try {
     data = JSON.parse(dataText);
   } catch {
     // keep raw string
+    jsonParseFailed = true;
   }
   const type: SseEventType = eventField === "message" ? "text"
     : eventField === "reasoning" ? "reasoning"
@@ -89,5 +92,5 @@ export function parseSseBlock(block: string): SseEvent | null {
     : eventField === "hint" ? "hint"
     : eventField === "" ? "update"
     : "other";
-  return { type, data };
+  return { type, data, jsonParseFailed };
 }

@@ -2,9 +2,9 @@
 
 > **Статус:** `HARDENING IN PROGRESS`
 >
-> **Baseline:** `bedcab29abc7557f1af22bfd6851f1695d308afd` — Handle DeepSeek SSE rate limit hints
+> **Baseline:** `bedddc006e484de57bf9cd344d421a990e94ff39` — master before D3 PASS B
 >
-> **Offline baseline:** 28 test files, 574 tests
+> **Offline baseline:** 29 test files, 600 tests (D3 PASS B branch)
 >
 > **Открыто:** P0 — 3, P1 — 4, P2 — 6; deferred P3 — 1
 > **Production scope:** Claude Code → Anthropic-compatible Bridge → DeepSeek Web → Bridge → Claude Code
@@ -61,8 +61,8 @@ transport, policy и persistence defects не объединяются в оди
 | Historical `tool_result` не подтверждает новое действие. | Да в L2; L3 требует hardening | Current-cycle guard защищён tests; stale lineage остаётся D5. |
 | Mutation нельзя считать успешной без подходящего evidence. | Частично | Multi-step/fresh-state guards закрыты для поддержанного scope; D13 остаётся. |
 | Rejected generation не изменяет accepted session/parent state. | **Нет** | D2: `runCompletion()` мутирует `state.parentMessageId` до решения guard. |
-| Transport error не превращается в fake successful completion. | **Нет, не полностью** | Rate-limit исправлен; empty/INCOMPLETE/non-terminal stream остаются D3. |
-| HTTP 200 сам по себе не означает successful DeepSeek completion. | **Нет, не полностью** | Exact rate-limit распознан; D3 требует terminal/empty semantics. |
+| Transport error не превращается в fake successful completion. | Да offline / VERIFYING | D3 PASS B нормализует body/transport failures и отклоняет empty/INCOMPLETE/non-terminal stream; independent/live verification ещё требуется. |
+| HTTP 200 сам по себе не означает successful DeepSeek completion. | Да offline / VERIFYING | D3 требует authoritative FINISHED/old done terminal; PB22–PB27 deterministic coverage green. |
 | Explicit DeepSeek rate limit не вызывает completion-guard retry storm. | Да | `bedcab2`, `tests/unit/deepseekRateLimit.test.ts`: один completion attempt, 429. |
 | После `message_start` downstream всегда получает корректный terminal/error contract. | **Нет** | D4: `routeError()` при `headersSent` только завершает socket. |
 | Session и lineage persistence атомарны как единое логическое состояние. | Да | D6 закрыт: schema-v2 owner, FIFO mutations и startup init защищены offline tests; Windows Claude Code live подтвердил сохранность и restart/resume lineage. |
@@ -76,7 +76,7 @@ transport, policy и persistence defects не объединяются в оди
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | **D1** | P3 | L3 / L2,L4 | `UNCONFIRMED / DEFERRED` | Full Claude transcript вместе с continuing DeepSeek parent chain может дублировать context и ухудшать long-depth flow. | `HANDOFF`: A и B имели clean full runs; поздние failures коррелировали с quota/rate limit. Controlled A/B/C не дал устойчивого подтверждения. | Все P0/P1, long-run benchmark | — |
 | **D2** | P0 | L3 / L2,L4 | `CONFIRMED` | Guard repair generations продвигают production parent; rejected generation может стать parent следующей попытки. | `HANDOFF`: 77→1001→1002→1003. `REPO`: `runCompletion()` пишет `state.parentMessageId` при каждом `chunk.messageId`, а `complete()` повторно вызывает его с тем же state. | D3 terminal semantics | — |
-| **D3** | P0 | L4 | `CONFIRMED` | Timeout заканчивается после headers; body stall не отменяется. Empty HTTP 200, partial/non-terminal и `INCOMPLETE` могут вернуться как completion. | `REPO`: fetch timer очищается сразу после `fetch()`; zero-byte body stream возвращает empty strings; parser считает `INCOMPLETE` done; `runCompletion()` не требует `FINISHED`. Документация обещает HTTP 429/5xx retries, но fetch-loop повторяет только thrown network errors. | D6 сначала; error contract для D4 | — |
+| **D3** | P0 | L4 | `IMPLEMENTED / VERIFYING` | Completion имеет единый headers+body deadline и explicit terminal contract; empty/partial/INCOMPLETE не являются success, terminal завершает reader без EOF, completion POST не auto-retry. | `REPO`/`TEST`: explicit success/incomplete parser state, single normal+flush event path, abort/cancel/release cleanup и typed HTTP/transport taxonomy; T1–T21, PB22–PB27 и rate-limit invariant green. Independent review, merge и live verification ещё требуются. | D6 закрыт; формирует error contract для D4 | `fix/d3-upstream-stream-lifecycle` (PASS B) |
 | **D4** | P0 | L1 / L4 | `CONFIRMED` | После Anthropic HTTP 200 + `message_start` поздний `BridgeError` обрывает SSE без protocol terminal/error contract. | `REPO`: `stream.start()` вызывается до upstream completion; `routeError()` при `headersSent` делает только `res.end()`. | D3 failure taxonomy | — |
 | **D5** | P1 | L3 | `CONFIRMED` | Stale lineage может жить дольше policy; выбирается не обязательно latest relevant result. | `HANDOFF`: ~48h link использовался. `REPO`: 10m `SESSION_LINK_TTL_MS` не применяется; store hardcodes 24h only at init/size>10000; `extractToolUseIdFromMessages()` возвращает первый result. | D6 | — |
 | **D6** | P0 | L3 | `CLOSED` | Один `PersistentSessionDocument` владеет `sessions.json`; оба store делегируют ему sessions/links mutations. Schema v2, v1 migration, unknown sibling preservation, FIFO queue и init-before-listen устраняют подтверждённую collision в одном процессе. | `REPO`/`TEST`: PB31/PB33 и migration/failure/startup cases, 574/574. `LIVE` Windows, Claude Code 2.1.241, `deepseek-v4-flash`: после real Bash cycle schema v2 содержала sessions=1 и links=2; restart восстановил session и продолжил real tool-cycle с `upstream_linked:true`. | — | `7573fcd20f22890983acda3c153f1217b630ecce` |
@@ -167,7 +167,7 @@ versioned addendum; новые regressions добавляются новыми I
 | PB22 | Transport | Normal multi-chunk DeepSeek SSE ending FINISHED with usage. | Exact assembled content; terminal observed; real/absent usage. | Truncation, FINISHED text leak, fake zero usage. | Offline | D3,D15 |
 | PB23 | Transport | Upstream HTTP 502 fixture. | Classified retry/failure per policy; no successful completion. | Empty/fake success or guard retry. | Offline | D3,D8 |
 | PB24 | Transport | HTTP 200 + `event: hint`, `rate_limit_reached`. | `DEEPSEEK_RATE_LIMIT` HTTP 429; one generation attempt. | TOOL_CALL_REQUIRED, empty completion, retry storm. | Offline | closed rate limit |
-| PB25 | Transport | HTTP 200 with zero-byte body stream. | `STREAM_PARSE_FAILED`/documented upstream error. | Empty successful final. | Offline | D3 |
+| PB25 | Transport | HTTP 200 with zero-byte body stream. | `STREAM_INCOMPLETE`/502 with `causeCode=empty_stream`. | Empty successful final. | Offline | D3 |
 | PB26 | Transport | Partial content then `INCOMPLETE` or EOF without FINISHED. | Explicit incomplete error; parent not accepted. | Partial final or parent advancement. | Offline | D2,D3 |
 | PB27 | Transport | Headers arrive; body stalls beyond deadline. | Abort reader/fetch within deadline; cleanup complete. | Hang or background body continuation. | Offline | D3 |
 | PB28 | Transport | Anthropic stream starts, then upstream/guard fails. | Valid downstream error/terminal contract and closed response. | Bare socket truncation/hang/double terminal. | Offline integration | D4,D8,D15 |
@@ -190,7 +190,7 @@ versioned addendum; новые regressions добавляются новыми I
 | Gate | Pass condition | Baseline status |
 | --- | --- | --- |
 | G1 | `npm run typecheck` green | PASS (recheck each branch) |
-| G2 | `npm test` 100% green | PASS: 574/574 on D6 feature branch (recheck release commit) |
+| G2 | `npm test` 100% green | PASS: 600/600 on D3 PASS B branch (recheck release commit) |
 | G3 | `npm run build` green | PASS (recheck each branch) |
 | G4 | `npm run test:platform` green | PASS on current Windows baseline |
 | G5 | CI Windows/Linux/macOS green for release commit | NEEDS RELEASE-COMMIT VERIFICATION |
@@ -200,7 +200,7 @@ versioned addendum; новые regressions добавляются новыми I
 | G9 | 3 последовательных clean live benchmark runs | FAIL |
 | G10 | 3 × 30–50 tool autonomous runs без fabrication/replay/duplicate/malformed leak/unexpected 502/hang | FAIL |
 | G11 | Rate limit → retryable `DEEPSEEK_RATE_LIMIT`/429 без guard storm | PASS offline; preserve in live |
-| G12 | Любой upstream failure bounded; нет hang/fake success | FAIL: D3/D4 |
+| G12 | Любой upstream failure bounded; нет hang/fake success | FAIL: D3 verifying; D4 open |
 | G13 | Restart сохраняет консистентные persistent session/lineage | PASS: deterministic PB31/PB33 green; Windows Claude Code restart сохранил session и использовал persisted lineage |
 | G14 | `/compact` после long chain проходит PB35 | NEEDS FROZEN LIVE RUNS |
 | G15 | Shutdown не оставляет orphan/stale PID и не убивает чужие процессы | NEEDS VERIFICATION: D10 |
@@ -249,8 +249,9 @@ green, создавать новый mechanism при подходящем су�
 
 1. **D6 — persistence collision.** CLOSED после independent review и Windows
    Claude Code live restart/resume verification; сохранять regressions.
-2. **D3 — upstream stream lifecycle.** Следующий defect: начать только с PASS A
-   diagnosis. Формирует единый terminal/failure contract.
+2. **D3 — upstream stream lifecycle.** PASS B реализован; следующий шаг —
+   independent review, merge и live verification. Формирует единый
+   terminal/failure contract.
 3. **D4 — downstream Anthropic SSE lifecycle.** Строится на taxonomy D3.
 4. **D2 — rejected parent isolation.** После D3 можно атомарно commit-ить только
    terminal accepted generation.
@@ -267,7 +268,7 @@ green, создавать новый mechanism при подходящем су�
 | Finding | Resolution in this plan |
 | --- | --- |
 | `PROJECT_STATE.md` фиксирует green feature phases, но не содержит единого списка подтверждённых P0/P1 release blockers. | Этот файл становится hardening source of truth; общий feature status не равен production readiness. |
-| `docs/architecture.md` заявляет retries для HTTP 429/temporary 5xx, но текущий `fetch()` retry-loop повторяет только thrown fetch errors. | Включено в D3; desired retry policy должен быть явно утверждён в PASS A. |
+| `docs/architecture.md` заявлял retries для HTTP 429/temporary 5xx, но completion retry мог дублировать generation. | D3 PASS B: completion POST выполняется один раз; typed retryable error передаёт решение caller-у, challenge сохраняет bounded retry. |
 | `SESSION_LINK_TTL_MS=10m`, а `LineageStore` hardcodes 24h и не проверяет age при lookup. | D5. |
 | Документация отмечала sibling-safe только `lineage.clear()`, тогда как normal writers перезаписывали разные shapes. | D6 CLOSED: единый schema-v2 owner, deterministic tests и Windows Claude Code live restart/resume green. |
 | Tool allowlist может содержать 39, prompt silently описывает 32. | D7; Claude Code 2.1.241 live evidence, исправление не выполнялось. |
@@ -276,7 +277,7 @@ green, создавать новый mechanism при подходящем су�
 
 ## 12. Current decision
 
-Проект **не является Production Ready**. D6 закрыт после independent review,
-574/574 offline tests и Windows Claude Code live verification. Следующий шаг —
-только `PASS A — DIAGNOSIS ONLY` для **D3 — upstream stream lifecycle**; никаких
-production-изменений D3 до утверждения diagnostic scope.
+Проект **не является Production Ready**. D6 закрыт после independent review и
+Windows Claude Code live verification. D3 PASS B реализован с 600/600 offline
+tests и остаётся `IMPLEMENTED / VERIFYING`; следующий шаг — independent review,
+merge и live verification D3. D4/D2 и остальные gates не закрыты.

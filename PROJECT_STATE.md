@@ -20,8 +20,9 @@ OpenCode, новые providers и новые UI-функции deferred до п�
 
 **Текущий production status:** `HARDENING IN PROGRESS`, не `PRODUCTION READY`.
 D6 persistence collision закрыт после independent review, deterministic offline
-coverage и реальной Windows Claude Code restart/resume проверки. Следующая задача —
-только PASS A — DIAGNOSIS ONLY для D3 upstream stream lifecycle. Остальные
+coverage и реальной Windows Claude Code restart/resume проверки. D3 upstream
+stream lifecycle реализован в PASS B и находится в `IMPLEMENTED / VERIFYING`;
+следующий шаг — independent review, merge и live verification. Остальные
 приоритеты и gates — в `PRODUCTION_READINESS.md`; D1 остаётся
 неподтверждённой/deferred P3.
 
@@ -89,14 +90,14 @@ coverage и реальной Windows Claude Code restart/resume проверки
 | 7. DeepSeek | pow (WASM), sseParser, updateParser, client | ✅ готово |
 | 8. Server | middleware, output-адаптеры, protocolStream, routes, server | ✅ готово |
 | 9. Entrypoint | app.ts, index.ts, start.ts | ✅ готово |
-| 10. Тесты | 28 файлов, 574 теста | ✅ готово |
+| 10. Тесты | 29 файлов, 600 тестов | ✅ готово |
 | 11. Скрипты | desktopStart, cdp, auth, doctor, launcher, live, real-OS platform smoke | ✅ live-часть работает |
 | 12. Веб-интерфейс | Bridge Console на `GET /` (Mileo dark theme, two-panel, diagnostics, model picker) | ✅ готово |
 
 **Проверки сейчас:**
 - `npm run typecheck` — ✅ без ошибок.
 - `npm run build` — ✅ собирается.
-- `npm test` — ✅ 574/574.
+- `npm test` — ✅ 600/600.
 - `npm run test:platform` — ✅ локально на Windows: real process/platform,
   `buildConfig`, Bridge HTTP, Unicode cwd и env propagation без DeepSeek auth.
 - `npm run auth` / Web UI AUTH — ✅ Bearer захватывается из сети, HIF читается из
@@ -119,8 +120,8 @@ coverage и реальной Windows Claude Code restart/resume проверки
   и только после review — отдельный PASS B implementation branch.
 - PB-v1 содержит 39 неизменяемых сценариев. Статус `PRODUCTION READY` запрещён,
   пока открыты P0/P1 либо не пройдены release gates и повторяемые live/stress
-  runs. D6 persistence collision закрыт; следующий dependency-ordered defect —
-  D3, начиная только с PASS A diagnosis.
+  runs. D6 persistence collision закрыт; D3 PASS B реализован и ожидает
+  independent review, merge и live verification.
 - D6 PASS B реализован как один `PersistentSessionDocument` schema v2 для
   `sessions` и `links`: legacy v1 мигрируется, unknown siblings сохраняются,
   invalid/future-version документы fail closed, а FIFO очередь исключает
@@ -139,6 +140,17 @@ coverage и реальной Windows Claude Code restart/resume проверки
 - Отдельное D7 evidence: Claude Code 2.1.241 в этом live-run прислал 39 tools,
   тогда как prompt catalog описывает только первые 32. D7 не исправлялся и
   остаётся отдельной будущей задачей.
+- D3 PASS B ввёл explicit upstream terminal classification: new `FINISHED` и
+  old `response_message_done` — единственные success terminals, `INCOMPLETE` —
+  failure. Empty HTTP 200 и EOF до terminal дают `STREAM_INCOMPLETE`/502;
+  malformed supported update даёт non-retryable `STREAM_PARSE_FAILED`/502.
+- `DS_TIMEOUT_MS` теперь покрывает completion headers, body reads, parsing,
+  terminal и cleanup. FINISHED прекращает чтение без EOF; success делает
+  cancel/release без abort, failure/timeout — abort + best-effort cancel/release.
+  Completion POST выполняется ровно один раз; challenge JSON body также bounded,
+  но безопасный challenge retry сохранён. T1–T21 и PB22–PB27 покрыты 26 новыми
+  focused cases; текущий suite — 29 files / 600 tests. D2 parent acceptance и
+  D4 downstream lifecycle намеренно не менялись.
 
 - Нормализация всех трёх протоколов в единый `CanonicalRequest`; tool calls,
   tool results, system prompt, reasoning/search флаги, max_tokens.
@@ -157,8 +169,10 @@ coverage и реальной Windows Claude Code restart/resume проверки
   `runCompletion()` создаёт свой экземпляр, нет модульного глобального state.
   Bare `{v:"text"}` продолжает предыдущий APPEND через persisted
   `currentPath`/`currentOp`. FINISHED/INCOMPLETE фильтруются.
-- Upstream-клиент: создание `chat_session_id`, completion с ретраями на 429/5xx
-  (backoff), 401/403 → отдельные ошибки, AbortController по таймауту.
+- Upstream-клиент: создание `chat_session_id`; completion POST без auto-retry
+  (typed retryable errors caller-у), bounded retry только для безопасного PoW
+  challenge; 401/403 → отдельные ошибки; абсолютный headers+body deadline и
+  abort/cancel/release cleanup.
   `prompt` заполняется из системного промпта или последнего user-сообщения;
   `messages` содержат `id` + `content_type`. Детекция JSON-ошибок от upstream.
   **Session create limiter**: не более 1 нового chat_session раз в 2 секунды

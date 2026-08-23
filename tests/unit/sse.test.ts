@@ -19,7 +19,7 @@ describe("updateParser", () => {
     expect(chunk?.delta).toBe("Hello");
     expect(chunk?.messageId).toBe(1);
     expect(typeof chunk?.messageId).toBe("number");
-    expect(chunk?.done).toBe(false);
+    expect(chunk?.terminal).toBeNull();
   });
 
   it("parses reasoning content (old format)", () => {
@@ -50,7 +50,7 @@ describe("updateParser", () => {
         },
       },
     });
-    expect(chunk?.done).toBe(true);
+    expect(chunk?.terminal).toBe("success");
     expect(chunk?.usage?.promptTokens).toBe(14);
     expect(chunk?.usage?.completionTokens).toBe(5);
   });
@@ -280,7 +280,7 @@ describe("FIX3: FINISHED does not leak into fragment content", () => {
     const status = p.apply({
       v: { p: "response/status", o: "SET", v: "FINISHED" },
     });
-    expect(status?.done).toBe(true);
+    expect(status?.terminal).toBe("success");
     expect(status?.delta).toBe("");
     expect(p.getStatus()).toBe("FINISHED");
   });

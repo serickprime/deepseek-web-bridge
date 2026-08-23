@@ -2869,7 +2869,10 @@ describe("DeepSeekClient prompt construction — stale action replay prevention"
       if (url.endsWith("/api/v0/chat/completion")) {
         const payload = JSON.parse(String(init?.body)) as { prompt?: unknown };
         completionPrompt = String(payload.prompt ?? "");
-        return new Response("", { status: 200 });
+        return new Response(
+          'data: {"v":{"response":{"fragments":[{"type":"RESPONSE","content":"OK"}],"status":"FINISHED"}}}\n\n',
+          { status: 200 },
+        );
       }
       throw new Error(`Unexpected fetch URL: ${url}`);
     }) as typeof globalThis.fetch;

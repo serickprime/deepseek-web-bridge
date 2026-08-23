@@ -103,6 +103,7 @@ describe("DeepSeek SSE rate-limit hints", () => {
     ].join("\n"));
 
     expect(event?.type).toBe("hint");
+    expect(event?.jsonParseFailed).toBe(false);
     expect(event && isDeepSeekRateLimitHint(event)).toBe(true);
   });
 
@@ -113,6 +114,7 @@ describe("DeepSeek SSE rate-limit hints", () => {
     ].join("\n"));
 
     expect(event?.type).toBe("hint");
+    expect(event?.jsonParseFailed).toBe(false);
     expect(event && isDeepSeekRateLimitHint(event)).toBe(false);
   });
 

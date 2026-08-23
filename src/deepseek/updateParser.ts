@@ -20,7 +20,7 @@ export interface UpdateChunk {
   delta: string;
   reasoningDelta?: string;
   messageId?: number;
-  done: boolean;
+  terminal: "success" | "incomplete" | null;
   parentMessageId?: number | null;
   usage?: {
     promptTokens?: number;
@@ -72,7 +72,12 @@ export class DeepSeekPatchParser {
       this.currentPath = undefined;
       this.currentOp = "SET";
       if (value === "FINISHED" || value === "INCOMPLETE") {
-        return { index: 0, delta: "", done: true, parentMessageId: null };
+        return {
+          index: 0,
+          delta: "",
+          terminal: value === "FINISHED" ? "success" : "incomplete",
+          parentMessageId: null,
+        };
       }
       return null;
     }
@@ -102,7 +107,7 @@ export class DeepSeekPatchParser {
 
     // Plain token delta: { v: "text" } — only when no path context
     if (!path && typeof value === "string" && value !== "FINISHED" && value !== "INCOMPLETE") {
-      return { index: 0, delta: value, done: false, parentMessageId: null };
+      return { index: 0, delta: value, terminal: null, parentMessageId: null };
     }
 
     return null;
@@ -124,24 +129,36 @@ export class DeepSeekPatchParser {
         else delta += frag.content;
       }
       const messageId = parseMessageId(response.message_id);
-      const done = this.status === "FINISHED" || this.status === "INCOMPLETE";
       return {
         index: 0,
         delta,
         reasoningDelta: reasoningDelta || undefined,
         messageId,
-        done,
+        terminal: this.status === "FINISHED"
+          ? "success"
+          : this.status === "INCOMPLETE"
+            ? "incomplete"
+            : null,
         parentMessageId: null,
       };
     }
 
-    return { index: 0, delta: "", done: false, parentMessageId: null };
+    return {
+      index: 0,
+      delta: "",
+      terminal: this.status === "FINISHED"
+        ? "success"
+        : this.status === "INCOMPLETE"
+          ? "incomplete"
+          : null,
+      parentMessageId: null,
+    };
   }
 
   private applyBatch(arr: unknown[]): UpdateChunk | null {
     let delta = "";
     let reasoningDelta = "";
-    let done = false;
+    let terminal: UpdateChunk["terminal"] = null;
     let messageId: number | undefined;
 
     const savedPath = this.currentPath;
@@ -165,8 +182,9 @@ export class DeepSeekPatchParser {
         if (child) {
           delta += child.delta;
           if (child.reasoningDelta) reasoningDelta += child.reasoningDelta;
-          if (child.done) done = true;
+          if (child.terminal) terminal = child.terminal;
           if (child.messageId) messageId = child.messageId;
+          if (terminal) break;
         }
       }
     }
@@ -174,14 +192,14 @@ export class DeepSeekPatchParser {
     this.currentPath = savedPath;
     this.currentOp = savedOp;
 
-    if (!delta && !reasoningDelta && !done) return null;
+    if (!delta && !reasoningDelta && !terminal) return null;
 
     return {
       index: 0,
       delta,
       reasoningDelta: reasoningDelta || undefined,
       messageId,
-      done,
+      terminal,
       parentMessageId: null,
     };
   }
@@ -193,9 +211,9 @@ export class DeepSeekPatchParser {
     last.content += text;
 
     if (last.type === "THINK") {
-      return { index: 0, delta: "", reasoningDelta: text, done: false, parentMessageId: null };
+      return { index: 0, delta: "", reasoningDelta: text, terminal: null, parentMessageId: null };
     }
-    return { index: 0, delta: text, done: false, parentMessageId: null };
+    return { index: 0, delta: text, terminal: null, parentMessageId: null };
   }
 
   private applyNewFragments(arr: unknown[]): UpdateChunk | null {
@@ -216,7 +234,7 @@ export class DeepSeekPatchParser {
       index: 0,
       delta,
       reasoningDelta: reasoningDelta || undefined,
-      done: false,
+      terminal: null,
       parentMessageId: null,
     };
   }
@@ -228,7 +246,7 @@ export class DeepSeekPatchParser {
 
     const message = isRecord(data.message) ? data.message : null;
     const index = typeof data.index === "number" ? data.index : 0;
-    const done = type === "response_message_done";
+    const terminal = type === "response_message_done" ? "success" : null;
     const messageId = parseMessageId(data.message_id);
     const reasoningDelta = typeof data.reasoning_content === "string" ? data.reasoning_content : undefined;
 
@@ -273,8 +291,8 @@ export class DeepSeekPatchParser {
       delta,
       reasoningDelta,
       messageId,
-      done,
-      parentMessageId: done ? parentMessageId : null,
+      terminal,
+      parentMessageId: terminal ? parentMessageId : null,
       usage,
     };
   }
@@ -287,5 +305,3 @@ export class DeepSeekPatchParser {
     return this.fragments;
   }
 }
-
-

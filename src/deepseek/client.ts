@@ -14,7 +14,7 @@ import type { CanonicalMessage, CanonicalRequest, CanonicalTool } from "../api/c
 import type { SessionManager } from "../auth/sessionManager.js";
 import type { UpstreamSessionState } from "../sessions/sessionStore.js";
 import { PowSolver, parseChallengePayload } from "./pow.js";
-import { isDeepSeekRateLimitHint, parseSseBlock, SseAccumulator } from "./sseParser.js";
+import { isDeepSeekRateLimitHint, SseAccumulator, type SseEvent } from "./sseParser.js";
 import { DeepSeekPatchParser } from "./updateParser.js";
 import { buildToolPrompt, selectBridgeTools } from "../tools/toolPrompt.js";
 import { SessionCreateLimiter } from "../utils/sessionCreateLimiter.js";
@@ -67,6 +67,49 @@ export interface CompletionResult {
 }
 
 const MAX_COMPLETIONS = 2;
+
+type CompletionStage = "completion_headers" | "completion_body";
+
+interface RequestDeadline {
+  race<T>(operation: Promise<T>): Promise<T>;
+  clear(): void;
+}
+
+function deadlineError(stage: string): BridgeError {
+  return new BridgeError("Upstream request timed out.", {
+    code: "UPSTREAM_TIMEOUT",
+    status: 504,
+    retryable: true,
+    upstreamStage: stage,
+    causeCode: "deadline_exceeded",
+  });
+}
+
+function createRequestDeadline(
+  timeoutMs: number,
+  controller: AbortController,
+  getStage: () => string,
+): RequestDeadline {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(deadlineError(getStage()));
+    }, timeoutMs);
+  });
+  return {
+    race: <T>(operation: Promise<T>) => Promise.race([operation, expired]),
+    clear: () => {
+      if (timer !== undefined) clearTimeout(timer);
+    },
+  };
+}
+
+function isMalformedSupportedUpdate(event: SseEvent): boolean {
+  if (event.type !== "update" || !event.jsonParseFailed || typeof event.data !== "string") return false;
+  const trimmed = event.data.trimStart();
+  return trimmed.startsWith("{") || trimmed.startsWith("[");
+}
 
 export class DeepSeekClient {
   private readonly sessionLimiter = new SessionCreateLimiter();
@@ -273,109 +316,195 @@ export class DeepSeekClient {
     };
     const challenge = await this.fetchChallenge(authGeneration);
     const solution = await this.options.solver.solve(challenge);
-    const res = await this.fetch(
-      COMPLETION_PATH,
-      { method: "POST", body: JSON.stringify(payload) },
-      solution,
-      authGeneration,
-    );
-    if (res.status === 401 || res.status === 403) {
-      throw new BridgeError(
-        `DeepSeek authorization expired (HTTP ${res.status}). Use AUTH in Bridge Console, or run \`npm run auth\`.`,
-        { code: res.status === 401 ? "DEEPSEEK_HTTP_401" : "DEEPSEEK_HTTP_403", status: res.status },
-      );
-    }
-    if (!res.ok) {
-      let errorBody = "";
-      try {
-        if (res.body) {
-          const reader = res.body.getReader();
-          const { value } = await reader.read();
-          errorBody = value ? new TextDecoder().decode(value) : "";
-        }
-      } catch {}
-      this.options.logger.warn("upstream_error_response", {
-        status: res.status,
-        body: errorBody.slice(0, 500),
-        prompt_bytes: Buffer.byteLength(payload.prompt, "utf8"),
-      });
-      throw new BridgeError(`Upstream error HTTP ${res.status}: ${errorBody.slice(0, 200)}`, { code: "UPSTREAM_ERROR", status: res.status, retryable: true });
-    }
-    if (res.body === null) {
-      throw new BridgeError("Empty upstream body.", { code: "STREAM_PARSE_FAILED" });
-    }
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    const accumulator = new SseAccumulator();
-    const parser = new DeepSeekPatchParser();
+    const controller = new AbortController();
+    let stage: CompletionStage = "completion_headers";
+    const deadline = createRequestDeadline(this.options.timeoutMs, controller, () => stage);
+    let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+    let result: { content: string; reasoning: string; parentMessageId: number | null; usage?: CompletionResult["usage"] } | null = null;
+    let primaryError: unknown;
     let parentMessageId: number | null = null;
     let content = "";
     let reasoning = "";
     let usage: CompletionResult["usage"];
+    let receivedBytes = false;
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      const raw = decoder.decode(value, { stream: true });
-      if (raw.trimStart().startsWith("{")) {
-        try {
-          const parsed = JSON.parse(raw);
-          if (parsed && typeof parsed.code === "number") {
-            const bizCode = parsed.data?.biz_code;
-            if (parsed.code !== 0 || (typeof bizCode === "number" && bizCode !== 0)) {
-              const msg = parsed.msg || parsed.data?.biz_msg || "unknown";
-              throw new BridgeError(`Upstream API error: ${msg}`, {
-                code: "UPSTREAM_ERROR", retryable: true,
-              });
-            }
-          }
-        } catch (e) {
-          if (e instanceof BridgeError) throw e;
-        }
+    try {
+      this.assertAuthGeneration(authGeneration);
+      const res = await deadline.race(fetch(`${this.options.baseUrl}${COMPLETION_PATH}`, {
+        method: "POST",
+        headers: this.buildHeaders(solution, authGeneration),
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      }));
+      this.assertAuthGeneration(authGeneration);
+      if (!res.ok && res.body) reader = res.body.getReader();
+
+      if (res.status === 401 || res.status === 403) {
+        throw new BridgeError(
+          `DeepSeek authorization expired (HTTP ${res.status}). Use AUTH in Bridge Console, or run \`npm run auth\`.`,
+          {
+            code: res.status === 401 ? "DEEPSEEK_HTTP_401" : "DEEPSEEK_HTTP_403",
+            status: res.status,
+            upstreamStage: "completion_headers",
+            causeCode: `http_${res.status}`,
+          },
+        );
       }
-      const events = accumulator.push(raw);
-      for (const event of events) {
-        if (isDeepSeekRateLimitHint(event)) {
-          throw new BridgeError("DeepSeek upstream rate limit reached. Try again later.", {
-            code: "DEEPSEEK_RATE_LIMIT",
-            status: 429,
-            retryable: true,
-            upstreamStage: "completion",
-            causeCode: "rate_limit_reached",
-          });
-        }
-        if (event.type === "update") {
+      if (res.status === 429) {
+        throw new BridgeError("DeepSeek upstream rate limit reached. Try again later.", {
+          code: "DEEPSEEK_RATE_LIMIT",
+          status: 429,
+          retryable: true,
+          upstreamStage: "completion_headers",
+          causeCode: "http_429",
+        });
+      }
+      if (!res.ok) {
+        this.options.logger.warn("upstream_error_response", {
+          status: res.status,
+          prompt_bytes: Buffer.byteLength(payload.prompt, "utf8"),
+        });
+        throw new BridgeError(`Upstream completion failed with HTTP ${res.status}.`, {
+          code: "UPSTREAM_ERROR",
+          status: 502,
+          retryable: res.status >= 500,
+          upstreamStage: "completion_headers",
+          causeCode: `http_${res.status}`,
+        });
+      }
+      if (res.body === null) {
+        throw new BridgeError("DeepSeek returned an empty completion stream.", {
+          code: "STREAM_INCOMPLETE",
+          status: 502,
+          retryable: true,
+          upstreamStage: "completion_body",
+          causeCode: "empty_stream",
+        });
+      }
+
+      stage = "completion_body";
+      reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      const accumulator = new SseAccumulator();
+      const parser = new DeepSeekPatchParser();
+
+      const processEvents = (events: SseEvent[]): "success" | null => {
+        for (const event of events) {
+          if (isDeepSeekRateLimitHint(event)) {
+            throw new BridgeError("DeepSeek upstream rate limit reached. Try again later.", {
+              code: "DEEPSEEK_RATE_LIMIT",
+              status: 429,
+              retryable: true,
+              upstreamStage: "completion",
+              causeCode: "rate_limit_reached",
+            });
+          }
+          if (isMalformedSupportedUpdate(event)) {
+            throw new BridgeError("DeepSeek returned a malformed supported SSE update.", {
+              code: "STREAM_PARSE_FAILED",
+              status: 502,
+              retryable: false,
+              upstreamStage: "completion_body",
+              causeCode: "malformed_update",
+            });
+          }
+          if (event.type !== "update") continue;
           const chunk = parser.apply(event.data);
           if (!chunk) continue;
           if (chunk.messageId) state.parentMessageId = chunk.messageId;
           if (chunk.parentMessageId) parentMessageId = chunk.parentMessageId;
           if (chunk.reasoningDelta) reasoning += chunk.reasoningDelta;
           if (chunk.delta) content += chunk.delta;
-          if (chunk.done) {
-            if (chunk.usage) usage = chunk.usage;
-            break;
+          if (chunk.usage) usage = chunk.usage;
+          if (chunk.terminal === "incomplete") {
+            throw new BridgeError("DeepSeek marked the completion stream incomplete.", {
+              code: "STREAM_INCOMPLETE",
+              status: 502,
+              retryable: true,
+              upstreamStage: "completion_body",
+              causeCode: "upstream_incomplete",
+            });
+          }
+          if (chunk.terminal === "success") return "success";
+        }
+        return null;
+      };
+
+      let terminal: "success" | null = null;
+      while (!terminal) {
+        const read = await deadline.race(reader.read());
+        if (read.done) {
+          const finalText = decoder.decode();
+          if (finalText) terminal = processEvents(accumulator.push(finalText));
+          if (!terminal) terminal = processEvents(accumulator.flush());
+          if (!terminal) {
+            throw new BridgeError("DeepSeek completion ended before an authoritative terminal event.", {
+              code: "STREAM_INCOMPLETE",
+              status: 502,
+              retryable: true,
+              upstreamStage: "completion_body",
+              causeCode: receivedBytes ? "eof_before_terminal" : "empty_stream",
+            });
+          }
+          break;
+        }
+        if (read.value.byteLength > 0) receivedBytes = true;
+        const raw = decoder.decode(read.value, { stream: true });
+        if (raw.trimStart().startsWith("{")) {
+          try {
+            const parsed = JSON.parse(raw) as { code?: unknown; msg?: unknown; data?: { biz_code?: unknown; biz_msg?: unknown } };
+            const bizCode = parsed.data?.biz_code;
+            if (typeof parsed.code === "number" && (parsed.code !== 0 || (typeof bizCode === "number" && bizCode !== 0))) {
+              const message = parsed.msg ?? parsed.data?.biz_msg ?? "unknown";
+              throw new BridgeError(`Upstream API error: ${String(message)}`, {
+                code: "UPSTREAM_ERROR",
+                status: 502,
+                retryable: true,
+                upstreamStage: "completion_body",
+                causeCode: "upstream_api_error",
+              });
+            }
+          } catch (error) {
+            if (error instanceof BridgeError) throw error;
           }
         }
+        terminal = processEvents(accumulator.push(raw));
       }
-    }
-    const trailing = accumulator.flush();
-    for (const event of trailing) {
-      if (isDeepSeekRateLimitHint(event)) {
-        throw new BridgeError("DeepSeek upstream rate limit reached. Try again later.", {
-          code: "DEEPSEEK_RATE_LIMIT",
-          status: 429,
-          retryable: true,
-          upstreamStage: "completion",
-          causeCode: "rate_limit_reached",
-        });
-      }
-      if (event.type === "update") {
-        const chunk = parser.apply(event.data);
-        if (chunk?.usage) usage = chunk.usage;
-      }
+
+      result = { content, reasoning, parentMessageId, usage };
+    } catch (error) {
+      primaryError = this.normalizeCompletionError(error, stage);
+      controller.abort();
     }
 
-    return { content, reasoning, parentMessageId, usage };
+    if (reader) {
+      try {
+        const cancellation = Promise.resolve(reader.cancel());
+        if (primaryError) void cancellation.catch(() => {});
+        else await deadline.race(cancellation);
+      } catch (error) {
+        if (!primaryError && error instanceof BridgeError && error.code === "UPSTREAM_TIMEOUT") {
+          primaryError = error;
+          controller.abort();
+        }
+      }
+      try {
+        reader.releaseLock();
+      } catch {}
+    }
+    deadline.clear();
+
+    if (primaryError) throw primaryError;
+    if (!result) {
+      throw new BridgeError("DeepSeek completion did not produce a terminal result.", {
+        code: "STREAM_INCOMPLETE",
+        status: 502,
+        retryable: true,
+        upstreamStage: "completion_body",
+        causeCode: receivedBytes ? "eof_before_terminal" : "empty_stream",
+      });
+    }
+    return result;
   }
 
   private buildPrompt(
@@ -440,29 +569,141 @@ export class DeepSeekClient {
 
   private async fetchChallenge(authGeneration: number): Promise<ReturnType<typeof parseChallengePayload> & { expireAt: number }> {
     const body = JSON.stringify({ target_path: COMPLETION_PATH });
-    const res = await this.fetch(CHALLENGE_PATH, { method: "POST", body }, null, authGeneration);
-    if (res.status === 401 || res.status === 403) {
-      throw new BridgeError(
-        `DeepSeek authorization expired (HTTP ${res.status}). Use AUTH in Bridge Console, or run \`npm run auth\`.`,
-        { code: res.status === 401 ? "DEEPSEEK_HTTP_401" : "DEEPSEEK_HTTP_403", status: res.status },
-      );
+    let lastError: unknown;
+
+    for (let attempt = 0; attempt <= this.options.maxRetries; attempt++) {
+      if (attempt > 0) await new Promise(resolve => setTimeout(resolve, 250 * 2 ** attempt));
+      const controller = new AbortController();
+      let stage = "challenge_headers";
+      const deadline = createRequestDeadline(this.options.timeoutMs, controller, () => stage);
+      let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+      let attemptError: unknown;
+      let challenge: (ReturnType<typeof parseChallengePayload> & { expireAt: number }) | null = null;
+
+      try {
+        this.assertAuthGeneration(authGeneration);
+        const res = await deadline.race(fetch(`${this.options.baseUrl}${CHALLENGE_PATH}`, {
+          method: "POST",
+          headers: this.buildHeaders(null, authGeneration),
+          body,
+          signal: controller.signal,
+        }));
+        this.assertAuthGeneration(authGeneration);
+        if (!res.ok && res.body) reader = res.body.getReader();
+
+        if (res.status === 401 || res.status === 403) {
+          throw new BridgeError(
+            `DeepSeek authorization expired (HTTP ${res.status}). Use AUTH in Bridge Console, or run \`npm run auth\`.`,
+            {
+              code: res.status === 401 ? "DEEPSEEK_HTTP_401" : "DEEPSEEK_HTTP_403",
+              status: res.status,
+              upstreamStage: "challenge_headers",
+              causeCode: `http_${res.status}`,
+            },
+          );
+        }
+        if (!res.ok) {
+          throw new BridgeError(`DeepSeek challenge request failed with HTTP ${res.status}.`, {
+            code: "UPSTREAM_ERROR",
+            status: 502,
+            retryable: res.status === 429 || res.status >= 500,
+            upstreamStage: "challenge_headers",
+            causeCode: `http_${res.status}`,
+          });
+        }
+        if (!res.body) {
+          throw new BridgeError("DeepSeek challenge response had no body.", {
+            code: "POW_CHALLENGE_FAILED",
+            status: 502,
+            retryable: true,
+            upstreamStage: "challenge_body",
+            causeCode: "empty_body",
+          });
+        }
+
+        stage = "challenge_body";
+        reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let text = "";
+        while (true) {
+          const read = await deadline.race(reader.read());
+          if (read.done) {
+            text += decoder.decode();
+            break;
+          }
+          text += decoder.decode(read.value, { stream: true });
+        }
+        let json: Record<string, unknown>;
+        try {
+          json = JSON.parse(text) as Record<string, unknown>;
+        } catch {
+          throw new BridgeError("PoW challenge response was not valid JSON.", {
+            code: "POW_FORMAT_CHANGED",
+            status: 502,
+            retryable: false,
+            upstreamStage: "challenge_body",
+            causeCode: "invalid_json",
+          });
+        }
+        challenge = parseChallengePayload(json);
+        if (!challenge) {
+          throw new BridgeError("PoW challenge payload changed.", {
+            code: "POW_FORMAT_CHANGED",
+            status: 502,
+            retryable: false,
+            upstreamStage: "challenge_body",
+            causeCode: "invalid_payload",
+          });
+        }
+      } catch (error) {
+        attemptError = error instanceof BridgeError
+          ? error
+          : new BridgeError(stage === "challenge_body" ? "Upstream challenge body failed." : "Upstream challenge request failed.", {
+              code: error instanceof Error && error.name === "AbortError" ? "UPSTREAM_TIMEOUT" : "UPSTREAM_ERROR",
+              status: error instanceof Error && error.name === "AbortError" ? 504 : 502,
+              retryable: true,
+              upstreamStage: stage,
+              causeCode: error instanceof Error && error.name === "AbortError" ? "deadline_exceeded" : "transport_error",
+            });
+        controller.abort();
+      }
+
+      if (reader) {
+        try {
+          const cancellation = Promise.resolve(reader.cancel());
+          if (attemptError) void cancellation.catch(() => {});
+          else await deadline.race(cancellation);
+        } catch (error) {
+          if (!attemptError && error instanceof BridgeError) attemptError = error;
+        }
+        try {
+          reader.releaseLock();
+        } catch {}
+      }
+      deadline.clear();
+
+      if (challenge) return challenge;
+      lastError = attemptError;
+      const canRetry = attemptError instanceof BridgeError
+        && attemptError.retryable
+        && attemptError.code !== "SESSION_CONFLICT"
+        && attempt < this.options.maxRetries;
+      this.options.logger.warn("upstream_fetch_retry", {
+        path: this.options.redactor.redactText(CHALLENGE_PATH),
+        attempt: attempt + 1,
+        retryable: canRetry,
+      });
+      if (!canRetry) throw attemptError;
     }
-    const json = (await res.json()) as Record<string, unknown>;
-    const challenge = parseChallengePayload(json);
-    if (!challenge) {
-      throw new BridgeError("PoW challenge payload changed.", { code: "POW_FORMAT_CHANGED" });
-    }
-    return challenge;
+
+    throw lastError;
   }
 
-  private async fetch(
-    path: string,
-    init: { method: string; body?: string },
+  private buildHeaders(
     solution: { answer: number; signature: string; algorithm: string; salt: string; challenge: string } | null,
-    authGeneration = this.authGeneration,
-  ): Promise<Response> {
+    authGeneration: number,
+  ): Record<string, string> {
     this.assertAuthGeneration(authGeneration);
-    const { baseUrl, timeoutMs, maxRetries, logger, redactor } = this.options;
     const auth = this.auth;
     if (!auth || (!auth.token && !auth.cookie)) {
       throw new BridgeError("DeepSeek credentials are not configured. Use AUTH in Bridge Console.", {
@@ -491,6 +732,33 @@ export class DeepSeekClient {
       });
       headers["x-ds-pow-response"] = Buffer.from(powJson).toString("base64");
     }
+    return headers;
+  }
+
+  private normalizeCompletionError(error: unknown, stage: CompletionStage): BridgeError {
+    if (error instanceof BridgeError) return error;
+    if (error instanceof Error && error.name === "AbortError") return deadlineError(stage);
+    return new BridgeError(
+      stage === "completion_body" ? "Upstream completion body failed." : "Upstream completion request failed.",
+      {
+        code: "UPSTREAM_ERROR",
+        status: 502,
+        retryable: true,
+        upstreamStage: stage,
+        causeCode: stage === "completion_body" ? "body_read_failed" : "transport_error",
+      },
+    );
+  }
+
+  private async fetch(
+    path: string,
+    init: { method: string; body?: string },
+    solution: { answer: number; signature: string; algorithm: string; salt: string; challenge: string } | null,
+    authGeneration = this.authGeneration,
+  ): Promise<Response> {
+    this.assertAuthGeneration(authGeneration);
+    const { baseUrl, timeoutMs, maxRetries, logger, redactor } = this.options;
+    const headers = this.buildHeaders(solution, authGeneration);
     let lastError: unknown;
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       this.assertAuthGeneration(authGeneration);

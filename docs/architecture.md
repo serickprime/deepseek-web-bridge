@@ -134,12 +134,26 @@ retry нет. Bridge не выполняет инструменты — он т�
 
 ## Retry и отмена
 
-- Повторяются только: HTTP 429, временные 5xx, временные сетевые ошибки.
-- Exponential backoff, максимум 2 повтора.
+- `DS_TIMEOUT_MS` — абсолютный deadline одного completion HTTP operation: от
+  начала `fetch()` до authoritative SSE terminal и cleanup reader. Он покрывает
+  ожидание headers, `reader.read()`, parsing и cancel/release.
+- Completion POST автоматически не повторяется: после отправки нельзя доказать,
+  что upstream generation не была создана. HTTP 429/5xx, transport failure и
+  timeout возвращаются caller-у как typed retryable errors после одного attempt.
+- Безопасное получение unused PoW challenge сохраняет bounded exponential retry;
+  чтение его JSON body покрыто тем же timeout contract.
+- New SSE успешен только при `response.status="FINISHED"` или patch
+  `response/status → FINISHED`; old wire format — только при
+  `response_message_done`. `INCOMPLETE`, empty stream и EOF до terminal дают
+  `STREAM_INCOMPLETE`/502, malformed supported update —
+  `STREAM_PARSE_FAILED`/502.
+- После success terminal reader отменяется и освобождается без ожидания EOF;
+  поздние chunks игнорируются. Timeout/failure abort-ит controller и выполняет
+  best-effort cancel/release; raw body errors нормализуются в `UPSTREAM_ERROR`.
 - HTTP 401/403 не повторяются бесконечно: сбрасывается удалённая сессия,
   пользователю предлагается `npm run auth`.
-- При закрытии соединения клиентом upstream-запрос прерывается через
-  `AbortController`.
+- Связь downstream disconnect с upstream abort относится к отдельной границе D4;
+  D3 гарантирует cancellation-safe внутренний upstream lifecycle.
 
 ## Безопасность
 
