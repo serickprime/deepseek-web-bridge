@@ -752,7 +752,11 @@ const SEQUENCE_MARKER = /(^|[^\wа-яё])(затем|после этого|по�
 const CONDITIONAL_PHRASING = /(^|[^\wа-яё])(если|иначе|либо|или|if|else|or)(?=$|[^\wа-яё])/i;
 const REPLACE_CHAIN_PHRASING = /→|->|замени\s+[^\n]{0,80}?\s+на\s|replace\s+[^\n]{0,80}?\s+with\s/i;
 const LOCAL_MUTATION_VERB = /созда|сделай|сохран|запиш|добав|дополн|измен|отредактир|удал|append|create|make|save|write|\badd\b|modify|change|edit/i;
-const PRONOMINAL_FILE_CONTINUATION = /эт(?:от|у)\s+же\s+(?:файл|file)|тот\s+же\s+(?:файл|file)|в\s+него\b|в\s+неё\b|same\s+file/i;
+// Clause two must be strictly additive ("добавь/допиши/append/add"); destructive
+// verbs (измени/edit/change/remove/перезапиши/write/save) fall back to the
+// historical single file_mutation instead of synthesizing a final-state check.
+const LOCAL_ADDITIVE_VERB = /добав|дополн|допис|append|\badd\b/i;
+const PATH_LIKE_SOURCE = "(?:^|[\\s(])((?:[\\w.-]+[\\\\/])*[\\w.-]+\\.(?:json|md|txt|html?|jsx?|tsx?|ya?ml|toml))(?=$|[\\s),.;])";
 
 interface SequentialAdditiveFinalState {
   path: string;
@@ -790,19 +794,17 @@ function inferSequentialAdditiveFinalState(content: string): SequentialAdditiveF
     literalValues(literals, ["content", "marker", "generic"]).filter(value => span.includes(value));
 
   const clause1Quoted = quotedInSpan(clause1);
-  const clause1PathLike = /(?:^|[\s(])((?:[\w.-]+[\\/])*[\w.-]+\.(?:json|md|txt|html?|jsx?|tsx?|ya?ml|toml))(?=$|[\s),.;])/.exec(clause1)?.[1];
+  const clause1PathLike = new RegExp(PATH_LIKE_SOURCE).exec(clause1)?.[1];
   if (!clause1PathLike || !LOCAL_MUTATION_VERB.test(clause1)) return null;
   if (!clause1Quoted.length && !recognizedContentInSpan(extractExactUserLiterals(clause1), clause1).length) return null;
 
-  if (!LOCAL_MUTATION_VERB.test(clause2)) return null;
-  // The second clause may name the same file explicitly, refer to it
-  // pronominal ("в этот же файл"), or continue implicitly — the only rejected
-  // shape is a clause that mentions a DIFFERENT path-like token.
-  const otherPathLike = /(?:^|[\s(])((?:[\w.-]+[\\/])*[\w.-]+\.(?:json|md|txt|html?|jsx?|tsx?|ya?ml|toml))(?=$|[\s),.;])/.exec(clause2)?.[1];
-  const referencesSameFile = otherPathLike === undefined
-    || otherPathLike === clause1PathLike
-    || PRONOMINAL_FILE_CONTINUATION.test(clause2);
-  if (!referencesSameFile) return null;
+  if (!LOCAL_ADDITIVE_VERB.test(clause2)) return null;
+  // Any foreign path-like token in the second clause forbids same-file
+  // synthesis regardless of pronominal references ("в этот же файл",
+  // "same file"); an implicit continuation (no paths at all) stays allowed.
+  const clause2PathLikes = [...clause2.matchAll(new RegExp(PATH_LIKE_SOURCE, "g"))]
+    .map(match => match[1]!.normalize("NFC"));
+  if (clause2PathLikes.some(path => path !== clause1PathLike.normalize("NFC"))) return null;
   const clause2Values = [
     ...quotedInSpan(clause2),
     ...recognizedContentInSpan(extractExactUserLiterals(clause2), clause2),

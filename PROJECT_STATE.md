@@ -504,6 +504,17 @@ OpenCode config не изменялся.
 - Ограничения: только 2 additive same-file клаузы; quoted/распознанные
   литералы (unquoted значения unsupported); replace-chains, 3+ шага,
   conditional формулировки вне scope.
+- Safety-review `bab6a9c` (патч «Narrow same-file additive verification»):
+  destructive клаузы в clause2 («измени/edit/change», «удали»,
+  «перезапиши/write/save») давали false positives — ложное требование обеих
+  строк блокировало легитимные запросы через guard. Clause2 теперь только
+  explicit additive verbs (`добав|дополн|допис|append|\badd\b`); широкий
+  список остался для clause1 и детекции третьей mutation-клаузы. Foreign path
+  в clause2 запрещает synthesis безусловно — местоимение («этот же файл» /
+  «same file») больше не перекрывает чужой путь (latent-дыра helper'а,
+  ранее маскировалась внешним distinct-paths gate). Семантически additive
+  «измени так, чтобы итог содержал…» намеренно unsupported. Итого 546/546;
+  live: Bash → Read → normal final, guard=0.
 
 ## Стабильная live-точка — 2026-08-20
 

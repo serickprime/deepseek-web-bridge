@@ -3,6 +3,32 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-23 — Narrow same-file additive verification
+
+- Safety-review `bab6a9c` выявил destructive-clause false positives в
+  same-file синтезе: «измени…стало STEP-2», EN «edit so final is STEP-2»,
+  «удали строку TMP-X» (инверсия семантики), «перезапиши содержимым S2» —
+  всё получало ложное final-state требование `[S1,S2]` и блокировало
+  легитимные запросы через completion guard.
+- Clause2 теперь принимается только с явно аддитивными глаголами
+  (`добав|дополн|допис|append|\badd\b`); широкий мутационный список сохранён
+  для clause1 и отбраковки третьей mutation-клаузы. Семантически additive
+  формулировки вида «измени так, чтобы итог содержал…» намеренно остаются
+  unsupported (консервативный false-negative лучше false-positive).
+- Foreign path в clause2 теперь запрещает same-file synthesis всегда:
+  сканируются ВСЕ path-like токены clause2, местоимения («в этот же файл»,
+  «same file») больше не перекрывают наличие чужого пути (ранее ветка
+  pronoun перекрывала проверку в `referencesSameFile`; дыра была latent —
+  внешний gate distinct-paths спасал на всех прозвоненных shape'ах).
+- Не тронуто: matcher, stale/fresh machinery, replay/fingerprint,
+  multi-file inference, global extraction, retry limits.
+- Tests: +8 regression cases (RU измени/EN edit/удали/перезапиши → нет fv;
+  RU добавь/EN add+append → fv сохраняется; RU pronoun+b.txt и EN
+  same file+another.txt → нет fv); прежние 538 без правок ожиданий;
+  итого 546/546 offline; typecheck/build/test:platform зелёные.
+- Live deepseek-v4-pro: Bash printf(обе строки) → Read → normal final;
+  файл точный; completion_guard_rejected=0, TOOL_CALL_REQUIRED=0.
+
 ## 2026-08-23 — Verify additive same-file final state
 
 - `fix/same-file-multi-step-obligations`. Для узкого same-file additive scope

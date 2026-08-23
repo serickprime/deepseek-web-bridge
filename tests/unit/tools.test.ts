@@ -2435,6 +2435,48 @@ describe("same-file additive final-state verification", () => {
     const fv = fvOf(inferToolObligations(prompt, tools));
     expect(fv?.resultLiterals).toEqual(["STEP-1", "STEP-2"]);
   });
+
+  it("does not synthesize for destructive RU edit clause", () => {
+    const prompt = 'Создай report.txt с содержимым "STEP-1". Затем измени report.txt так, чтобы содержимое стало "STEP-2".';
+    expect(fvOf(inferToolObligations(prompt, tools))).toBeUndefined();
+  });
+
+  it("does not synthesize for destructive EN edit clause", () => {
+    const prompt = 'Create report.txt with "STEP-1". Then edit it so the final content is "STEP-2".';
+    expect(fvOf(inferToolObligations(prompt, tools))).toBeUndefined();
+  });
+
+  it("does not synthesize for a removal clause", () => {
+    const prompt = 'Создай report.txt с содержимым "STEP-1". Затем удали из него строку "TMP-X".';
+    expect(fvOf(inferToolObligations(prompt, tools))).toBeUndefined();
+  });
+
+  it("does not synthesize for an overwrite clause", () => {
+    const prompt = 'Создай log.txt со строкой "S1". Затем перезапиши его содержимым "S2".';
+    expect(fvOf(inferToolObligations(prompt, tools))).toBeUndefined();
+  });
+
+  it("still synthesizes for RU additive second clause", () => {
+    const fv = fvOf(inferToolObligations(basePrompt, tools));
+    expect(fv?.resultLiterals).toEqual(["STEP-1", "STEP-2"]);
+  });
+
+  it("still synthesizes for EN add and append second clauses", () => {
+    const add = 'Create report.txt with "STEP-1". Then add "STEP-2".';
+    expect(fvOf(inferToolObligations(add, tools))?.resultLiterals).toEqual(["STEP-1", "STEP-2"]);
+    const append = 'Create report.txt with "STEP-1". Then append "STEP-2" to the file.';
+    expect(fvOf(inferToolObligations(append, tools))?.resultLiterals).toEqual(["STEP-1", "STEP-2"]);
+  });
+
+  it("does not synthesize when a pronominal clause also names a foreign path (RU)", () => {
+    const prompt = 'Создай a.txt с содержимым "A". Затем в этот же файл добавь "B" и сохрани результат в b.txt.';
+    expect(fvOf(inferToolObligations(prompt, tools))).toBeUndefined();
+  });
+
+  it("does not synthesize when a same-file clause also names another path (EN)", () => {
+    const prompt = 'Create a.txt with "A". Then append "B" to the same file and save the result to another.txt.';
+    expect(fvOf(inferToolObligations(prompt, tools))).toBeUndefined();
+  });
 });
 
 describe("DeepSeekClient action completion guard", () => {
