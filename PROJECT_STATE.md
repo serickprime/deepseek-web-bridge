@@ -13,8 +13,16 @@
 OpenAI Chat Completions, OpenAI Responses и Anthropic Messages. Основные клиенты:
 Claude Code, OpenCode, любой OpenAI-совместимый SDK.
 
-**Текущий активный фокус:** надёжность tool calling для Claude Code. Изменения
-OpenCode в этой итерации deferred и не являются текущим приоритетом.
+**Текущий активный фокус:** production-hardening цепочки Claude Code →
+Anthropic-compatible Bridge → DeepSeek Web. Единый audit backlog, frozen
+benchmark и release gates находятся в [`PRODUCTION_READINESS.md`](PRODUCTION_READINESS.md).
+OpenCode, новые providers и новые UI-функции deferred до прохождения gates.
+
+**Текущий production status:** `HARDENING IN PROGRESS`, не `PRODUCTION READY`.
+На baseline `bedcab29` открыты 4 P0, 4 P1 и 6 P2; D1 остаётся
+неподтверждённой/deferred P3. Следующая работа должна начинаться с
+PASS A — DIAGNOSIS ONLY для D6 (`FileSessionStorage`/`LineageStore` collision),
+а не с немедленного production fix.
 
 Проект использует **неофициальные** внутренние маршруты веб-сайта DeepSeek
 (`/api/v0/chat/completion`), требует PoW (sha3 через WASM) и живую авторизованную
@@ -98,6 +106,21 @@ OpenCode в этой итерации deferred и не являются теку
   messages).
 
 ## Что уже реализовано (детали)
+
+### Production-hardening control document — 2026-08-23
+
+- `PRODUCTION_READINESS.md` является главным источником production audit
+  backlog, architecture invariants, frozen PB-v1 benchmark и бинарного
+  Definition of Production Ready. Этот файл сохраняет общий feature/live
+  status и не дублирует подробные acceptance criteria.
+- Production scope заморожен на Claude Code + Anthropic compatibility +
+  DeepSeek Web. Для каждого defect обязателен отдельный PASS A (diagnosis only)
+  и только после review — отдельный PASS B implementation branch.
+- PB-v1 содержит 39 неизменяемых сценариев. Статус `PRODUCTION READY` запрещён,
+  пока открыты P0/P1 либо не пройдены release gates и повторяемые live/stress
+  runs. Первый dependency-ordered defect — D6 persistence collision.
+- Текущий код и tests в документационной итерации не менялись; baseline
+  остаётся 26 test files / 551 offline tests.
 
 - Нормализация всех трёх протоколов в единый `CanonicalRequest`; tool calls,
   tool results, system prompt, reasoning/search флаги, max_tokens.

@@ -3,6 +3,31 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-23 — Define production readiness gates
+
+- Создан `PRODUCTION_READINESS.md` — единый источник production-hardening
+  backlog и release gates для frozen scope Claude Code → Anthropic-compatible
+  Bridge → DeepSeek Web. OpenCode, новые providers и новые UI-функции deferred
+  до прохождения production gates.
+- Зафиксированы четыре архитектурных слоя, неизменяемые invariants и центральный
+  audit backlog: 4 открытых P0, 4 P1, 6 P2 и одна неподтверждённая/deferred P3.
+  Каждый defect имеет evidence status, acceptance criteria, required tests,
+  dependencies и связанные benchmark cases. D1 не объявлена подтверждённой;
+  HTTP 200 SSE rate-limit fix остаётся закрытым и regression-protected.
+- Добавлен frozen benchmark PB-v1 из 39 сценариев: environment/read, mutation,
+  verification, tool protocol, upstream/downstream transport, session/lineage,
+  long-run/compact и platform/shutdown. Существующие cases нельзя ослаблять или
+  переписывать ради новой реализации; regressions добавляются новыми IDs.
+- Определены 16 бинарных Definition of Production Ready gates и обязательный
+  двухпроходный workflow: PASS A — diagnosis only, затем отдельно одобренный
+  PASS B — implementation. Первый рекомендуемый diagnostic defect — D6,
+  collision независимых writers `FileSessionStorage`/`LineageStore` в общем
+  `sessions.json`.
+- Проведена сверка текущего кода, tests и git history. В документе отдельно
+  отмечены расхождения документации с реализацией и факты, доступные только как
+  diagnostic handoff/NEEDS VERIFICATION. Production TypeScript, tests, scripts,
+  config и runtime behavior не изменялись.
+
 ## 2026-08-23 — Handle DeepSeek SSE rate limit hints
 
 - Подтверждённый live root cause: DeepSeek может вернуть HTTP 200, но сообщить
