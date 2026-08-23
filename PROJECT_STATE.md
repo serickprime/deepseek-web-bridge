@@ -80,14 +80,14 @@ OpenCode в этой итерации deferred и не являются теку
 | 7. DeepSeek | pow (WASM), sseParser, updateParser, client | ✅ готово |
 | 8. Server | middleware, output-адаптеры, protocolStream, routes, server | ✅ готово |
 | 9. Entrypoint | app.ts, index.ts, start.ts | ✅ готово |
-| 10. Тесты | 25 файлов, 492 теста | ✅ готово |
+| 10. Тесты | 26 файлов, 551 тест | ✅ готово |
 | 11. Скрипты | desktopStart, cdp, auth, doctor, launcher, live, real-OS platform smoke | ✅ live-часть работает |
 | 12. Веб-интерфейс | Bridge Console на `GET /` (Mileo dark theme, two-panel, diagnostics, model picker) | ✅ готово |
 
 **Проверки сейчас:**
 - `npm run typecheck` — ✅ без ошибок.
 - `npm run build` — ✅ собирается.
-- `npm test` — ✅ 492/492.
+- `npm test` — ✅ 551/551.
 - `npm run test:platform` — ✅ локально на Windows: real process/platform,
   `buildConfig`, Bridge HTTP, Unicode cwd и env propagation без DeepSeek auth.
 - `npm run auth` / Web UI AUTH — ✅ Bearer захватывается из сети, HIF читается из
@@ -369,6 +369,24 @@ OpenCode config не изменялся.
   получили первый real mutation и завершились честным непустым HTTP 502
   `TOOL_CALL_REQUIRED`, exact count оставался 0. Полный autonomous success не
   заявляется; TODO ниже остаётся `[~]`.
+
+### DeepSeek SSE rate-limit hint handling — 2026-08-23
+
+- Реальный DeepSeek подтвердил HTTP 200 SSE error shape: `event: hint` с
+  `finish_reason:"rate_limit_reached"`. Раньше событие классифицировалось как
+  `other`, completion становился пустым, а guard делал две лишние generation
+  attempts и возвращал `TOOL_CALL_REQUIRED`/502 вместо настоящей причины.
+- `SseAccumulator` теперь сохраняет отдельный `hint`; точный rate-limit signal
+  немедленно становится retryable `DEEPSEEK_RATE_LIMIT` HTTP 429 с
+  `upstreamStage="completion"` и `causeCode="rate_limit_reached"`. Ошибка
+  выходит из первой `runCompletion()` до tool parsing/guard, поэтому guard не
+  создаёт дополнительные upstream completion attempts.
+- Обычный hint без `rate_limit_reached` игнорируется как раньше, normal
+  successful SSE продолжает парситься. Offline: 5 новых regression cases;
+  итого 551/551 tests.
+- D1/context ownership, full transcript/delta strategy, session/parent state,
+  toolParser, obligation rules, replay/fingerprint и retry limits других
+  сценариев не менялись.
 
 ### Tool flow regression fix — 2026-08-21
 

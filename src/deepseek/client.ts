@@ -14,7 +14,7 @@ import type { CanonicalMessage, CanonicalRequest, CanonicalTool } from "../api/c
 import type { SessionManager } from "../auth/sessionManager.js";
 import type { UpstreamSessionState } from "../sessions/sessionStore.js";
 import { PowSolver, parseChallengePayload } from "./pow.js";
-import { parseSseBlock, SseAccumulator } from "./sseParser.js";
+import { isDeepSeekRateLimitHint, parseSseBlock, SseAccumulator } from "./sseParser.js";
 import { DeepSeekPatchParser } from "./updateParser.js";
 import { buildToolPrompt, selectBridgeTools } from "../tools/toolPrompt.js";
 import { SessionCreateLimiter } from "../utils/sessionCreateLimiter.js";
@@ -335,6 +335,15 @@ export class DeepSeekClient {
       }
       const events = accumulator.push(raw);
       for (const event of events) {
+        if (isDeepSeekRateLimitHint(event)) {
+          throw new BridgeError("DeepSeek upstream rate limit reached. Try again later.", {
+            code: "DEEPSEEK_RATE_LIMIT",
+            status: 429,
+            retryable: true,
+            upstreamStage: "completion",
+            causeCode: "rate_limit_reached",
+          });
+        }
         if (event.type === "update") {
           const chunk = parser.apply(event.data);
           if (!chunk) continue;
@@ -351,6 +360,15 @@ export class DeepSeekClient {
     }
     const trailing = accumulator.flush();
     for (const event of trailing) {
+      if (isDeepSeekRateLimitHint(event)) {
+        throw new BridgeError("DeepSeek upstream rate limit reached. Try again later.", {
+          code: "DEEPSEEK_RATE_LIMIT",
+          status: 429,
+          retryable: true,
+          upstreamStage: "completion",
+          causeCode: "rate_limit_reached",
+        });
+      }
       if (event.type === "update") {
         const chunk = parser.apply(event.data);
         if (chunk?.usage) usage = chunk.usage;

@@ -1,4 +1,6 @@
-export type SseEventType = "text" | "reasoning" | "done" | "update" | "other";
+import { isRecord } from "../utils/json.js";
+
+export type SseEventType = "text" | "reasoning" | "done" | "update" | "hint" | "other";
 
 export interface SseEvent {
   type: SseEventType;
@@ -8,6 +10,12 @@ export interface SseEvent {
 export interface SseParserOptions {
   onEvent?: (event: SseEvent) => void;
   onError?: (message: string) => void;
+}
+
+export function isDeepSeekRateLimitHint(event: SseEvent): boolean {
+  return event.type === "hint"
+    && isRecord(event.data)
+    && event.data.finish_reason === "rate_limit_reached";
 }
 
 export function splitSseStream(chunk: Buffer | string): { events: string[]; rest: string } {
@@ -78,6 +86,7 @@ export function parseSseBlock(block: string): SseEvent | null {
     : eventField === "reasoning" ? "reasoning"
     : eventField === "done" ? "done"
     : eventField === "update" ? "update"
+    : eventField === "hint" ? "hint"
     : eventField === "" ? "update"
     : "other";
   return { type, data };

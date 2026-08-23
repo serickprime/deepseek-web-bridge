@@ -3,6 +3,33 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-23 — Handle DeepSeek SSE rate limit hints
+
+- Подтверждённый live root cause: DeepSeek может вернуть HTTP 200, но сообщить
+  ограничение quota внутри SSE как `event: hint` с
+  `finish_reason:"rate_limit_reached"`. Раньше `SseAccumulator` относил `hint`
+  к `other`, `DeepSeekClient.runCompletion()` игнорировал событие и возвращал
+  пустой completion; completion guard ошибочно запускал ещё две generation
+  attempts и завершался misleading `TOOL_CALL_REQUIRED`/502.
+- `src/deepseek/sseParser.ts` теперь сохраняет отдельный тип `hint` и распознаёт
+  rate limit только по точному сочетанию типа события и
+  `finish_reason:"rate_limit_reached"`. Обычные hint events не считаются rate
+  limit и остаются не влияющей на normal SSE подсказкой.
+- `src/deepseek/client.ts` немедленно преобразует явный сигнал в существующий
+  retryable `BridgeError`: `code="DEEPSEEK_RATE_LIMIT"`, HTTP 429,
+  `upstreamStage="completion"`, `causeCode="rate_limit_reached"`. Ошибка
+  возникает внутри первой `runCompletion()` и не попадает в completion guard,
+  поэтому rate-limit storm дополнительными generation retries не усиливается.
+- `tests/unit/deepseekRateLimit.test.ts` — 5 offline regressions: точный hint,
+  обычный non-rate hint, один completion attempt и корректная upstream error,
+  normal successful SSE, normal SSE после информационного hint. Существующие
+  malformed-tool bounded-repair tests проходят без изменения ожиданий.
+- Не изменялись: `toolParser.ts`, obligation/guard rules, replay/fingerprint,
+  context ownership/full-vs-delta, DeepSeek session/parent semantics,
+  SessionStore/LineageStore, auth, tool correlation и Claude Code integration.
+  Неподтверждённая D1-гипотеза не затрагивалась.
+- Итого: 26 test files, 551 offline test.
+
 ## 2026-08-23 — Narrow same-file additive verification
 
 - Safety-review `bab6a9c` выявил destructive-clause false positives в
