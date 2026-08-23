@@ -2297,6 +2297,18 @@ describe("distinct file mutation obligations", () => {
     expect(obligations.filter(o => o.kind === "file_mutation").map(o => o.id)).toEqual(["file_mutation"]);
   });
 
+  it("falls back when an isolated third path has unknown context", () => {
+    const filler = "перед этим обязательно внимательно изучи структуру проекта и контекст, ";
+    const obligations = inferToolObligations(`Создай a.txt и запиши b.txt. ${filler}${filler}Сформируй c.txt.`, multiNames);
+    expect(obligations.filter(o => o.kind === "file_mutation").map(o => o.id)).toEqual(["file_mutation"]);
+  });
+
+  it("keeps the split when the third path is a verification target", () => {
+    const obligations = inferToolObligations("Создай a.txt и b.txt, затем прочитай c.txt.", multiNames);
+    expect(obligations.filter(o => o.kind === "file_mutation").map(o => o.id))
+      .toEqual(["file_mutation#1", "file_mutation#2"]);
+  });
+
   it("one tool result cannot close both same-kind instances", () => {
     const evidence = cycle('Создай файл a.txt со строкой "XA". Создай файл b.txt со строкой "XB".', [
       tu("c1", "Write", { file_path: "a.txt", content: "XA b.txt" }),

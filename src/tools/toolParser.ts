@@ -638,10 +638,13 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
 
   // Conservative multi-file scope: exactly two DISTINCT path literals that both
   // appear in a mutation-verb context split the file mutation into per-path
-  // instances (file_mutation#1/#2). Paths mentioned only as verification or
-  // read targets ("проверь файл хранения data/tasks.json") are not mutation
-  // candidates; one candidate, repeated same-path mentions and three or more
-  // paths all fall back to the historical single obligation.
+  // instances (file_mutation#1/#2). Every other distinct path must be clearly
+  // verification/read-context ("проверь файл хранения data/tasks.json"); any
+  // path with unknown context (isolated, or shielded by an unrecognized verb)
+  // forbids the split and falls back to the historical single obligation
+  // instead of silently under-tracking a third requested file. One candidate,
+  // repeated same-path mentions and three or more mutation candidates also
+  // fall back.
   const mutationIndex = inferred.findIndex(obligation => obligation.id === "file_mutation");
   if (mutationIndex >= 0) {
     const mutationVerb = /(?:созда|сделай|сохран|запиш|измен|отредактир|удал|переимен|перемест|скопир|create|make|save|write|modify|change|edit|delete|remove|rename|move|copy)/gi;
@@ -656,26 +659,29 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
       }
       return last;
     };
-    // A path is a mutation candidate when the closest verb-like word before it
-    // (within 120 chars) is a mutation verb rather than a verification/read
-    // verb ("запиши отчёт в report.txt" vs "проверь storage-файл tasks.json").
-    const isMutationCandidate = (path: string): boolean => {
+    const classifyPath = (path: string): "mutation" | "verification" | "none" => {
       const needle = path.normalize("NFC");
       let from = 0;
+      let sawVerify = false;
       for (;;) {
         const at = content.indexOf(needle, from);
         if (at < 0) break;
         const window = content.slice(Math.max(0, at - 120), at);
         const mutationAt = lastVerbEnd(mutationVerb, window);
         const verifyAt = lastVerbEnd(verifyVerb, window);
-        if (mutationAt >= 0 && mutationAt >= verifyAt) return true;
+        if (mutationAt >= 0 && mutationAt >= verifyAt) return "mutation";
+        if (verifyAt >= 0) sawVerify = true;
         from = at + needle.length;
       }
-      return false;
+      return sawVerify ? "verification" : "none";
     };
-    const mutationPaths = [...new Set(pathLiterals.map(path => path.normalize("NFC")))]
-      .filter(isMutationCandidate);
-    if (mutationPaths.length === 2) {
+    const distinctPaths = [...new Set(pathLiterals.map(path => path.normalize("NFC")))];
+    const classifiedPaths = distinctPaths.map(path => ({ path, context: classifyPath(path) }));
+    const mutationPaths = classifiedPaths
+      .filter(entry => entry.context === "mutation")
+      .map(entry => entry.path);
+    const hasUnknownContextPath = classifiedPaths.some(entry => entry.context === "none");
+    if (mutationPaths.length === 2 && !hasUnknownContextPath) {
       inferred.splice(mutationIndex, 1,
         {
           id: "file_mutation#1",

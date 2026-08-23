@@ -3,6 +3,30 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-22 — Guard multi-file obligation splitting
+
+- Safety-review коммита 7017c04 выявил ambiguous third-path under-enforcement:
+  если третий запрошенный файл был изолирован от распознанных глаголов
+  (>120 символов либо экранирован нераспознанным/верификационным глаголом),
+  split всё равно создавал ровно `file_mutation#1/#2` — система предъявляла
+  «два требования» как полные, и модель могла завершиться, не создав третий
+  файл (adversarial probes A1/A2).
+- Каждый distinct path теперь классифицируется по ближайшему распознанному
+  глаголу в окне до 120 символов: `mutation` / `verification` / `none`.
+  Split разрешён ТОЛЬКО при ровно двух `mutation` путях и полном отсутствии
+  `none` путей (все остальные — только `verification`). Любой unknown-context
+  путь → fallback на исторический одиночный obligation.
+- Regression tests: изолированный третий path class=none → fallback;
+  verification third path → split сохранён. Итого 524/524 offline;
+  typecheck/build/test:platform зелёные.
+- Known limitations (намеренно не исправлены в этом scope): read-target как
+  первый path literal направляет одиночный obligation на неверный файл
+  (pre-existing `slice(0,1)`, P5a/P5e/P7); слабое упоминание второго файла
+  наследует mutation-контекст и даёт split (P6, over-enforcement); третий путь
+  с нераспознанным глаголом рядом с другими глаголами классифицируется по
+  соседям (A1); пути с расширениями вне extraction-списка (напр. `.doc`) не
+  становятся literals вовсе; same-file multi-step и 3+ mutation paths вне scope.
+
 ## 2026-08-22 — Track distinct file mutation obligations
 
 - `fix/multi-file-obligations` (поверх foundation 8dfd84f). Если пользователь явно

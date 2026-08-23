@@ -456,6 +456,17 @@ OpenCode config не изменялся.
   (bridge-multi-a-952.txt / bridge-multi-b-952.txt), содержимое точное,
   completion_guard_rejected=0, TOOL_CALL_REQUIRED=0, malformed=0, replay=0,
   normal final.
+- Safety-review 7017c04: adversarial probes подтвердили silent
+  under-enforcement — split происходил даже когда третий запрошенный файл был
+  изолирован от распознанных глаголов; система предъявляла «два требования»
+  как полные. Патч: tri-state классификация каждого distinct path
+  (mutation/verification/none по ближайшему распознанному глаголу в окне до
+  120 символов); split только при ровно двух mutation и нуле none путей.
+  Итого 524/524 tests. Known limitations вынесены отдельно: read-target как
+  первый literal (pre-existing slice(0,1)), P6 over-enforcement на слабых
+  упоминаниях, A1 наследование контекста у нераспознанных глаголов,
+  extraction ограничен списком расширений, same-file multi-step и 3+ paths
+  вне scope.
 
 ## Стабильная live-точка — 2026-08-20
 
