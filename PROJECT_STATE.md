@@ -19,11 +19,11 @@ benchmark и release gates находятся в [`PRODUCTION_READINESS.md`](PRO
 OpenCode, новые providers и новые UI-функции deferred до прохождения gates.
 
 **Текущий production status:** `HARDENING IN PROGRESS`, не `PRODUCTION READY`.
-D6 persistence collision реализован в отдельной PASS B ветке и находится в
-статусе `IMPLEMENTED / VERIFYING`; он остаётся открытым P0 до независимого diff
-review, merge и release-commit verification. Следующий шаг — review D6, а не
-переход к следующему defect. Остальные приоритеты и gates — в
-`PRODUCTION_READINESS.md`; D1 остаётся неподтверждённой/deferred P3.
+D6 persistence collision закрыт после independent review, deterministic offline
+coverage и реальной Windows Claude Code restart/resume проверки. Следующая задача —
+только PASS A — DIAGNOSIS ONLY для D3 upstream stream lifecycle. Остальные
+приоритеты и gates — в `PRODUCTION_READINESS.md`; D1 остаётся
+неподтверждённой/deferred P3.
 
 Проект использует **неофициальные** внутренние маршруты веб-сайта DeepSeek
 (`/api/v0/chat/completion`), требует PoW (sha3 через WASM) и живую авторизованную
@@ -119,7 +119,8 @@ review, merge и release-commit verification. Следующий шаг — revi
   и только после review — отдельный PASS B implementation branch.
 - PB-v1 содержит 39 неизменяемых сценариев. Статус `PRODUCTION READY` запрещён,
   пока открыты P0/P1 либо не пройдены release gates и повторяемые live/stress
-  runs. Первый dependency-ordered defect — D6 persistence collision.
+  runs. D6 persistence collision закрыт; следующий dependency-ordered defect —
+  D3, начиная только с PASS A diagnosis.
 - D6 PASS B реализован как один `PersistentSessionDocument` schema v2 для
   `sessions` и `links`: legacy v1 мигрируется, unknown siblings сохраняются,
   invalid/future-version документы fail closed, а FIFO очередь исключает
@@ -128,8 +129,16 @@ review, merge и release-commit verification. Следующий шаг — revi
 - Atomic JSON write использует уникальный temp, cleanup и recoverable Windows
   `.bak` fallback. Multi-process locking не входит в утверждённый scope.
 - PB31/PB33 и дополнительные migration/failure/startup regressions покрыты 23
-  новыми tests; текущий suite — 28 test files / 574 tests. D6 остаётся
-  `IMPLEMENTED / VERIFYING` до независимого review, merge и release validation.
+  новыми tests; текущий suite — 28 test files / 574 tests. Independent review
+  завершён. Windows live с Claude Code 2.1.241 и `deepseek-v4-flash` подтвердил:
+  после real Bash cycle `sessions.json` v2 содержал sessions=1 и links=2;
+  restart восстановил session, а следующий real tool-cycle использовал
+  persisted lineage (`upstream_linked:true`). D6 — `CLOSED`; PB31 и релевантные
+  persistence-инварианты PB33 live verification — PASS, controlled concurrency/
+  crash часть PB33 остаётся подтверждённой deterministic offline tests.
+- Отдельное D7 evidence: Claude Code 2.1.241 в этом live-run прислал 39 tools,
+  тогда как prompt catalog описывает только первые 32. D7 не исправлялся и
+  остаётся отдельной будущей задачей.
 
 - Нормализация всех трёх протоколов в единый `CanonicalRequest`; tool calls,
   tool results, system prompt, reasoning/search флаги, max_tokens.

@@ -3,6 +3,23 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-23 — Close D6 after live verification
+
+- Independent review D6 завершён успешно. Реальный Windows Bridge с отдельным
+  `DS_SESSIONS_FILE`, Claude Code 2.1.241 и `deepseek-v4-flash` после настоящего
+  Bash tool-cycle сохранил schema-v2 документ с sessions=1 и links=2: lineage
+  mutation не уничтожила созданную через `/v1/sessions` session `D6-LIVE`.
+- После SIGINT Bridge корректно сообщил `server_stopped`; повторный запуск с тем
+  же файлом восстановил `D6-LIVE`. Следующий real Claude Code tool-cycle прошёл
+  с `upstream_linked:true`, подтвердив фактическое восстановление и использование
+  persisted lineage. PB31 и релевантные persistence-инварианты PB33 live PASS;
+  controlled concurrency/crash часть PB33 ранее подтверждена offline tests.
+- D6 переведён из `IMPLEMENTED / VERIFYING` в `CLOSED`. Production code и tests
+  не менялись; implementation baseline остаётся green: typecheck, 574/574 tests,
+  build и Windows `test:platform`.
+- Зафиксировано отдельное evidence для будущего D7: Claude Code 2.1.241 прислал
+  39 tools. Tool catalog в этой docs-only задаче не исправлялся.
+
 ## 2026-08-23 — Coordinate persistent session state
 
 - Добавлен единый `PersistentSessionDocument` — единственный владелец
