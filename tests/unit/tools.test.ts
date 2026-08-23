@@ -2319,6 +2319,124 @@ describe("distinct file mutation obligations", () => {
   });
 });
 
+describe("same-file additive final-state verification", () => {
+  const tools = ["Bash", "Read", "Write", "Edit"];
+  const basePrompt = 'Создай report.txt с содержимым "STEP-1". Затем добавь строку "STEP-2".';
+
+  function msg(role: "user" | "assistant", parts: unknown[]): CanonicalMessage {
+    return { role, parts } as unknown as CanonicalMessage;
+  }
+  const tu = (id: string, name: string, args: Record<string, unknown>): CanonicalMessage =>
+    msg("assistant", [{ type: "tool_use", toolCall: { id, type: "function", name, arguments: args } }]);
+  const tr = (id: string, content: string): CanonicalMessage =>
+    msg("user", [{ type: "tool_result", toolResult: { toolUseId: id, content, isError: false } }]);
+  const cycle = (prompt: string, calls: CanonicalMessage[]) =>
+    inspectCurrentToolCycle([msg("user", [{ type: "text", text: prompt }]), ...calls], tools);
+
+  const fvOf = (obligations: ToolObligation[]) => obligations.find(o => o.kind === "file_verification");
+  const w = (content: string) => tu("w", "Write", { file_path: "report.txt", content });
+  const editStep = () => tu("e", "Edit", { file_path: "report.txt", old_string: "STEP-1", new_string: "STEP-2" });
+  const append = () => tu("a", "Bash", { command: 'echo "STEP-2" >> report.txt' });
+  const read = (result: string): CanonicalMessage[] => [tu("r", "Read", { file_path: "report.txt" }), tr("r", result)];
+  const destructiveWrite = () => tu("d", "Write", { file_path: "report.txt", content: "STEP-2" });
+
+  it("synthesizes a final-state verification for two sequential clauses", () => {
+    const obligations = inferToolObligations(basePrompt, tools);
+    expect(obligations.filter(o => o.kind === "file_verification")).toHaveLength(1);
+    const fv = fvOf(obligations);
+    expect(fv?.argumentLiterals).toEqual(["report.txt"]);
+    expect(fv?.resultLiterals).toEqual(["STEP-1", "STEP-2"]);
+    expect(obligations.find(o => o.kind === "file_mutation")?.argumentLiterals).toEqual(["STEP-1", "report.txt"]);
+  });
+
+  it("rejects a destructive rewrite that drops the first value (fresh read shows only STEP-2)", () => {
+    const evidence = cycle(basePrompt, [w("STEP-1"), tr("w", "ok"), destructiveWrite(), tr("d", "ok"), ...read("STEP-2")]);
+    expect(evidence.missingObligations.map(o => o.id)).toContain("file_verification");
+    expect(evidence.requiresActionToolResult).toBe(true);
+  });
+
+  it("rejects an Edit replacement whose fresh read shows only STEP-2", () => {
+    const evidence = cycle(basePrompt, [w("STEP-1"), tr("w", "ok"), editStep(), tr("e", "ok"), ...read("STEP-2")]);
+    expect(evidence.missingObligations.map(o => o.id)).toContain("file_verification");
+  });
+
+  it("fulfills after a one-shot write plus fresh read of both values", () => {
+    const evidence = cycle(basePrompt, [
+      w("STEP-1\nSTEP-2"), tr("w", "ok"), ...read("STEP-1\nSTEP-2"),
+    ]);
+    expect(evidence.fulfilledObligationIds).toContain("file_verification");
+    expect(evidence.missingObligations).toHaveLength(0);
+    expect(evidence.requiresActionToolResult).toBe(false);
+  });
+
+  it("fulfills after write + append + fresh read of both values", () => {
+    const evidence = cycle(basePrompt, [
+      w("STEP-1"), tr("w", "ok"), append(), tr("a", "done"), ...read("STEP-1\nSTEP-2"),
+    ]);
+    expect(evidence.fulfilledObligationIds).toContain("file_verification");
+    expect(evidence.missingObligations).toHaveLength(0);
+  });
+
+  it("keeps verification missing after append followed by a destructive rewrite", () => {
+    const evidence = cycle(basePrompt, [
+      w("STEP-1"), tr("w", "ok"), append(), tr("a", "done"),
+      destructiveWrite(), tr("d", "ok"), ...read("STEP-2"),
+    ]);
+    expect(evidence.missingObligations.map(o => o.id)).toContain("file_verification");
+  });
+
+  it("treats an early full read as stale once a later mutation invalidates it", () => {
+    const evidence = cycle(basePrompt, [
+      w("x"), tr("w", "ok"), ...read("STEP-1\nSTEP-2"), editStep(), tr("e", "ok"),
+    ]);
+    expect(evidence.staleObligations.map(o => o.id)).toContain("file_verification");
+    expect(evidence.missingObligations.map(o => o.id)).toContain("file_verification");
+  });
+
+  it("merges into an existing user-requested verification instead of duplicating", () => {
+    const prompt = `${basePrompt} После этого проверь файл report.txt.`;
+    const obligations = inferToolObligations(prompt, tools);
+    const verifications = obligations.filter(o => o.kind === "file_verification");
+    expect(verifications).toHaveLength(1);
+    expect(verifications[0]!.resultLiterals).toEqual(["STEP-1", "STEP-2"]);
+  });
+
+  it("does not synthesize without a sequence marker", () => {
+    const obligations = inferToolObligations('Создай report.txt с содержимым "STEP-1". Добавь строку "STEP-2".', tools);
+    expect(fvOf(obligations)).toBeUndefined();
+  });
+
+  it("does not synthesize for conditional/or phrasing", () => {
+    const orPrompt = 'Создай или измени report.txt со строкой "X". Затем добавь строку "Y".';
+    expect(fvOf(inferToolObligations(orPrompt, tools))).toBeUndefined();
+    const condPrompt = 'Если report.txt существует, измени его. Иначе создай его со строкой "X". Затем добавь строку "Y".';
+    expect(fvOf(inferToolObligations(condPrompt, tools))).toBeUndefined();
+  });
+
+  it("does not synthesize for replace chains", () => {
+    const arrow = 'Измени report.txt: "OLD"→"MID". Затем измени "MID"→"FINAL".';
+    expect(fvOf(inferToolObligations(arrow, tools))).toBeUndefined();
+    const verbal = 'Замени в report.txt "OLD" на "MID". Затем замени "MID" на "FINAL".';
+    expect(fvOf(inferToolObligations(verbal, tools))).toBeUndefined();
+  });
+
+  it("does not synthesize when no Read-like tool is available", () => {
+    const obligations = inferToolObligations(basePrompt, ["Bash", "Write", "Edit"]);
+    expect(fvOf(obligations)).toBeUndefined();
+  });
+
+  it("does not synthesize for three sequential mutation clauses", () => {
+    const prompt = 'Создай report.txt с содержимым "S1". Затем добавь строку "S2". Затем добавь строку "S3".';
+    expect(fvOf(inferToolObligations(prompt, tools))).toBeUndefined();
+  });
+
+  it("accepts pronominal same-file continuation in the second clause", () => {
+    const prompt = 'Создай report.txt с содержимым "STEP-1". Затем добавь в этот же файл строку "STEP-2".';
+    const fv = fvOf(inferToolObligations(prompt, tools));
+    expect(fv?.resultLiterals).toEqual(["STEP-1", "STEP-2"]);
+  });
+});
+
 describe("DeepSeekClient action completion guard", () => {
   const actionTools = [
     { name: "Artifact", description: "Create an artifact", inputSchema: {} },

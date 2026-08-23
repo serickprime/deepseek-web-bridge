@@ -702,7 +702,127 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
       );
     }
   }
+  // Narrow same-file additive scope: exactly two sequential mutation clauses
+  // about ONE path ("Создай report.txt с содержимым \"STEP-1\". Затем добавь
+  // строку \"STEP-2\".") synthesize a final-state file_verification whose
+  // resultLiterals must ALL appear in a fresh post-mutation verification
+  // result. Global literal extraction is untouched: this helper scans only the
+  // two clause spans with its own quoted-literal pass plus already-recognized
+  // content literals. Replace chains, conditional/or phrasing, three or more
+  // clauses and toolsets without a Read-like tool all fall back to the
+  // historical single file_mutation.
+  if (kinds.has("file_mutation")) {
+    const sequential = inferSequentialAdditiveFinalState(content);
+    if (sequential) {
+      const distinctSynthPaths = [...new Set(pathLiterals.map(path => path.normalize("NFC")))];
+      if (
+        distinctSynthPaths.length === 1
+        && distinctSynthPaths[0] === sequential.path.normalize("NFC")
+        && hasToolMatching(allowedToolNames, /^(?:read|cat)$|read.?file/i)
+      ) {
+        const existingVerification = inferred.find(obligation => obligation.kind === "file_verification");
+        if (existingVerification) {
+          const merged = [...new Set([
+            ...existingVerification.resultLiterals.map(value => value.normalize("NFC")),
+            ...sequential.literals.map(value => value.normalize("NFC")),
+          ])].map(normalized => existingVerification.resultLiterals.find(value => value.normalize("NFC") === normalized) ?? normalized);
+          existingVerification.resultLiterals = merged;
+          existingVerification.description = obligationDescription(
+            "file_verification",
+            existingVerification.argumentLiterals,
+            merged,
+          ) + (existingVerification.requiredExactResultCount === 1 ? " occurring exactly once in the final state" : "");
+        } else {
+          inferred.push({
+            id: "file_verification",
+            kind: "file_verification",
+            description: obligationDescription("file_verification", [sequential.path], sequential.literals),
+            argumentLiterals: [sequential.path],
+            resultLiterals: sequential.literals,
+            requiredExactResultCount: undefined,
+          });
+        }
+      }
+    }
+  }
   return inferred;
+}
+
+const SEQUENCE_MARKER = /(^|[^\wа-яё])(затем|после этого|потом|then)(?=$|[^\wа-яё])/i;
+const CONDITIONAL_PHRASING = /(^|[^\wа-яё])(если|иначе|либо|или|if|else|or)(?=$|[^\wа-яё])/i;
+const REPLACE_CHAIN_PHRASING = /→|->|замени\s+[^\n]{0,80}?\s+на\s|replace\s+[^\n]{0,80}?\s+with\s/i;
+const LOCAL_MUTATION_VERB = /созда|сделай|сохран|запиш|добав|дополн|измен|отредактир|удал|append|create|make|save|write|\badd\b|modify|change|edit/i;
+const PRONOMINAL_FILE_CONTINUATION = /эт(?:от|у)\s+же\s+(?:файл|file)|тот\s+же\s+(?:файл|file)|в\s+него\b|в\s+неё\b|same\s+file/i;
+
+interface SequentialAdditiveFinalState {
+  path: string;
+  literals: string[];
+}
+
+function inferSequentialAdditiveFinalState(content: string): SequentialAdditiveFinalState | null {
+  if (CONDITIONAL_PHRASING.test(content) || REPLACE_CHAIN_PHRASING.test(content)) return null;
+  const markers = [...content.matchAll(new RegExp(SEQUENCE_MARKER.source, "gi"))];
+  if (markers.length === 0) return null;
+  const firstMarker = markers[0]!;
+  const clause1 = content.slice(0, firstMarker.index);
+  const rest = content.slice(firstMarker.index + firstMarker[0].length);
+  const secondMarker = markers[1];
+  // Additional sequence markers are allowed only when the following segment is
+  // a non-mutation step (typically "после этого проверь файл ..."); a third
+  // mutation clause means this is outside the narrow two-step scope.
+  const clause2 = secondMarker?.index === undefined
+    ? rest
+    : rest.slice(0, secondMarker.index - (firstMarker.index + firstMarker[0].length));
+  const trailingSegments = secondMarker?.index === undefined
+    ? []
+    : [rest.slice(secondMarker.index - (firstMarker.index + firstMarker[0].length) + secondMarker[0].length)];
+  if (trailingSegments.some(segment => LOCAL_MUTATION_VERB.test(segment))) return null;
+
+  const quotedInSpan = (span: string): string[] => {
+    const values: string[] = [];
+    for (const match of span.matchAll(/"([^"\r\n]{1,512})"|'([^'\r\n]{1,512})'|«([^»\r\n]{1,512})»|`([^`\r\n]{1,512})`/g)) {
+      const value = match[1] ?? match[2] ?? match[3] ?? match[4] ?? "";
+      if (value.trim()) values.push(value);
+    }
+    return values;
+  };
+  const recognizedContentInSpan = (literals: ExactUserLiteral[], span: string): string[] =>
+    literalValues(literals, ["content", "marker", "generic"]).filter(value => span.includes(value));
+
+  const clause1Quoted = quotedInSpan(clause1);
+  const clause1PathLike = /(?:^|[\s(])((?:[\w.-]+[\\/])*[\w.-]+\.(?:json|md|txt|html?|jsx?|tsx?|ya?ml|toml))(?=$|[\s),.;])/.exec(clause1)?.[1];
+  if (!clause1PathLike || !LOCAL_MUTATION_VERB.test(clause1)) return null;
+  if (!clause1Quoted.length && !recognizedContentInSpan(extractExactUserLiterals(clause1), clause1).length) return null;
+
+  if (!LOCAL_MUTATION_VERB.test(clause2)) return null;
+  // The second clause may name the same file explicitly, refer to it
+  // pronominal ("в этот же файл"), or continue implicitly — the only rejected
+  // shape is a clause that mentions a DIFFERENT path-like token.
+  const otherPathLike = /(?:^|[\s(])((?:[\w.-]+[\\/])*[\w.-]+\.(?:json|md|txt|html?|jsx?|tsx?|ya?ml|toml))(?=$|[\s),.;])/.exec(clause2)?.[1];
+  const referencesSameFile = otherPathLike === undefined
+    || otherPathLike === clause1PathLike
+    || PRONOMINAL_FILE_CONTINUATION.test(clause2);
+  if (!referencesSameFile) return null;
+  const clause2Values = [
+    ...quotedInSpan(clause2),
+    ...recognizedContentInSpan(extractExactUserLiterals(clause2), clause2),
+  ];
+  if (!clause2Values.length) return null;
+
+  const clause1Values = [
+    ...clause1Quoted,
+    ...recognizedContentInSpan(extractExactUserLiterals(clause1), clause1),
+  ].filter(value => value !== clause1PathLike);
+
+  const seen = new Set<string>();
+  const ordered = [...clause1Values, ...clause2Values].filter(value => {
+    const normalized = value.normalize("NFC");
+    if (!normalized.trim() || seen.has(normalized)) return false;
+    seen.add(normalized);
+    return true;
+  });
+  if (ordered.length < 2) return null;
+  return { path: clause1PathLike, literals: ordered.slice(0, 8) };
 }
 
 export function looksLikeExternalActionRequest(content: string, allowedToolNames: string[]): boolean {

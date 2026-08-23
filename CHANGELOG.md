@@ -3,6 +3,42 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-23 — Verify additive same-file final state
+
+- `fix/same-file-multi-step-obligations`. Для узкого same-file additive scope
+  (ровно две последовательные мутационные клаузы об одном файле с явным маркером
+  «затем/после этого/потом/then», вторая добавляет значение) inference теперь
+  синтезирует final-state `file_verification`: `argumentLiterals=[path]`,
+  `resultLiterals` = все явно выраженные значения обеих клауз. Верификация
+  обязана быть fresh после последней мутации — переиспользована существующая
+  stale/final-state machinery (`invalidatesFinalState`, latest-first binding).
+- Глобальный extraction НЕ расширен: новый локальный helper
+  (`inferSequentialAdditiveFinalState`) сканирует только два спана клауз своим
+  quoted-проходом плюс уже распознанные content-литералы. Вторая клауза может
+  продолжаться неявно/местоимением («в этот же файл»); отклоняется только при
+  упоминании ДРУГОГО path-like токена.
+- Gate: ровно 1 distinct path; ровно 2 мутационные клаузы (доп. маркерные
+  сегменты разрешены только без мутационных глаголов); нет conditional/or
+  (если/иначе/либо/или/if/else/or); нет replace-chain (→/->/замени X на Y/
+  replace X with Y); в toolset есть Read-like tool; если обычный inference уже
+  вывел file_verification для пути — resultLiterals вливаются в неё (MERGE),
+  вторая не создаётся.
+- Не тронуто: matchObligationsToEvidence, one-to-one binding,
+  invalidatesFinalState, replay/fingerprint, COMPLETION_GUARD_MAX_ATTEMPTS,
+  multi-file logic, empty final, naked `<tool_calls>`.
+- Tests: describe «same-file additive final-state verification», 14 cases
+  (destructive rewrite/Edit-replace → missing; one-shot/append → fulfilled;
+  ранний Read → stale; merge; 6 gate-негативов; pronoun-positive). Все прежние
+  тесты без правок ожиданий; итого 538/538 offline; typecheck/build/
+  test:platform зелёные.
+- Live deepseek-v4-pro (чистая папка): Bash printf(обе строки) → Read → normal
+  final «обе строки присутствуют»; файл на диске с точным содержимым;
+  completion_guard_rejected=0, TOOL_CALL_REQUIRED=0, malformed=0, replay=0.
+- Ограничения: только 2 additive same-file клаузы; quoted/распознанные
+  литералы (unquoted значения шагов unsupported); end-state семантика — порядок
+  шагов и промежуточные состояния не контролируются; replace-chains, 3+ шага,
+  conditional формулировки вне scope.
+
 ## 2026-08-22 — Guard multi-file obligation splitting
 
 - Safety-review коммита 7017c04 выявил ambiguous third-path under-enforcement:

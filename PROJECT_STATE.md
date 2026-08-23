@@ -1,6 +1,6 @@
 # Состояние проекта
 
-> **Актуально на:** 2026-08-22.
+> **Актуально на:** 2026-08-23.
 > Этот файл — главный источник правды о стадии проекта. Любой агент обязан
 > прочитать его перед началом работы и обновить после внесения изменений.
 > Обязательный порядок чтения перед задачей: `AGENTS.md` → `PROJECT_STATE.md`
@@ -467,6 +467,43 @@ OpenCode config не изменялся.
   упоминаниях, A1 наследование контекста у нераспознанных глаголов,
   extraction ограничен списком расширений, same-file multi-step и 3+ paths
   вне scope.
+
+### Same-file additive final-state verification — 2026-08-23
+
+- Второй пользовательский эффект (`fix/same-file-multi-step-obligations`,
+  поверх 93bfde8): для узкого same-file additive scope — ровно две
+  последовательные мутационные клаузы об одном файле с явным маркером
+  «затем/после этого/потом/then», вторая добавляет значение («Создай report.txt
+  с содержимым "STEP-1". Затем добавь строку "STEP-2".») — `inferToolObligations`
+  синтезирует final-state `file_verification` (args=[path],
+  resultLiterals=[значения обеих клауз]). Верификация обязана быть fresh после
+  последней мутации: переиспользованы stale/final-state machinery,
+  latest-first binding, `invalidatesFinalState` — без изменений в matcher.
+- Root cause исходной дыры подтверждён: extraction ронял литералы второго шага
+  (role=null у не-first content), а kind-singleton закрывал file_verification
+  первым же Read. S1-вариант (union литералов по всем evidence) отвергнут
+  safety-анализом: false positives на destructive последовательностях.
+  Выбрана end-state семантика: порядок шагов и промежуточные состояния не
+  контролируются, проверяется только итоговое содержимое файла.
+- Глобальный extraction НЕ расширен; новый локальный helper
+  `inferSequentialAdditiveFinalState` сканирует только два спана клауз.
+  Gate: ровно 1 distinct path; ровно 2 мутационные клаузы (доп. маркерные
+  сегменты — только без мутационных глаголов); нет conditional/or; нет
+  replace-chain (→/->/замени X на Y); Read-like tool в toolset; вторая клауза —
+  явный path / местоимение («в этот же файл») / неявное продолжение (отклон
+  только при другом path-like токене); при уже выведенной обычным inference
+  file_verification — merge resultLiterals, без второй инстанции.
+- Offline: describe «same-file additive final-state verification», 14 cases
+  (destructive Write/Edit-replace → missing; one-shot/append → fulfilled;
+  ранний полный Read → stale; merge; 6 gate-негативов; pronoun-positive).
+  Все прежние тесты без правок ожиданий; итого 538/538; typecheck/build/
+  test:platform зелёные.
+- Live deepseek-v4-pro (чистая папка): Bash printf(обе строки) → Read → normal
+  final «обе строки присутствуют»; файл на диске точный;
+  completion_guard_rejected=0, TOOL_CALL_REQUIRED=0, malformed=0, replay=0.
+- Ограничения: только 2 additive same-file клаузы; quoted/распознанные
+  литералы (unquoted значения unsupported); replace-chains, 3+ шага,
+  conditional формулировки вне scope.
 
 ## Стабильная live-точка — 2026-08-20
 
