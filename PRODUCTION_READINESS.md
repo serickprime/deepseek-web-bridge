@@ -4,7 +4,7 @@
 >
 > **Baseline:** `bedcab29abc7557f1af22bfd6851f1695d308afd` — Handle DeepSeek SSE rate limit hints
 >
-> **Offline baseline:** 26 test files, 551 tests
+> **Offline baseline:** 28 test files, 574 tests
 >
 > **Открыто:** P0 — 4, P1 — 4, P2 — 6; deferred P3 — 1
 > **Production scope:** Claude Code → Anthropic-compatible Bridge → DeepSeek Web → Bridge → Claude Code
@@ -65,7 +65,7 @@ transport, policy и persistence defects не объединяются в оди
 | HTTP 200 сам по себе не означает successful DeepSeek completion. | **Нет, не полностью** | Exact rate-limit распознан; D3 требует terminal/empty semantics. |
 | Explicit DeepSeek rate limit не вызывает completion-guard retry storm. | Да | `bedcab2`, `tests/unit/deepseekRateLimit.test.ts`: один completion attempt, 429. |
 | После `message_start` downstream всегда получает корректный terminal/error contract. | **Нет** | D4: `routeError()` при `headersSent` только завершает socket. |
-| Session и lineage persistence атомарны как единое логическое состояние. | **Нет** | D6: два независимых writer-а используют один `sessions.json`. |
+| Session и lineage persistence атомарны как единое логическое состояние. | Да, `VERIFYING` | D6 PASS B: один `PersistentSessionDocument` schema v2, FIFO mutations и startup init; PB31/PB33 regressions green. Независимый review/merge ещё требуется. |
 | Secrets, tokens, cookies и raw prompts не логируются по умолчанию. | Да для известных полей | Redactor + secret regressions; D8 должен сохранить это при добавлении telemetry. |
 
 ## 5. Production Audit Backlog
@@ -79,7 +79,7 @@ transport, policy и persistence defects не объединяются в оди
 | **D3** | P0 | L4 | `CONFIRMED` | Timeout заканчивается после headers; body stall не отменяется. Empty HTTP 200, partial/non-terminal и `INCOMPLETE` могут вернуться как completion. | `REPO`: fetch timer очищается сразу после `fetch()`; zero-byte body stream возвращает empty strings; parser считает `INCOMPLETE` done; `runCompletion()` не требует `FINISHED`. Документация обещает HTTP 429/5xx retries, но fetch-loop повторяет только thrown network errors. | D6 сначала; error contract для D4 | — |
 | **D4** | P0 | L1 / L4 | `CONFIRMED` | После Anthropic HTTP 200 + `message_start` поздний `BridgeError` обрывает SSE без protocol terminal/error contract. | `REPO`: `stream.start()` вызывается до upstream completion; `routeError()` при `headersSent` делает только `res.end()`. | D3 failure taxonomy | — |
 | **D5** | P1 | L3 | `CONFIRMED` | Stale lineage может жить дольше policy; выбирается не обязательно latest relevant result. | `HANDOFF`: ~48h link использовался. `REPO`: 10m `SESSION_LINK_TTL_MS` не применяется; store hardcodes 24h only at init/size>10000; `extractToolUseIdFromMessages()` возвращает первый result. | D6 | — |
-| **D6** | P0 | L3 | `CONFIRMED` | `FileSessionStorage` и `LineageStore` независимо перезаписывают один `sessions.json` разными shapes, создавая loss/corruption risk. | `REPO`: `buildApp()` передаёт обоим `config.sessionsFile`; auth save пишет `{version,sessions}`, lineage persist — `{version,links}`. Только `lineage.clear()` сохраняет siblings. | Нет; первый implementation defect | — |
+| **D6** | P0 | L3 | `IMPLEMENTED / VERIFYING` | Один `PersistentSessionDocument` теперь владеет `sessions.json`; оба store делегируют ему sessions/links mutations. Schema v2, v1 migration, unknown sibling preservation, FIFO queue и init-before-listen устраняют подтверждённую collision в одном процессе. | `REPO`: `persistentSessionDocument.ts`, owner wiring в `buildApp()`, recoverable atomic write. `TEST`: PB31/PB33, migration/failure/startup cases; 574/574 green. | Independent diff review, merge, release-commit verification | `Coordinate persistent session state` (feature branch) |
 | **D7** | P1 | L2 | `CONFIRMED` | Received/allowed/described tool catalogs расходятся: полный allowlist доступен parser-у, prompt описывает только первые 32. | `HANDOFF`: Claude Code 35 tools. `REPO`: `selectBridgeTools()` сохраняет все, `buildToolNames()` — все, `buildToolPrompt()` использует `available.slice(0,32)`. | D8 catalog telemetry | — |
 | **D8** | P1 | L4 / L1,L2,L3 | `CONFIRMED`; D16 merged | Недостаточно безопасной request/session/attempt/stage/call-id correlation. | `REPO`: request_ref создаётся сервером, но handler хранит base logger; guard/upstream logs не имеют полного attempt/parent/stage lifecycle. `completion_done` логирует raw upstream key. | D3/D4 event taxonomy | — |
 | **D9** | P1 | L2 | `CONFIRMED CURRENT GAP` | Existing environment classifier не распознаёт natural listing variants и typo, поэтому plain final может пройти без fresh result. | `LIVE`: `что находится в данной дериктории?`. `REPO`: listing regex не покрывает `находится/лежит` и typo. Фраза 34 chars; `INTENT_MAX_LENGTH=300` не является фактором. Existing mechanism — `bbd13b2`, новый subsystem запрещён. | После P0 и D7 | —; base mechanism `bbd13b2` |
@@ -189,7 +189,7 @@ versioned addendum; новые regressions добавляются новыми I
 | Gate | Pass condition | Baseline status |
 | --- | --- | --- |
 | G1 | `npm run typecheck` green | PASS (recheck each branch) |
-| G2 | `npm test` 100% green | PASS: 551/551 baseline (recheck each branch) |
+| G2 | `npm test` 100% green | PASS: 574/574 on D6 feature branch (recheck release commit) |
 | G3 | `npm run build` green | PASS (recheck each branch) |
 | G4 | `npm run test:platform` green | PASS on current Windows baseline |
 | G5 | CI Windows/Linux/macOS green for release commit | NEEDS RELEASE-COMMIT VERIFICATION |
@@ -200,7 +200,7 @@ versioned addendum; новые regressions добавляются новыми I
 | G10 | 3 × 30–50 tool autonomous runs без fabrication/replay/duplicate/malformed leak/unexpected 502/hang | FAIL |
 | G11 | Rate limit → retryable `DEEPSEEK_RATE_LIMIT`/429 без guard storm | PASS offline; preserve in live |
 | G12 | Любой upstream failure bounded; нет hang/fake success | FAIL: D3/D4 |
-| G13 | Restart сохраняет консистентные persistent session/lineage | FAIL: D6 |
+| G13 | Restart сохраняет консистентные persistent session/lineage | VERIFYING: deterministic PB31/PB33 restart/interleaving tests green; review/merge required |
 | G14 | `/compact` после long chain проходит PB35 | NEEDS FROZEN LIVE RUNS |
 | G15 | Shutdown не оставляет orphan/stale PID и не убивает чужие процессы | NEEDS VERIFICATION: D10 |
 | G16 | Нет известных открытых P0/P1 production defects | FAIL |
@@ -246,8 +246,9 @@ green, создавать новый mechanism при подходящем су�
 
 ## 10. Dependency-aware work order
 
-1. **D6 — persistence collision.** Первый implementation defect: любой restart,
-   lineage или long-run benchmark недостоверен, пока writers могут стирать state.
+1. **D6 — persistence collision.** PASS B implementation готова; сначала
+   независимый diff review, merge и release-commit verification. D6 не закрывать
+   до прохождения этого gate.
 2. **D3 — upstream stream lifecycle.** Формирует единый terminal/failure contract.
 3. **D4 — downstream Anthropic SSE lifecycle.** Строится на taxonomy D3.
 4. **D2 — rejected parent isolation.** После D3 можно атомарно commit-ить только
@@ -267,14 +268,14 @@ green, создавать новый mechanism при подходящем су�
 | `PROJECT_STATE.md` фиксирует green feature phases, но не содержит единого списка подтверждённых P0/P1 release blockers. | Этот файл становится hardening source of truth; общий feature status не равен production readiness. |
 | `docs/architecture.md` заявляет retries для HTTP 429/temporary 5xx, но текущий `fetch()` retry-loop повторяет только thrown fetch errors. | Включено в D3; desired retry policy должен быть явно утверждён в PASS A. |
 | `SESSION_LINK_TTL_MS=10m`, а `LineageStore` hardcodes 24h и не проверяет age при lookup. | D5. |
-| Документация отмечает sibling-safe `lineage.clear()`, но normal `LineageStore.persist()` и `FileSessionStorage.save()` всё ещё overwrite разные shapes. | D6; existing logout test не закрывает concurrent/normal writes. |
+| Документация отмечала sibling-safe только `lineage.clear()`, тогда как normal writers перезаписывали разные shapes. | D6 PASS B заменяет writers единым schema-v2 owner; deterministic concurrent/restart/failure cases green, independent review pending. |
 | Tool allowlist может содержать 35, prompt silently описывает 32. | D7. |
 | Anthropic system array, output limit и streaming usage не покрыты текущими normalize/lifecycle tests. | D14/D15, без преждевременного заявления полного runtime impact. |
 | D1 A/B/C evidence отсутствует в repo и доступен только как diagnostic handoff. | D1 остаётся unconfirmed/deferred. |
 
 ## 12. Current decision
 
-Проект **не является Production Ready**. Следующий шаг — только
-`PASS A — DIAGNOSIS ONLY` для **D6 — SessionStore / LineageStore persistence
-collision**. Production implementation начинается лишь после review и
-утверждения diagnostic scope.
+Проект **не является Production Ready**. D6 PASS B находится в статусе
+`IMPLEMENTED / VERIFYING`; следующий шаг — независимый diff review, merge и
+проверка release commit. До этого D6 не считается закрытым и работа над следующим
+production defect не начинается.

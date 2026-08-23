@@ -2,15 +2,24 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { writeJsonAtomic, readJsonIfExists, fileMode, isOwnerOnlyMode } from "../../src/utils/atomicFile.js";
+import {
+  writeJsonAtomic,
+  readJsonIfExists,
+  readJsonStrictIfExists,
+  fileMode,
+  isOwnerOnlyMode,
+} from "../../src/utils/atomicFile.js";
 
 let tmpDir: string;
+const actualPlatform = process.platform;
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "atomic-test-"));
 });
 
 afterEach(() => {
+  Object.defineProperty(process, "platform", { value: actualPlatform });
+  vi.restoreAllMocks();
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
@@ -42,6 +51,24 @@ describe("writeJsonAtomic", () => {
     await writeJsonAtomic(file, { clean: true });
     const entries = fs.readdirSync(tmpDir);
     expect(entries).toEqual(["test.json"]);
+  });
+
+  it("uses unique temp names even when Date.now is unchanged", async () => {
+    const file = path.join(tmpDir, "test.json");
+    const originalWriteFile = fs.promises.writeFile.bind(fs.promises);
+    const tempPaths: string[] = [];
+    vi.spyOn(Date, "now").mockReturnValue(12345);
+    vi.spyOn(fs.promises, "writeFile").mockImplementation(async (target, data, options) => {
+      if (String(target).endsWith(".tmp")) tempPaths.push(String(target));
+      await originalWriteFile(target, data, options);
+    });
+
+    await writeJsonAtomic(file, { step: 1 });
+    await writeJsonAtomic(file, { step: 2 });
+
+    expect(tempPaths).toHaveLength(2);
+    expect(new Set(tempPaths).size).toBe(2);
+    expect(fs.readdirSync(tmpDir)).toEqual(["test.json"]);
   });
 });
 
@@ -107,7 +134,7 @@ describe("writeJsonAtomic — platform-specific behavior", () => {
 });
 
 describe("writeJsonAtomic — atomic rename fallback", () => {
-  it("retries rename on EPERM by unlinking target first", async () => {
+  it.each(["EPERM", "EEXIST"])("replaces through a recoverable backup on %s", async code => {
     const file = path.join(tmpDir, "target.json");
     fs.writeFileSync(file, JSON.stringify({ old: true }));
     const originalRename = fs.promises.rename;
@@ -116,8 +143,8 @@ describe("writeJsonAtomic — atomic rename fallback", () => {
     vi.spyOn(fs.promises, "rename").mockImplementation(async (src, dst) => {
       callCount++;
       if (callCount === 1 && String(dst).includes("target.json")) {
-        const err = new Error("EPERM") as NodeJS.ErrnoException;
-        err.code = "EPERM";
+        const err = new Error(code) as NodeJS.ErrnoException;
+        err.code = code;
         throw err;
       }
       return originalRename(src, dst);
@@ -126,7 +153,47 @@ describe("writeJsonAtomic — atomic rename fallback", () => {
     await writeJsonAtomic(file, { new: true });
     const data = JSON.parse(fs.readFileSync(file, "utf8"));
     expect(data).toEqual({ new: true });
-    vi.restoreAllMocks();
+    expect(fs.readdirSync(tmpDir)).toEqual(["target.json"]);
+  });
+
+  it("T6/T10: restores the old target when the second-stage rename fails", async () => {
+    Object.defineProperty(process, "platform", { value: "win32" });
+    const file = path.join(tmpDir, "target.json");
+    fs.writeFileSync(file, JSON.stringify({ old: true }));
+    const originalRename = fs.promises.rename;
+    let callCount = 0;
+
+    vi.spyOn(fs.promises, "rename").mockImplementation(async (src, dst) => {
+      callCount++;
+      if (callCount === 1) {
+        const error = new Error("synthetic EPERM") as NodeJS.ErrnoException;
+        error.code = "EPERM";
+        throw error;
+      }
+      if (callCount === 3) {
+        const error = new Error("synthetic EIO") as NodeJS.ErrnoException;
+        error.code = "EIO";
+        throw error;
+      }
+      return originalRename(src, dst);
+    });
+
+    await expect(writeJsonAtomic(file, { new: true })).rejects.toMatchObject({ code: "EIO" });
+    expect(JSON.parse(fs.readFileSync(file, "utf8"))).toEqual({ old: true });
+    expect(fs.readdirSync(tmpDir)).toEqual(["target.json"]);
+  });
+
+  it("T10: recovers a valid backup on a Unicode path after restart", async () => {
+    const unicodeDir = path.join(tmpDir, "Тестовая папка ёжик");
+    fs.mkdirSync(unicodeDir, { recursive: true });
+    const file = path.join(unicodeDir, "sessions.json");
+    fs.writeFileSync(`${file}.bak`, JSON.stringify({ old: true }));
+
+    const result = await readJsonStrictIfExists(file);
+
+    expect(result).toEqual({ exists: true, value: { old: true } });
+    expect(JSON.parse(fs.readFileSync(file, "utf8"))).toEqual({ old: true });
+    expect(fs.readdirSync(unicodeDir)).toEqual(["sessions.json"]);
   });
 });
 

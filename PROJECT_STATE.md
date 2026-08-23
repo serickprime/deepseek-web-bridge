@@ -19,10 +19,11 @@ benchmark и release gates находятся в [`PRODUCTION_READINESS.md`](PRO
 OpenCode, новые providers и новые UI-функции deferred до прохождения gates.
 
 **Текущий production status:** `HARDENING IN PROGRESS`, не `PRODUCTION READY`.
-На baseline `bedcab29` открыты 4 P0, 4 P1 и 6 P2; D1 остаётся
-неподтверждённой/deferred P3. Следующая работа должна начинаться с
-PASS A — DIAGNOSIS ONLY для D6 (`FileSessionStorage`/`LineageStore` collision),
-а не с немедленного production fix.
+D6 persistence collision реализован в отдельной PASS B ветке и находится в
+статусе `IMPLEMENTED / VERIFYING`; он остаётся открытым P0 до независимого diff
+review, merge и release-commit verification. Следующий шаг — review D6, а не
+переход к следующему defect. Остальные приоритеты и gates — в
+`PRODUCTION_READINESS.md`; D1 остаётся неподтверждённой/deferred P3.
 
 Проект использует **неофициальные** внутренние маршруты веб-сайта DeepSeek
 (`/api/v0/chat/completion`), требует PoW (sha3 через WASM) и живую авторизованную
@@ -88,14 +89,14 @@ PASS A — DIAGNOSIS ONLY для D6 (`FileSessionStorage`/`LineageStore` collisi
 | 7. DeepSeek | pow (WASM), sseParser, updateParser, client | ✅ готово |
 | 8. Server | middleware, output-адаптеры, protocolStream, routes, server | ✅ готово |
 | 9. Entrypoint | app.ts, index.ts, start.ts | ✅ готово |
-| 10. Тесты | 26 файлов, 551 тест | ✅ готово |
+| 10. Тесты | 28 файлов, 574 теста | ✅ готово |
 | 11. Скрипты | desktopStart, cdp, auth, doctor, launcher, live, real-OS platform smoke | ✅ live-часть работает |
 | 12. Веб-интерфейс | Bridge Console на `GET /` (Mileo dark theme, two-panel, diagnostics, model picker) | ✅ готово |
 
 **Проверки сейчас:**
 - `npm run typecheck` — ✅ без ошибок.
 - `npm run build` — ✅ собирается.
-- `npm test` — ✅ 551/551.
+- `npm test` — ✅ 574/574.
 - `npm run test:platform` — ✅ локально на Windows: real process/platform,
   `buildConfig`, Bridge HTTP, Unicode cwd и env propagation без DeepSeek auth.
 - `npm run auth` / Web UI AUTH — ✅ Bearer захватывается из сети, HIF читается из
@@ -119,8 +120,16 @@ PASS A — DIAGNOSIS ONLY для D6 (`FileSessionStorage`/`LineageStore` collisi
 - PB-v1 содержит 39 неизменяемых сценариев. Статус `PRODUCTION READY` запрещён,
   пока открыты P0/P1 либо не пройдены release gates и повторяемые live/stress
   runs. Первый dependency-ordered defect — D6 persistence collision.
-- Текущий код и tests в документационной итерации не менялись; baseline
-  остаётся 26 test files / 551 offline tests.
+- D6 PASS B реализован как один `PersistentSessionDocument` schema v2 для
+  `sessions` и `links`: legacy v1 мигрируется, unknown siblings сохраняются,
+  invalid/future-version документы fail closed, а FIFO очередь исключает
+  lost-update между in-process writers. Оба store делегируют owner-у, который
+  инициализируется до HTTP listen; durable write failures не маскируются.
+- Atomic JSON write использует уникальный temp, cleanup и recoverable Windows
+  `.bak` fallback. Multi-process locking не входит в утверждённый scope.
+- PB31/PB33 и дополнительные migration/failure/startup regressions покрыты 23
+  новыми tests; текущий suite — 28 test files / 574 tests. D6 остаётся
+  `IMPLEMENTED / VERIFYING` до независимого review, merge и release validation.
 
 - Нормализация всех трёх протоколов в единый `CanonicalRequest`; tool calls,
   tool results, system prompt, reasoning/search флаги, max_tokens.

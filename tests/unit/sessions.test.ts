@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,10 +9,15 @@ import type { SessionStorage } from "../../src/auth/storage.js";
 import { SessionStore } from "../../src/sessions/sessionStore.js";
 import { KeyedMutex } from "../../src/sessions/mutex.js";
 import { LineageStore } from "../../src/sessions/lineage.js";
+import { PersistentSessionDocument } from "../../src/sessions/persistentSessionDocument.js";
 import { extractToolUseIdFromMessages } from "../../src/api/handler.js";
 import { SESSION_ID_ENTROPY_BYTES } from "../../src/config/constants.js";
 import type { CanonicalRequest } from "../../src/api/canonical.js";
 import { resetUpstreamAccountState } from "../../src/app.js";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 class MemoryStorage implements SessionStorage {
   private map: SessionMap = {};
@@ -22,6 +27,14 @@ class MemoryStorage implements SessionStorage {
   async save(map: SessionMap): Promise<void> {
     this.map = JSON.parse(JSON.stringify(map));
   }
+}
+
+async function createLineageStore(file = ":memory:"): Promise<LineageStore> {
+  const document = new PersistentSessionDocument(file);
+  await document.init();
+  const lineage = new LineageStore(document);
+  await lineage.init();
+  return lineage;
 }
 
 describe("SessionManager", () => {
@@ -51,6 +64,29 @@ describe("SessionManager", () => {
     const second = new SessionManager(storage, { ttlMs: 60_000 });
     await second.init();
     expect(second.getSession(session.sessionId)).not.toBeNull();
+  });
+
+  it("handles an expired-session background persistence failure without an unhandled rejection", async () => {
+    let now = 1_000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    const session = {
+      sessionId: "expiring-session",
+      sidCookie: "synthetic-cookie",
+      createdAt: now,
+      updatedAt: now,
+    };
+    const storage: SessionStorage = {
+      load: async () => ({ [session.sessionId]: session }),
+      save: async () => { throw new Error("synthetic background failure"); },
+    };
+    const manager = new SessionManager(storage, { ttlMs: 10 });
+    await manager.init();
+
+    now = 2_000;
+    expect(manager.getSession(session.sessionId)).toBeNull();
+    await new Promise<void>(resolve => setImmediate(resolve));
+
+    expect(manager.listSessions()).toEqual([session]);
   });
 });
 
@@ -117,13 +153,13 @@ describe("KeyedMutex", () => {
 
 describe("LineageStore", () => {
   it("records and retrieves call_id to upstream mapping", async () => {
-    const lineage = new LineageStore(":memory:");
+    const lineage = await createLineageStore();
     await lineage.record("call_ABC", "upstream:123");
     expect(lineage.getUpstreamKey("call_ABC")).toBe("upstream:123");
   });
 
   it("returns undefined for unknown call_id", async () => {
-    const lineage = new LineageStore(":memory:");
+    const lineage = await createLineageStore();
     expect(lineage.getUpstreamKey("unknown")).toBeUndefined();
   });
 
@@ -132,7 +168,7 @@ describe("LineageStore", () => {
     const state = sessions.getOrCreate("old-account-session");
     state.chatSessionId = "old-deepseek-chat";
     state.parentMessageId = 123;
-    const lineage = new LineageStore(":memory:");
+    const lineage = await createLineageStore();
     await lineage.record("old-call", "old-account-session");
 
     await resetUpstreamAccountState(sessions, lineage);
@@ -157,8 +193,7 @@ describe("LineageStore", () => {
     }));
 
     try {
-      const lineage = new LineageStore(file);
-      await lineage.init();
+      const lineage = await createLineageStore(file);
       await lineage.clear();
       const persisted = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
 

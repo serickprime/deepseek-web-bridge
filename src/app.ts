@@ -8,6 +8,7 @@ import type { AuthCredentials } from "./deepseek/client.js";
 import { CompletionHandler } from "./api/handler.js";
 import { SessionStore } from "./sessions/sessionStore.js";
 import { LineageStore } from "./sessions/lineage.js";
+import { PersistentSessionDocument } from "./sessions/persistentSessionDocument.js";
 import { Redactor } from "./utils/redaction.js";
 import { collectAuthSecrets } from "./utils/redaction.js";
 import { Logger } from "./utils/logger.js";
@@ -19,6 +20,7 @@ import { bridgeModelList } from "./config/modelCapabilities.js";
 export interface AppHandle {
   server: BridgeServer;
   sessionManager: SessionManager;
+  init: () => Promise<void>;
   stop: () => Promise<void>;
 }
 
@@ -65,10 +67,23 @@ export function buildApp(): AppHandle {
     redactor.addSecret(secret);
   }
 
-  const sessionStorage = new FileSessionStorage(config.sessionsFile);
+  const persistentSessions = new PersistentSessionDocument(config.sessionsFile);
+  const sessionStorage = new FileSessionStorage(persistentSessions);
   const sessionManager = new SessionManager(sessionStorage, { logger });
   const sessionStore = new SessionStore();
-  const lineage = new LineageStore(config.sessionsFile);
+  const lineage = new LineageStore(persistentSessions);
+  let initialized = false;
+  let initPromise: Promise<void> | null = null;
+  const init = (): Promise<void> => {
+    if (initPromise) return initPromise;
+    initPromise = (async () => {
+      await persistentSessions.init();
+      await sessionManager.init();
+      await lineage.init();
+      initialized = true;
+    })();
+    return initPromise;
+  };
 
   const solver = new PowSolver({
     wasmCacheDir: config.dataDir,
@@ -100,7 +115,7 @@ export function buildApp(): AppHandle {
     logger,
     redactor,
     models: bridgeModelList(),
-    ready: () => sessionManager.listSessions().length >= 0,
+    ready: () => initialized,
     setRuntimeAuth: async (auth: AuthCredentials) => {
       await resetUpstreamAccountState(sessionStore, lineage);
       deepseek.setAuth(auth);
@@ -116,6 +131,7 @@ export function buildApp(): AppHandle {
     port: config.port,
     logger,
     routeContext,
+    beforeStart: init,
   });
 
   routeContext.gracefulStop = () => server.stop();
@@ -123,6 +139,7 @@ export function buildApp(): AppHandle {
   return {
     server,
     sessionManager,
+    init,
     stop: async () => {
       await server.stop();
     },

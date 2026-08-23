@@ -10,6 +10,7 @@ export interface ServerOptions {
   port: number;
   logger: Logger;
   routeContext: RouteContext;
+  beforeStart?: () => Promise<void>;
 }
 
 export class BridgeServer {
@@ -91,6 +92,7 @@ export class BridgeServer {
   }
 
   async start(): Promise<void> {
+    await this.options.beforeStart?.();
     const { host, port } = this.options;
     await new Promise<void>((resolve, reject) => {
       this.server.once("error", reject);

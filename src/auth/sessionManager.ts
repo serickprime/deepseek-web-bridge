@@ -39,7 +39,9 @@ export class SessionManager {
     if (!session) return null;
     if (isExpired(session, this.ttlMs)) {
       delete this.sessions[sessionId];
-      void this.persist();
+      void this.persist().catch(() => {
+        if (!(sessionId in this.sessions)) this.sessions[sessionId] = session;
+      });
       return null;
     }
     return session;
@@ -56,7 +58,12 @@ export class SessionManager {
     }
     const session = createSession(sidCookie, name);
     this.sessions[session.sessionId] = session;
-    await this.persist();
+    try {
+      await this.persist();
+    } catch (error) {
+      delete this.sessions[session.sessionId];
+      throw error;
+    }
     this.logger?.info("session_created", {
       session_id: session.sessionId,
       name: session.name,
@@ -66,9 +73,15 @@ export class SessionManager {
   }
 
   async removeSession(sessionId: string): Promise<boolean> {
-    if (!(sessionId in this.sessions)) return false;
+    const removed = this.sessions[sessionId];
+    if (!removed) return false;
     delete this.sessions[sessionId];
-    await this.persist();
+    try {
+      await this.persist();
+    } catch (error) {
+      this.sessions[sessionId] = removed;
+      throw error;
+    }
     this.logger?.info("session_removed", {
       session_id: sessionId,
       count: Object.keys(this.sessions).length,
@@ -82,9 +95,15 @@ export class SessionManager {
     for (const [id, session] of Object.entries(this.sessions)) {
       if (isExpired(session, this.ttlMs, now)) expired.push(id);
     }
+    const removed = expired.map(id => this.sessions[id]).filter((session): session is AuthSession => Boolean(session));
     for (const id of expired) delete this.sessions[id];
     if (expired.length > 0) {
-      await this.persist();
+      try {
+        await this.persist();
+      } catch (error) {
+        for (const session of removed) this.sessions[session.sessionId] = session;
+        throw error;
+      }
       this.logger?.info("sessions_purged", { count: expired.length });
     }
     return expired.length;
@@ -93,8 +112,14 @@ export class SessionManager {
   async touch(sessionId: string): Promise<void> {
     const session = this.sessions[sessionId];
     if (!session) return;
+    const previousUpdatedAt = session.updatedAt;
     session.updatedAt = Date.now();
-    await this.persist();
+    try {
+      await this.persist();
+    } catch (error) {
+      session.updatedAt = previousUpdatedAt;
+      throw error;
+    }
   }
 
   private async persist(): Promise<void> {
@@ -104,6 +129,7 @@ export class SessionManager {
       this.logger?.error("session_persist_failed", {
         error: error instanceof Error ? error.message : String(error),
       });
+      throw error;
     }
   }
 }

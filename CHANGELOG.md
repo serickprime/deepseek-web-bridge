@@ -3,6 +3,29 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-23 — Coordinate persistent session state
+
+- Добавлен единый `PersistentSessionDocument` — единственный владелец
+  `sessions.json`. Schema v2 хранит `sessions` и `links` в одном документе,
+  мигрирует legacy v1 sessions-only, links-only и mixed shapes и сохраняет
+  неизвестные sibling fields. Invalid JSON и future schema version завершают
+  startup fail-closed без перезаписи файла.
+- `FileSessionStorage` и `LineageStore` делегируют чтение/изменения общему owner;
+  мутации сериализуются через FIFO in-process queue. Bridge загружает документ
+  до начала HTTP listen, durable write failures доходят до вызывающего кода, а
+  фоновая expired-session cleanup обрабатывает ошибку без unhandled rejection.
+- `writeJsonAtomic()` использует уникальный temp-файл, очищает его при ошибке и
+  сохраняет recoverable `.bak` для Windows rename fallback; при второй ошибке
+  прежний target восстанавливается. Multi-process locking намеренно не добавлялся.
+- Добавлены 23 deterministic offline regression tests: interleaved/concurrent
+  session+lineage writes, restart, v1/v2 migration, unknown siblings,
+  invalid/future-version fail-closed, mutation failure propagation/rollback,
+  init-before-listen и atomic-file failure/recovery. Итого: 28 test files,
+  574 tests.
+- D6 переведён в `IMPLEMENTED / VERIFYING`: реализация и PB31/PB33 offline
+  evidence готовы, но defect не закрыт до независимого diff review, merge и
+  release-commit verification.
+
 ## 2026-08-23 — Define production readiness gates
 
 - Создан `PRODUCTION_READINESS.md` — единый источник production-hardening

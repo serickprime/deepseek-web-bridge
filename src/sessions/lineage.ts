@@ -1,43 +1,19 @@
-import { readJsonIfExists, writeJsonAtomic } from "../utils/atomicFile.js";
-import { isRecord } from "../utils/json.js";
 import { randomToken } from "../utils/crypto.js";
+import {
+  type PersistentSessionLink,
+  PersistentSessionDocument,
+} from "./persistentSessionDocument.js";
 
-export interface SessionLink {
-  callId: string;
-  upstreamKey: string;
-  createdAt: number;
-}
-
-const LINK_VERSION = 1;
-
-interface LinkFileShape {
-  version: number;
-  links: SessionLink[];
-}
-
-function isLink(value: unknown): value is SessionLink {
-  return (
-    isRecord(value) &&
-    typeof value.callId === "string" &&
-    typeof value.upstreamKey === "string" &&
-    typeof value.createdAt === "number"
-  );
-}
+export type SessionLink = PersistentSessionLink;
 
 export class LineageStore {
-  private readonly file: string;
   private links = new Map<string, SessionLink>();
 
-  constructor(file: string) {
-    this.file = file;
-  }
+  constructor(private readonly document: PersistentSessionDocument) {}
 
   async init(): Promise<void> {
-    const raw = await readJsonIfExists(this.file);
-    if (!isRecord(raw) || !Array.isArray(raw.links)) return;
-    for (const item of raw.links) {
-      if (isLink(item)) this.links.set(item.callId, item);
-    }
+    this.links.clear();
+    for (const item of this.document.getLinks()) this.links.set(item.callId, item);
     const now = Date.now();
     for (const [callId, link] of this.links) {
       if (now - link.createdAt > 24 * 60 * 60 * 1000) this.links.delete(callId);
@@ -49,6 +25,7 @@ export class LineageStore {
   }
 
   async record(callId: string, upstreamKey: string): Promise<void> {
+    const previous = new Map(this.links);
     if (this.links.size > 10_000) {
       const now = Date.now();
       for (const [key, link] of this.links) {
@@ -56,35 +33,44 @@ export class LineageStore {
       }
     }
     this.links.set(callId, { callId, upstreamKey, createdAt: Date.now() });
-    await this.persist();
+    try {
+      await this.persist();
+    } catch (error) {
+      this.links = previous;
+      throw error;
+    }
   }
 
   async removeByUpstreamKey(upstreamKey: string): Promise<void> {
-    let changed = false;
+    const removed: SessionLink[] = [];
     for (const [callId, link] of this.links) {
       if (link.upstreamKey === upstreamKey) {
         this.links.delete(callId);
-        changed = true;
+        removed.push(link);
       }
     }
-    if (changed) await this.persist();
+    if (removed.length === 0) return;
+    try {
+      await this.persist();
+    } catch (error) {
+      for (const link of removed) this.links.set(link.callId, link);
+      throw error;
+    }
   }
 
   async clear(): Promise<void> {
+    const previous = new Map(this.links);
     this.links.clear();
-    if (this.file === ":memory:") return;
-
-    const raw = await readJsonIfExists(this.file);
-    if (!isRecord(raw) || !Array.isArray(raw.links)) return;
-    await writeJsonAtomic(this.file, { ...raw, links: [] }, 0o600).catch(() => undefined);
+    try {
+      await this.persist();
+    } catch (error) {
+      this.links = previous;
+      throw error;
+    }
   }
 
   private async persist(): Promise<void> {
-    const payload: LinkFileShape = {
-      version: LINK_VERSION,
-      links: [...this.links.values()],
-    };
-    await writeJsonAtomic(this.file, payload, 0o600).catch(() => undefined);
+    await this.document.replaceLinks([...this.links.values()]);
   }
 }
 

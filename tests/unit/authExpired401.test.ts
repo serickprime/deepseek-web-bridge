@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { BridgeError } from "../../src/utils/errors.js";
 import { SessionStore } from "../../src/sessions/sessionStore.js";
 import { LineageStore } from "../../src/sessions/lineage.js";
+import { PersistentSessionDocument } from "../../src/sessions/persistentSessionDocument.js";
 import { CompletionHandler } from "../../src/api/handler.js";
 import type { CanonicalRequest } from "../../src/api/canonical.js";
 import type { DeepSeekClient } from "../../src/deepseek/client.js";
@@ -72,6 +73,14 @@ function fakeStream() {
 }
 
 const logger = { info: () => {}, warn: () => {}, error: () => {} } as never;
+
+async function createLineageStore(file: string): Promise<LineageStore> {
+  const document = new PersistentSessionDocument(file);
+  await document.init();
+  const lineage = new LineageStore(document);
+  await lineage.init();
+  return lineage;
+}
 
 /* ═══ 1. ensureSession 401/403 ═══ */
 
@@ -193,8 +202,7 @@ describe("DeepSeekClient.complete - 401/403 on completion", () => {
 
 describe("LineageStore.removeByUpstreamKey", () => {
   it("removes all links matching upstreamKey", async () => {
-    const tmpFile = `/tmp/lineage_test_${Date.now()}.json`;
-    const store = new LineageStore(tmpFile);
+    const store = await createLineageStore(":memory:");
     await store.record("call_1", "upstream_A");
     await store.record("call_2", "upstream_A");
     await store.record("call_3", "upstream_B");
@@ -208,8 +216,7 @@ describe("LineageStore.removeByUpstreamKey", () => {
   });
 
   it("no-op when upstreamKey has no links", async () => {
-    const tmpFile = `/tmp/lineage_test_${Date.now()}.json`;
-    const store = new LineageStore(tmpFile);
+    const store = await createLineageStore(":memory:");
     await store.record("call_1", "upstream_A");
     await store.removeByUpstreamKey("nonexistent");
     expect(store.getUpstreamKey("call_1")).toBe("upstream_A");
@@ -224,8 +231,7 @@ describe("CompletionHandler - auth expired resets", () => {
 
   beforeEach(async () => {
     sessionStore = new SessionStore();
-    lineage = new LineageStore(`/tmp/lineage_handler_test_${Date.now()}.json`);
-    await lineage.init();
+    lineage = await createLineageStore(":memory:");
   });
 
   function makeHandler(deepseek: unknown) {

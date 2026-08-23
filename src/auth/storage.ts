@@ -1,5 +1,4 @@
-import { readJsonIfExists, writeJsonAtomic } from "../utils/atomicFile.js";
-import { isRecord } from "../utils/json.js";
+import type { PersistentSessionDocument } from "../sessions/persistentSessionDocument.js";
 import type { AuthSession, SessionMap } from "./session.js";
 
 export interface SessionStorage {
@@ -7,47 +6,22 @@ export interface SessionStorage {
   save(map: SessionMap): Promise<void>;
 }
 
-const SESSION_FILE_VERSION = 1;
-
-interface SessionFileShape {
-  version: number;
-  sessions: AuthSession[];
-}
-
-function isAuthSession(value: unknown): value is AuthSession {
-  return (
-    isRecord(value) &&
-    typeof value.sessionId === "string" &&
-    typeof value.sidCookie === "string" &&
-    typeof value.createdAt === "number" &&
-    typeof value.updatedAt === "number"
-  );
-}
-
-function normalizeFile(value: unknown): SessionMap {
-  if (!isRecord(value)) return {};
-  if (!Array.isArray(value.sessions)) return {};
+function sessionsToMap(sessions: AuthSession[]): SessionMap {
   const map: SessionMap = {};
-  for (const raw of value.sessions) {
-    if (!isAuthSession(raw)) continue;
-    map[raw.sessionId] = raw;
+  for (const session of sessions) {
+    map[session.sessionId] = session;
   }
   return map;
 }
 
 export class FileSessionStorage implements SessionStorage {
-  constructor(private readonly file: string) {}
+  constructor(private readonly document: PersistentSessionDocument) {}
 
   async load(): Promise<SessionMap> {
-    const raw = await readJsonIfExists(this.file);
-    return normalizeFile(raw);
+    return sessionsToMap(this.document.getSessions());
   }
 
   async save(map: SessionMap): Promise<void> {
-    const payload: SessionFileShape = {
-      version: SESSION_FILE_VERSION,
-      sessions: Object.values(map),
-    };
-    await writeJsonAtomic(this.file, payload, 0o600);
+    await this.document.replaceSessions(Object.values(map));
   }
 }
