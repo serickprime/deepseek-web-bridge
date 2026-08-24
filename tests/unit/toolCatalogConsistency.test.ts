@@ -222,7 +222,7 @@ describe("D7 tool catalog consistency", () => {
     expect(prompt).not.toContain("D".repeat(1_001));
   });
 
-  it("keeps D11 full nested schema fidelity explicitly out of D7", () => {
+  it("preserves D7 catalog identity while D11 supplies full nested schema fidelity", () => {
     const prompt = buildToolPrompt([{
       name: "NestedSchema",
       description: "Nested schema control",
@@ -241,8 +241,8 @@ describe("D7 tool catalog consistency", () => {
     }]);
     const catalog = prompt.split("\n\n## RULES")[0]!;
 
-    expect(catalog).toContain("Arguments: path, nested");
-    expect(catalog).not.toContain("D11_ENUM_MARKER");
-    expect(catalog).not.toContain("d11_deep_flag");
+    expect(catalog).toContain("Input schema:");
+    expect(catalog).toContain("D11_ENUM_MARKER");
+    expect(catalog).toContain("d11_deep_flag");
   });
 });

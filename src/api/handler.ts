@@ -8,7 +8,7 @@ import { KeyedMutex } from "../sessions/mutex.js";
 import type { SessionStore } from "../sessions/sessionStore.js";
 import { resolveClientIdentity, resolveUpstreamIdentity } from "../sessions/sessionResolver.js";
 import { LineageStore } from "../sessions/lineage.js";
-import { buildToolPrompt } from "../tools/toolPrompt.js";
+import { buildToolCatalog } from "../tools/toolPrompt.js";
 import { buildToolNames } from "../deepseek/client.js";
 import type { ProtocolStream } from "../server/protocolStream.js";
 import type { CanonicalToolCall } from "./canonical.js";
@@ -89,6 +89,8 @@ export class CompletionHandler {
     const { deepseek, sessionStore, lineage, logger } = this.options;
     const { request, protocol, headers, body, stream } = input;
     const requestLogger = input.logger ?? logger;
+
+    buildToolCatalog(request.tools);
 
     const clientIdentity = resolveClientIdentity(headers);
     const explicitUpstream = resolveUpstreamIdentity(body);

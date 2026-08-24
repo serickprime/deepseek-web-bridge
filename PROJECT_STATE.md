@@ -35,7 +35,8 @@ D9 natural directory listing classifier закрыт после deterministic co
 live verification RU typo / EN concrete listing / informational control. Открытых
 P1 — 0. Остальные
 приоритеты и gates — в
-`PRODUCTION_READINESS.md`. D11 schema fidelity не менялась.
+`PRODUCTION_READINESS.md`. D11 full schema transport реализован offline и имеет
+статус `IMPLEMENTED / VERIFYING`; independent review и Windows live ещё нужны.
 D1 остаётся неподтверждённой/deferred P3.
 
 Проект использует **неофициальные** внутренние маршруты веб-сайта DeepSeek
@@ -102,14 +103,14 @@ D1 остаётся неподтверждённой/deferred P3.
 | 7. DeepSeek | pow (WASM), sseParser, updateParser, client | ✅ готово |
 | 8. Server | middleware, output-адаптеры, protocolStream, routes, server | ✅ готово |
 | 9. Entrypoint | app.ts, index.ts, start.ts | ✅ готово |
-| 10. Тесты | 34 файла, 776 тестов | ✅ готово |
+| 10. Тесты | 35 файлов, 799 тестов | ✅ готово |
 | 11. Скрипты | desktopStart, cdp, auth, doctor, launcher, live, real-OS platform smoke | ✅ live-часть работает |
 | 12. Веб-интерфейс | Bridge Console на `GET /` (Mileo dark theme, two-panel, diagnostics, model picker) | ✅ готово |
 
 **Проверки сейчас:**
 - `npm run typecheck` — ✅ без ошибок.
 - `npm run build` — ✅ собирается.
-- `npm test` — ✅ 776/776 (Windows process-lifecycle case требует разрешённый
+- `npm test` — ✅ 799/799 (Windows process-lifecycle case требует разрешённый
   `taskkill`; sandbox-only запуск отдельно воспроизводит известный D10 finding).
 - `npm run test:platform` — ✅ локально на Windows: real process/platform,
   `buildConfig`, Bridge HTTP, Unicode cwd и env propagation без DeepSeek auth.
@@ -153,12 +154,14 @@ D1 остаётся неподтверждённой/deferred P3.
 - D7 PASS B устранил silent 33+ catalog mismatch: `buildToolPrompt()` больше
   не обрезает `available` после 32 и описывает все tools, которые остаются
   разрешены parser/handler после case-insensitive фильтрации `Artifact`.
-  Исходный порядок, duplicates, 1000-char description cap и текущая
-  top-level-only schema representation сохранены. 17 focused regressions
+  Исходный порядок, duplicates и 1000-char description cap сохранены. На этапе
+  D7 schema representation оставалась top-level-only; D11 PASS B позднее
+  заменила её полным compact JSON без изменения D7 membership contract. 17
+  focused regressions
   покрывают 0/1/32/33/35/39, Artifact positions, ordering/duplicates, 33+
   handler `tool_use`, continuation и unknown rejection. PB14 подтверждает
   только catalog identity, PB18 — 34th+/unknown, PB20 — catalog stability;
-  D8 telemetry и D11 full nested schema fidelity намеренно не менялись.
+  D8 telemetry и D11 full nested schema fidelity намеренно не менялись самим D7.
   Independent review — PASS; implementation `b09067e`. Windows live с Claude
   Code 2.1.241 и `deepseek-v4-flash` получил 39 tools: `Artifact` received #2
   был unavailable, поэтому available catalog содержал 38; `WebFetch` received
@@ -168,6 +171,21 @@ D1 остаётся неподтверждённой/deferred P3.
   `upstream_linked:true` и дошёл до `completion_done`. PB14 catalog identity,
   PB18 34th+/unknown и PB20 catalog stability — PASS; D11 schema fidelity
   остаётся открытой, D8 теперь `CLOSED`. D7 — `CLOSED`; открытых P1 — 1.
+- D11 PASS B формирует один authoritative full-schema catalog после того же
+  case-insensitive `Artifact` filtering: каждое available occurrence содержит
+  полный compact `JSON.stringify(inputSchema)`, round-trip проверяется без
+  потерь, а schema не обрезается. Tool order, duplicates и 1000-char tool
+  description cap сохранены. Initial prompt и guard-repair без гарантированного
+  repair-candidate parent получают один и тот же catalog; parser validation и
+  отдельный D12 nested-array defect не менялись.
+- Dynamic catalog имеет preflight budget 128 KiB / 131072 UTF-8 bytes до
+  session creation, upstream и downstream `stream.start()`. Превышение даёт
+  typed `REQUEST_TOO_LARGE`/413. Measurements: 25 tools — 37802 bytes, 30 —
+  43375, 34 — 51183; largest entry — 4073. Envelope
+  `51183 + 5×4073 = 71548` оставляет 59524 bytes headroom; exact historical
+  39/38 size не заявляется. 23 focused D11 tests покрывают PB14/PB17/PB18,
+  exact limit/+1 и D7/D12 controls. D11 — `IMPLEMENTED / VERIFYING`; independent
+  review и Windows live остаются обязательными.
 - D8 PASS B передаёт уже существующий request-scoped logger явно по всей цепочке
   route → handler → DeepSeek client → PoW. Один случайный process-local salt и
   domain separation создают необратимые `client_ref`, `upstream_ref`,

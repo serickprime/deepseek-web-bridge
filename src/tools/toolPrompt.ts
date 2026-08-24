@@ -1,10 +1,18 @@
+import { isDeepStrictEqual } from "node:util";
 import type { CanonicalTool } from "../api/canonical.js";
+import { BridgeError } from "../utils/errors.js";
 
 const UNAVAILABLE_BRIDGE_TOOLS = new Set(["artifact"]);
+export const TOOL_CATALOG_MAX_BYTES = 128 * 1024;
 
 export interface BridgeToolSelection {
   available: CanonicalTool[];
   unavailableNames: string[];
+}
+
+export interface BuiltToolCatalog extends BridgeToolSelection {
+  text: string;
+  utf8Bytes: number;
 }
 
 export function selectBridgeTools(tools: CanonicalTool[]): BridgeToolSelection {
@@ -20,27 +28,57 @@ export function selectBridgeTools(tools: CanonicalTool[]): BridgeToolSelection {
   return { available, unavailableNames };
 }
 
-export function buildToolPrompt(tools: CanonicalTool[]): string {
-  const { available } = selectBridgeTools(tools);
-  if (available.length === 0) return "";
+function serializeInputSchema(inputSchema: Record<string, unknown>): string {
+  let serialized: string | undefined;
+  try {
+    serialized = JSON.stringify(inputSchema);
+  } catch {
+    throw new BridgeError("Tool input schema must be valid JSON.", {
+      code: "INVALID_REQUEST",
+      status: 400,
+    });
+  }
+  if (serialized === undefined || !isDeepStrictEqual(JSON.parse(serialized), inputSchema)) {
+    throw new BridgeError("Tool input schema must round-trip as valid JSON without data loss.", {
+      code: "INVALID_REQUEST",
+      status: 400,
+    });
+  }
+  return serialized;
+}
+
+export function buildToolCatalog(tools: CanonicalTool[]): BuiltToolCatalog {
+  const { available, unavailableNames } = selectBridgeTools(tools);
+  if (available.length === 0) return { available, unavailableNames, text: "", utf8Bytes: 0 };
 
   const safe = available.map(t => ({
     name: t.name,
     description: (t.description ?? "").slice(0, 1000),
-    parameters: t.inputSchema ?? {},
+    inputSchema: serializeInputSchema(t.inputSchema),
   }));
 
   const toolList = safe.map(t => {
     const desc = t.description || "No description";
-    const args = Object.keys((t.parameters as Record<string, unknown>)?.properties as Record<string, unknown> || {});
-    return `- ${t.name}\n  Purpose: ${desc}\n  Arguments: ${args.join(", ") || "none"}`;
+    return `- ${t.name}\n  Purpose: ${desc}\n  Input schema: ${t.inputSchema}`;
   }).join("\n");
+  const text = `Available tools:\n${toolList}`;
+  const utf8Bytes = Buffer.byteLength(text, "utf8");
+  if (utf8Bytes > TOOL_CATALOG_MAX_BYTES) {
+    throw new BridgeError(
+      `Tool catalog is ${utf8Bytes} UTF-8 bytes and exceeds the ${TOOL_CATALOG_MAX_BYTES}-byte limit.`,
+      { code: "REQUEST_TOO_LARGE", status: 413 },
+    );
+  }
+  return { available, unavailableNames, text, utf8Bytes };
+}
+
+export function buildToolPromptFromCatalog(catalog: string): string {
+  if (!catalog) return "";
 
   return [
     "",
     "--- TOOL REQUEST SYSTEM ---",
-    "Available tools:",
-    toolList,
+    catalog,
     "",
     "## RULES (mandatory, no exceptions)",
     "",
@@ -136,6 +174,10 @@ export function buildToolPrompt(tools: CanonicalTool[]): string {
     "   the current tool_result cycle.",
     "--- END TOOL REQUEST SYSTEM ---",
   ].join("\n");
+}
+
+export function buildToolPrompt(tools: CanonicalTool[]): string {
+  return buildToolPromptFromCatalog(buildToolCatalog(tools).text);
 }
 
 export function buildToolNames(tools: CanonicalTool[]): Set<string> {

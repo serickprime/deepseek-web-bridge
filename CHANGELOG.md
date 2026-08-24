@@ -3,6 +3,31 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-24 — Transport full tool schemas safely
+
+- D11 PASS B заменяет top-level argument-name representation полным compact
+  `JSON.stringify(inputSchema)` для каждого available tool occurrence. Порядок,
+  duplicates, case-insensitive `Artifact` filtering и 1000-char description cap
+  сохранены; schema не обрезается и проверяется на lossless JSON round-trip.
+- Один authoritative catalog используется initial prompt и guard-repair prompt,
+  когда нет гарантированного repair-candidate parent context. Parser/schema
+  validation, D12 nested-array ordering, retry count, sessions/lineage и SSE
+  lifecycle не менялись.
+- Введён фиксированный лимит полного dynamic catalog: 128 KiB / 131072 UTF-8
+  bytes. Handler выполняет preflight до session creation, upstream completion и
+  `stream.start()`; превышение даёт typed `REQUEST_TOO_LARGE`/413 без schema
+  truncation. В telemetry содержимое prompt/schema не добавлялось.
+- Безопасные interactive measurements показали динамические каталоги 25 tools =
+  37802 bytes, 30 = 43375, 34 = 51183; largest observed entry = 4073 bytes.
+  Conservative envelope `51183 + 5×4073 = 71548` оставляет 59524 bytes до
+  лимита. Historical 39/38 exact size не заявляется.
+- Добавлены 23 focused D11 regressions для PB14/PB17/PB18 scope: root/nested/
+  array/`oneOf`/`$defs`, Unicode/escaping, semantic round-trip, exact budget/+1,
+  dynamic 25/30/34/38/40 catalogs, Artifact/Tool33+, initial/no-parent repair,
+  pre-stream rejection, D7 compatibility, parser controls и explicit D12
+  pending control. D11 переведён в `IMPLEMENTED / VERIFYING`; live verification
+  ещё не выполнялась.
+
 ## 2026-08-24 — Close D9 after live verification
 
 - D9 закрыт после implementation `5a5b755e96b6dc965d6013c53a163259473c510d`

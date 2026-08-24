@@ -157,9 +157,20 @@ allowlist, arguments — объект, валидный JSON, ограничен
 Каталог tools имеет один membership contract: после case-insensitive исключения
 недоступного `Artifact` prompt описывает все имена, которые разрешены parser и
 handler, сохраняя входной порядок. Description каждого tool по-прежнему
-ограничен 1000 символами. Prompt показывает только имена top-level arguments;
-полная fidelity nested JSON schema остаётся отдельным открытым D11 и не является
-частью D7 catalog consistency.
+ограничен 1000 символами. Для каждого occurrence prompt содержит полный compact
+`JSON.stringify(inputSchema)`: root constraints, `required`, types, enums,
+nested object/array schemas, `oneOf`, `$defs`, descriptions и
+`additionalProperties` сохраняются losslessly и не обрезаются. Initial prompt и
+guard-repair без гарантированного repair-candidate parent context используют
+один и тот же authoritative schema catalog.
+
+Полный dynamic catalog ограничен 128 KiB / 131072 UTF-8 bytes. Размер считается
+после `Artifact` filtering, с сохранением order/duplicates и description cap,
+до session creation, upstream completion и downstream `stream.start()`.
+Превышение fail-closed возвращает typed `REQUEST_TOO_LARGE`/413; частичный или
+обрезанный каталог не отправляется. Catalog/schema content не логируется.
+Этот transport contract не валидирует arguments по JSON Schema и не меняет
+известную D12 nested-array parser ordering — D12 остаётся отдельным defect.
 
 `src/tools/toolRetry.ts` — максимум одна корректирующая попытка. Бесконечных
 retry нет. Bridge не выполняет инструменты — он только сообщает клиенту, какой

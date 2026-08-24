@@ -2,9 +2,9 @@
 
 > **Статус:** `HARDENING IN PROGRESS`
 >
-> **Baseline:** `5a5b755e96b6dc965d6013c53a163259473c510d` — D9 implementation
+> **Baseline:** `fix/d11-full-tool-schema` — D11 PASS B implementation branch
 >
-> **Offline baseline:** 34 test files, 776 tests (D9 PASS B branch)
+> **Offline baseline:** 35 test files, 799 tests (D11 PASS B branch)
 >
 > **Открыто:** P0 — 0, P1 — 0, P2 — 6; deferred P3 — 1
 > **Production scope:** Claude Code → Anthropic-compatible Bridge → DeepSeek Web → Bridge → Claude Code
@@ -57,7 +57,7 @@ transport, policy и persistence defects не объединяются в оди
 | --- | --- | --- |
 | Claude Code — реальный executor tools; Bridge tools самостоятельно не выполняет. | Да | `REPO`: `CompletionHandler` отдаёт Anthropic `tool_use`; execution находится у клиента. |
 | DeepSeek только выбирает tool; Bridge переводит запрос, Claude Code выполняет и возвращает `tool_result`. | Да | `REPO`, normal flow tests в `tests/unit/sse.test.ts` и `tests/unit/tools.test.ts`. |
-| Каждый разрешённый Bridge tool описан DeepSeek в prompt после explicit unavailable filtering. | Да | D7 CLOSED: 17 deterministic regressions и Windows live с 39 received / 38 available tools подтвердили catalog identity; available #33 `WebFetch` выполнен реально. D11 full schema fidelity остаётся открытым. |
+| Каждый разрешённый Bridge tool описан DeepSeek в prompt после explicit unavailable filtering. | Да | D7 CLOSED подтверждает membership; D11 `IMPLEMENTED / VERIFYING` добавляет полный lossless compact `inputSchema` каждого occurrence и 128 KiB fail-closed preflight. Independent review/live D11 ещё нужны. |
 | Fabricated text никогда не считается `tool_result`. | Да для поддержанного scope | D9 CLOSED: natural listing classifier gap закрыт deterministic PB02/PB05 coverage и live RU typo / EN listing / informational controls. |
 | Historical `tool_result` не подтверждает новое действие. | Да | L2 current-cycle guard и D5 L3 correlated selection защищены deterministic tests; D5 CLOSED. |
 | Mutation нельзя считать успешной без подходящего evidence. | Частично | Multi-step/fresh-state guards закрыты для поддержанного scope; D13 остаётся. |
@@ -85,7 +85,7 @@ transport, policy и persistence defects не объединяются в оди
 | **D8** | P1 | L4 / L1,L2,L3 | `CLOSED`; D16 merged | Request-scoped logger явно проходит route → handler → DeepSeek → PoW; opaque process-local HMAC refs и safe lifecycle fields связывают L1–L4 без raw IDs/content. | `TEST`: independent review PASS; 12 focused cases / 34 files / 701 tests, typecheck/build/Windows test:platform/diff-check PASS. `LIVE`: Windows, Claude Code 2.1.241, `deepseek-v4-flash`: real Bash `pwd` → `/d/Проекты/test`; request_ref L1–L4, matching process-local call/upstream/chat refs through linked continuation, safe tool events, visible attempt/stage/latency fields and no raw marker/identity/payloads. PB20/PB24/PB28/PB34 telemetry scope PASS; cross-restart ref stability не заявляется. | D3/D4 event taxonomy | `6987ae5cc1983e7cbbe3a5d497a72eeebf8047f3` |
 | **D9** | P1 | L2 | `CLOSED` | Existing classifier использует narrow concrete-directory-listing matcher для natural RU/EN variants и explicit `дериктор...`; concrete listing переопределяет generic informational `what is` без broad/fuzzy matching. | `TEST`: 75 focused regressions; direct A–L, PB05 negatives, fabricated final rejection, Bash/Glob/ListDirectory acceptance, fresh/historical evidence и no-listing-tool fallback; 34 files / 776 tests, typecheck/build/Windows test:platform/diff-check PASS. `LIVE`: Claude Code прислал 39 tools; exact RU typo request вызвал real Bash `tool_use`, correlated lineage сохранила тот же upstream, fresh `tool_result` разрешил final; EN `what is inside the current folder?` вызвал real tools, informational directory control остался text-only. | После P0 и D7 | `5a5b755e96b6dc965d6013c53a163259473c510d`; base mechanism `bbd13b2` |
 | **D10** | P2 | L1 / platform | `NEEDS REPRODUCTION` | Graceful shutdown/PID timing может видеть tracked child живым спустя ~1s. | `HANDOFF`: test иногда падал, orphan позже не оставался. Current sandbox также блокировал `taskkill`, вне sandbox test прошёл; platform cause не изолирован. | D8 telemetry | — |
-| **D11** | P2 | L2 | `CONFIRMED STATIC GAP` | Prompt-facing tool schema перечисляет только имена arguments, не полную JSON schema semantics. | `REPO`: `toolPrompt.ts` извлекает `Object.keys(properties)`; types/required/nested constraints модели не показываются. Production impact требует PASS A. | D7 single catalog | — |
+| **D11** | P2 | L2 | `IMPLEMENTED / VERIFYING` | Каждый available occurrence описан полным compact lossless `JSON.stringify(inputSchema)`; initial/no-parent repair используют один catalog. 128 KiB UTF-8 preflight fail-closed выполняется до session/upstream/stream exposure, без truncation или content logging. | `TEST`: 23 focused cases; PB14/PB17/PB18 root/nested/array/enum/`oneOf`/`$defs`, Unicode, round-trip, exact 131072/+1, dynamic 25/30/34/38/40, Artifact/Tool33+, D7 compatibility и D12 pending control. 35 files / 799 tests. Measurements: max observed catalog 51183, entry 4073; projected 71548 leaves 59524 bytes. Independent review и Windows live pending. | D7 single catalog; D12 отдельно | `fix/d11-full-tool-schema` |
 | **D12** | P2 | L2 | `NEEDS REPRODUCTION` | Подозреваемая неверная validation ordering для nested arrays. | `REPO`: `inspectNestedValues()` проверяет `!isPlainObject(value)` до `Array.isArray(value)`, делая array traversal недостижимым. Нужен exact parser reproduction и desired contract. | D11 schema contract | — |
 | **D13** | P2 | L2 | `KNOWN LIMITATION` | 3+ distinct file targets и часть same-kind steps схлопываются в generic obligation. | `REPO`/history: two-file split intentionally gated to exactly two; 3+ остаётся fallback. | D7, frozen mutation cases | — |
 | **D14** | P2 | L1 | `NEEDS VERIFICATION` | Anthropic `system` content-block arrays могут теряться при normalization. | `REPO`: `normalizeAnthropic()` читает system через string-only `stringField`; tests покрывают только string. Нужен diagnostic protocol case до объявления runtime defect. | Нет | — |
@@ -105,7 +105,7 @@ transport, policy и persistence defects не объединяются в оди
 | D8 | Каждый request имеет redacted correlation across L1–L4: request_ref, opaque client/upstream/chat/call refs, history_entries, parent_state, отдельные completion+guard attempts, transport attempt, stage, latency и failure class. | Logger sink assertions, concurrency isolation, redaction/no raw prompt/secrets, rate-limit and stream failures. | PB20, PB24, PB28, PB34 |
 | D9 | Existing detector требует fresh current-cycle result для всех benchmark phrases; informational controls remain tool-free. | Exact typo + RU/EN variants, negatives, root `DeepSeekClient.complete()` rejection/real result acceptance. | PB02, PB05 |
 | D10 | Tracked child/server terminate within documented deadline; no orphan; untracked process survives; platform/sandbox distinctions explicit. | Windows/macOS/Linux process-owner tests plus desktop live shutdown. | PB39 |
-| D11 | Prompt-facing representation сохраняет required/type/nested schema within documented size limit; no silent schema truncation. | Real Claude schema fixture comparison, nested object/array/enum/required cases, size cap. | PB14, PB17–PB18 |
+| D11 | Prompt-facing representation сохраняет required/type/nested schema within 128 KiB UTF-8 catalog limit; no silent schema truncation; overflow fails before upstream/downstream exposure. | Dynamic Claude catalog measurements; nested object/array/enum/required/`oneOf`/`$defs`, semantic round-trip, exact boundary/+1, initial/no-parent repair. | PB14, PB17–PB18 |
 | D12 | Valid nested arrays accepted up to depth limit; unsafe keys/depth rejected; contract documented. | Exact nested array reproduction, nested object+array, depth boundary, pollution keys. | PB14–PB15 |
 | D13 | 3+ distinct mutations получают separate evidence or request is conservatively rejected; one result cannot close several targets. | 3/4 files, same-kind steps, partial/failure/duplicate prevention. | PB07, PB09–PB10 |
 | D14 | Anthropic string and block-array system content preserve ordered text exactly or unsupported shape returns INVALID_REQUEST. | Text blocks, multiple blocks, mixed/unknown blocks, Unicode, root prompt capture. | PB14 |
@@ -196,7 +196,7 @@ versioned addendum; новые regressions добавляются новыми I
 | Gate | Pass condition | Baseline status |
 | --- | --- | --- |
 | G1 | `npm run typecheck` green | PASS (recheck each branch) |
-| G2 | `npm test` 100% green | PASS: 689/689 on D7 PASS B branch (recheck release commit) |
+| G2 | `npm test` 100% green | PASS: 799/799 on D11 PASS B branch (recheck release commit) |
 | G3 | `npm run build` green | PASS (recheck each branch) |
 | G4 | `npm run test:platform` green | PASS on current Windows baseline |
 | G5 | CI Windows/Linux/macOS green for release commit | NEEDS RELEASE-COMMIT VERIFICATION |
@@ -282,7 +282,7 @@ green, создавать новый mechanism при подходящем су�
 | `docs/architecture.md` заявлял retries для HTTP 429/temporary 5xx, но completion retry мог дублировать generation. | D3 PASS B: completion POST выполняется один раз; typed retryable error передаёт решение caller-у, challenge сохраняет bounded retry. |
 | `SESSION_LINK_TTL_MS=10m`, а `LineageStore` hardcodes 24h и не проверяет age при lookup. | D5 CLOSED: единый TTL применяется при lookup/init/mutations; PB31/PB32 и Windows persisted-lineage restart verification PASS. |
 | Документация отмечала sibling-safe только `lineage.clear()`, тогда как normal writers перезаписывали разные shapes. | D6 CLOSED: единый schema-v2 owner, deterministic tests и Windows Claude Code live restart/resume green. |
-| Tool allowlist мог содержать 39, а prompt silently описывал 32. | D7 CLOSED: count truncation удалён; deterministic catalog identity и Windows live с реальным available #33 `WebFetch` — PASS. D8 telemetry и D11 schema fidelity остаются отдельными. |
+| Tool allowlist мог содержать 39, а prompt silently описывал 32. | D7 CLOSED: count truncation удалён; deterministic catalog identity и Windows live с реальным available #33 `WebFetch` — PASS. D11 теперь `IMPLEMENTED / VERIFYING`: полный schema transport и bounded catalog preflight реализованы, live ещё pending. |
 | Anthropic system array, output limit и streaming usage не покрыты текущими normalize/lifecycle tests. | D14/D15, без преждевременного заявления полного runtime impact. |
 | D1 A/B/C evidence отсутствует в repo и доступен только как diagnostic handoff. | D1 остаётся unconfirmed/deferred. |
 
@@ -293,6 +293,11 @@ green, создавать новый mechanism при подходящем су�
 verification; D9 закрыт после deterministic coverage и live verification.
 Открытых P0/P1 нет; G6 и G16 пройдены. P2 defects и остальные release gates
 остаются открытыми.
+
+D11 имеет статус `IMPLEMENTED / VERIFYING`: full-schema transport, 128 KiB
+preflight и PB14/PB17/PB18 deterministic scope реализованы offline. D11 не
+закрыт до independent review и Windows Claude Code live verification; D12
+nested-array parser ordering намеренно остаётся отдельным открытым defect.
 
 D9 live verification выполнялась с реальным 39-tool Claude catalog и подтвердила
 PB02/PB05 scope. Во второй части наблюдались upstream `DEEPSEEK_RATE_LIMIT`, один

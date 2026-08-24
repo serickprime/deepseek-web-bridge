@@ -16,7 +16,7 @@ import type { UpstreamSessionState } from "../sessions/sessionStore.js";
 import { PowSolver, parseChallengePayload } from "./pow.js";
 import { isDeepSeekRateLimitHint, SseAccumulator, type SseEvent } from "./sseParser.js";
 import { DeepSeekPatchParser } from "./updateParser.js";
-import { buildToolPrompt, selectBridgeTools } from "../tools/toolPrompt.js";
+import { buildToolCatalog, buildToolPromptFromCatalog, selectBridgeTools } from "../tools/toolPrompt.js";
 import { SessionCreateLimiter } from "../utils/sessionCreateLimiter.js";
 import {
   inspectToolCallFromOutput,
@@ -246,9 +246,9 @@ export class DeepSeekClient {
     const startedAt = Date.now();
     this.assertAuthGeneration(authGeneration);
     const modelSelection = resolveModelSelection(request.model, request.reasoning, request.search);
-    const toolSelection = selectBridgeTools(request.tools);
-    const toolPrompt = buildToolPrompt(toolSelection.available);
-    const allowedNames = toolSelection.available.map(t => t.name);
+    const toolCatalog = buildToolCatalog(request.tools);
+    const toolPrompt = buildToolPromptFromCatalog(toolCatalog.text);
+    const allowedNames = toolCatalog.available.map(t => t.name);
     const hasTools = allowedNames.length > 0;
     const guardEvidence = inspectCurrentToolCycle(request.messages, allowedNames);
     const fulfilledObligationIds = new Set(guardEvidence.fulfilledObligationIds);
@@ -297,8 +297,8 @@ export class DeepSeekClient {
       const repeatedFailedToolName = isRepeatedFailedToolCall(toolCall, guardEvidence)
         ? toolCall?.name
         : undefined;
-      const retryPrompt = createToolRetryPrompt(allowedNames, {
-        unavailableToolNames: toolSelection.unavailableNames,
+      const retryInstruction = createToolRetryPrompt(allowedNames, {
+        unavailableToolNames: toolCatalog.unavailableNames,
         failedToolNames: guardEvidence.failedToolNames,
         missingActionKinds: guardEvidence.missingActionKinds,
         missingObligations: guardEvidence.missingObligations.map(obligation => obligation.description),
@@ -309,6 +309,9 @@ export class DeepSeekClient {
         repeatedFailedToolName,
         malformedToolIntent,
       });
+      const retryPrompt = attemptParentState === "repair_candidate"
+        ? retryInstruction
+        : [toolCatalog.text, retryInstruction].filter(Boolean).join("\n\n");
       logger.warn("completion_guard_retry", {
         stage: "guard",
         outcome: "retry",
