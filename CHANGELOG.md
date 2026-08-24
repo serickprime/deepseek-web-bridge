@@ -3,6 +3,22 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-24 — Align allowed and described tool catalogs
+
+- D7 PASS B удалил отдельный 32-tool cap из `buildToolPrompt()`: после
+  case-insensitive фильтрации недоступного `Artifact` prompt теперь описывает
+  весь authoritative available catalog в исходном порядке. Parser/handler
+  allowlist, duplicate policy, 1000-char description bound и текущая
+  top-level-only schema representation не менялись.
+- Добавлены 17 deterministic regressions для каталогов 0/1/32/33/35/39,
+  Artifact в разных позициях, ordering/duplicates, реального handler
+  `tool_use` и `tool_result` continuation для 33+ tool, unknown rejection и
+  description cap. PB14 покрывает только catalog identity, PB18 — 34th+/unknown,
+  PB20 — catalog stability.
+- D11 full nested schema fidelity намеренно остаётся открытым и защищён
+  отдельным negative control. D7 переведён в `IMPLEMENTED / VERIFYING`; до
+  independent/live verification не закрывается, число открытых P1 остаётся 3.
+
 ## 2026-08-24 — Close D5 after live verification
 
 - D5 implementation commits `3614d4b` и `051e3ec` прошли independent review;

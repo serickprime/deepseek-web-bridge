@@ -28,9 +28,9 @@ isolation закрыт после PB29/PB30, independent review и Windows Claud
 live verification. D5 lineage freshness/current-cycle selection закрыт после
 independent review, deterministic PB31/PB32 и ограниченной Windows restart/live
 verification. Открытых P0 больше нет; G6 — PASS; открытых P1 — 3. Остальные
-приоритеты и gates —
-в `PRODUCTION_READINESS.md`; D1 остаётся
-неподтверждённой/deferred P3.
+приоритеты и gates — в `PRODUCTION_READINESS.md`. D7 tool catalog consistency
+реализован offline и остаётся `IMPLEMENTED / VERIFYING`; D11 schema fidelity
+не менялся. D1 остаётся неподтверждённой/deferred P3.
 
 Проект использует **неофициальные** внутренние маршруты веб-сайта DeepSeek
 (`/api/v0/chat/completion`), требует PoW (sha3 через WASM) и живую авторизованную
@@ -96,14 +96,14 @@ verification. Открытых P0 больше нет; G6 — PASS; открыт
 | 7. DeepSeek | pow (WASM), sseParser, updateParser, client | ✅ готово |
 | 8. Server | middleware, output-адаптеры, protocolStream, routes, server | ✅ готово |
 | 9. Entrypoint | app.ts, index.ts, start.ts | ✅ готово |
-| 10. Тесты | 32 файла, 672 теста | ✅ готово |
+| 10. Тесты | 33 файла, 689 тестов | ✅ готово |
 | 11. Скрипты | desktopStart, cdp, auth, doctor, launcher, live, real-OS platform smoke | ✅ live-часть работает |
 | 12. Веб-интерфейс | Bridge Console на `GET /` (Mileo dark theme, two-panel, diagnostics, model picker) | ✅ готово |
 
 **Проверки сейчас:**
 - `npm run typecheck` — ✅ без ошибок.
 - `npm run build` — ✅ собирается.
-- `npm test` — ✅ 672/672 (Windows process-lifecycle case требует разрешённый
+- `npm test` — ✅ 689/689 (Windows process-lifecycle case требует разрешённый
   `taskkill`; sandbox-only запуск отдельно воспроизводит известный D10 finding).
 - `npm run test:platform` — ✅ локально на Windows: real process/platform,
   `buildConfig`, Bridge HTTP, Unicode cwd и env propagation без DeepSeek auth.
@@ -144,9 +144,17 @@ verification. Открытых P0 больше нет; G6 — PASS; открыт
   persisted lineage (`upstream_linked:true`). D6 — `CLOSED`; PB31 и релевантные
   persistence-инварианты PB33 live verification — PASS, controlled concurrency/
   crash часть PB33 остаётся подтверждённой deterministic offline tests.
-- Отдельное D7 evidence: Claude Code 2.1.241 в этом live-run прислал 39 tools,
-  тогда как prompt catalog описывает только первые 32. D7 не исправлялся и
-  остаётся отдельной будущей задачей.
+- D7 PASS B устранил silent 33+ catalog mismatch: `buildToolPrompt()` больше
+  не обрезает `available` после 32 и описывает все tools, которые остаются
+  разрешены parser/handler после case-insensitive фильтрации `Artifact`.
+  Исходный порядок, duplicates, 1000-char description cap и текущая
+  top-level-only schema representation сохранены. 17 focused regressions
+  покрывают 0/1/32/33/35/39, Artifact positions, ordering/duplicates, 33+
+  handler `tool_use`, continuation и unknown rejection. PB14 подтверждает
+  только catalog identity, PB18 — 34th+/unknown, PB20 — catalog stability;
+  D8 telemetry и D11 full nested schema fidelity намеренно не менялись.
+  D7 — `IMPLEMENTED / VERIFYING`; открытых P1 остаётся 3 до independent/live
+  verification.
 - D3 PASS B ввёл explicit upstream terminal classification: new `FINISHED` и
   old `response_message_done` — единственные success terminals, `INCOMPLETE` —
   failure. Empty HTTP 200 и EOF до terminal дают `STREAM_INCOMPLETE`/502;

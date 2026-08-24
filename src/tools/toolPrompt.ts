@@ -24,7 +24,7 @@ export function buildToolPrompt(tools: CanonicalTool[]): string {
   const { available } = selectBridgeTools(tools);
   if (available.length === 0) return "";
 
-  const safe = available.slice(0, 32).map(t => ({
+  const safe = available.map(t => ({
     name: t.name,
     description: (t.description ?? "").slice(0, 1000),
     parameters: t.inputSchema ?? {},

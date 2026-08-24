@@ -145,6 +145,13 @@ DeepSeek Web не имеет нативного function calling. `src/tools/too
 allowlist, arguments — объект, валидный JSON, ограничены глубина (32) и размер
 (48 КБ), имя ограничено, запрещены `__proto__`/`prototype`/`constructor`.
 
+Каталог tools имеет один membership contract: после case-insensitive исключения
+недоступного `Artifact` prompt описывает все имена, которые разрешены parser и
+handler, сохраняя входной порядок. Description каждого tool по-прежнему
+ограничен 1000 символами. Prompt показывает только имена top-level arguments;
+полная fidelity nested JSON schema остаётся отдельным открытым D11 и не является
+частью D7 catalog consistency.
+
 `src/tools/toolRetry.ts` — максимум одна корректирующая попытка. Бесконечных
 retry нет. Bridge не выполняет инструменты — он только сообщает клиенту, какой
 инструмент запросила модель.
