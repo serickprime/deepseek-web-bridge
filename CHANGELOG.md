@@ -3,6 +3,30 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-24 — Close D4 after live verification
+
+- Independent review и Windows live verification D4 завершены успешно для
+  implementation commit `b16307b0c59586709475aaeac312172e53771573`, Claude
+  Code 2.1.241 и `deepseek-v4-flash`.
+- Реальный Claude Code Bash `pwd` завершил tool-cycle с результатом
+  `/d/Проекты/test`; normal generations завершались `completion_done`, а
+  последующие requests использовали persisted lineage (`upstream_linked:true`).
+- Controlled fake-upstream со stalled PoW challenge body и
+  `DS_TIMEOUT_MS=700` дал typed `UPSTREAM_TIMEOUT`/504 на
+  `upstream_stage=challenge_body`. Claude Code показал
+  `API Error: 504 Upstream request timed out`; fake successful assistant result
+  не создавался.
+- Raw PB28 midstream-проверка получила HTTP 200, затем `message_start` и ровно
+  один `event:error` с `timeout_error` / `Upstream request timed out`, без
+  `message_delta` и `message_stop`. Lazy HTTP commit отдельно подтверждён
+  pre-stream offline coverage; T21/T22 защищают persistence-before-exposure и
+  lineage ordering. Terminal exclusivity подтверждена offline и live.
+- D4 переведён в `CLOSED`; D2 остаётся единственным открытым P0. Baseline
+  implementation остаётся green: typecheck, 30 test files / 627 tests, build,
+  Windows `test:platform` и `git diff --check`. Claude Code прислал 39 tools —
+  это только evidence для будущего D7. Malformed JSON 500 и downstream
+  disconnect cancellation остаются отдельными открытыми findings.
+
 ## 2026-08-24 — Harden Anthropic streaming error lifecycle
 
 - D4 PASS B откладывает фиксацию Anthropic HTTP 200 до первого SSE byte:

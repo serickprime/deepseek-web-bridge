@@ -22,9 +22,10 @@ OpenCode, новые providers и новые UI-функции deferred до п�
 D6 persistence collision закрыт после independent review, deterministic offline
 coverage и реальной Windows Claude Code restart/resume проверки. D3 upstream
 stream lifecycle закрыт после independent review и Windows live verification;
-D4 downstream Anthropic lifecycle реализован с deterministic PB28 coverage и
-ожидает independent review/live verification. Остальные
-приоритеты и gates — в `PRODUCTION_READINESS.md`; D1 остаётся
+D4 downstream Anthropic lifecycle также закрыт после independent review,
+deterministic PB28 coverage и Windows live verification. D2 остаётся
+единственным открытым P0. Остальные приоритеты и gates — в
+`PRODUCTION_READINESS.md`; D1 остаётся
 неподтверждённой/deferred P3.
 
 Проект использует **неофициальные** внутренние маршруты веб-сайта DeepSeek
@@ -163,7 +164,7 @@ D4 downstream Anthropic lifecycle реализован с deterministic PB28 cov
   (`upstream_linked:true`), normal generations завершались `completion_done`.
   Unexpected `UPSTREAM_TIMEOUT`, `STREAM_INCOMPLETE`, `STREAM_PARSE_FAILED` и
   `UPSTREAM_ERROR` не наблюдались; релевантная PB22–PB27 live verification PASS.
-  D3 — `CLOSED`; D2/D4 не закрыты.
+  D3 — `CLOSED`; D4 также закрыт после отдельной проверки, D2 остаётся открытым.
 - D4 PASS B реализовал Anthropic-only lazy HTTP commit: pre-`message_start`
   failure возвращает настоящий HTTP error в Anthropic JSON envelope, а
   post-start failure — ровно один `event:error` с безопасной официальной
@@ -173,9 +174,20 @@ D4 downstream Anthropic lifecycle реализован с deterministic PB28 cov
   публикации `tool_use`, поэтому persistence failure не экспонирует executable
   block. T1–T26 дают deterministic route/protocol coverage PB28, включая
   timeout/rate-limit/incomplete/partial/persistence/unknown/pre-start cases,
-  normal Anthropic text/tool и OpenAI/Responses controls. Suite — 30 files /
-  627 tests; D4 — `IMPLEMENTED / VERIFYING`, не `CLOSED` до independent review
-  и live verification. D3 остаётся `CLOSED`; D2/D5/D7/D8 не менялись.
+  normal Anthropic text/tool и OpenAI/Responses controls. Independent review и
+  Windows live verification implementation commit
+  `b16307b0c59586709475aaeac312172e53771573` подтвердили D4: реальный Claude
+  Code 2.1.241 Bash `pwd` вернул `/d/Проекты/test`, normal generations дали
+  `completion_done`, persisted lineage использовалась с
+  `upstream_linked:true`. Controlled stalled challenge при
+  `DS_TIMEOUT_MS=700` дал typed `UPSTREAM_TIMEOUT`/504 и видимый Claude Code
+  `API Error`, без fake success. Raw PB28 midstream case дал HTTP 200,
+  `message_start` и один `event:error` (`timeout_error`) без `message_delta` и
+  `message_stop`. Lazy commit подтверждён pre-stream offline coverage,
+  persistence-before-exposure и lineage ordering — T21/T22; terminal
+  exclusivity подтверждена offline и live. Suite — 30 files / 627 tests; D4 —
+  `CLOSED`. D3 остаётся `CLOSED`; D2/D5/D7/D8 не менялись. Claude Code прислал
+  39 tools — только evidence для будущего D7.
 - D4 collateral findings не расширялись: malformed `/v1/messages` JSON пока
   остаётся safe HTTP 500 вместо 400, а downstream disconnect не отменяет
   upstream operation. Последнее сохраняется как отдельный cancellation/resource
