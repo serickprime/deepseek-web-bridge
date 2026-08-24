@@ -3,6 +3,29 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-24 — Close D13 and record D17
+
+- D13 закрыт после implementation
+  `0293f4a5a128766a535d3bf285252abe65e56fd8`, successful independent review и
+  Windows live verification. Claude Code реально выполнил три отдельных `Write`,
+  затем три отдельных `Read`; все шесть requested `tool_result` были получены, а
+  one-to-one obligation inference/matching корректно сохранил независимость
+  targets.
+- Независимый PowerShell control подтвердил exact final state:
+  `d13-a.txt = D13-MARKER-A`, `d13-b.txt = D13-MARKER-B`,
+  `d13-c.txt = D13-MARKER-C`. D13 live verdict — **PASS WITH COLLATERAL
+  FINDING**: target behavior прошёл, но весь request не был clean.
+- Отдельный pre-existing D17 / P1 (`OPEN / DIAGNOSED`) ошибочно выводит
+  `command_execution` из generic `Выполни ...`. После уже выполненных трёх
+  `Write` и трёх `Read` это вызвало missing `command_execution`, guard retries,
+  `TOOL_CALL_REQUIRED`/502, поздний непрошенный Bash и retry/rate-limit
+  amplification. D17 независим от D13 action-group inference и должен быть
+  исправлен следующим.
+- D13 переведён в `CLOSED`; open P2 уменьшен с 4 до 3. Open P1 увеличен с 0 до
+  1 из-за D17; G7 и G16 — FAIL, проект остаётся `HARDENING IN PROGRESS`, не
+  production-ready. Production code и tests в docs-only closure не менялись;
+  baseline остаётся 35 files / 851 tests.
+
 ## 2026-08-24 — Generalize multi-target obligations
 
 - D13 PASS B заменяет hardcoded two-file split позиционными

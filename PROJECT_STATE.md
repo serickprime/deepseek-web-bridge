@@ -33,14 +33,17 @@ verification 33+ production path. D8 safe request correlation закрыт по�
 independent review, deterministic coverage и Windows Claude Code live tool-cycle;
 D9 natural directory listing classifier закрыт после deterministic coverage и
 live verification RU typo / EN concrete listing / informational control. Открытых
-P1 — 0. Остальные
+P1 — 1: D17 false `command_execution` obligation имеет статус
+`OPEN / DIAGNOSED` и должен быть исправлен следующим. Остальные
 приоритеты и gates — в
 `PRODUCTION_READINESS.md`. D11 full schema transport закрыт после deterministic
 offline coverage, independent review и Windows Claude Code live WebFetch. D12
 nested-array parser ordering закрыт после deterministic coverage, independent
-review и Windows Claude Code `AskUserQuestion` live. D13 multi-target
-obligation fidelity реализован deterministic offline и ожидает independent
-review / Windows live verification (`IMPLEMENTED / VERIFYING`).
+review и Windows Claude Code `AskUserQuestion` live. D13 multi-target obligation
+fidelity закрыт после deterministic coverage, independent review и Windows live
+трёх отдельных `Write` + трёх отдельных `Read`. D13 verdict — `PASS WITH
+COLLATERAL FINDING`: его target behavior прошёл, но pre-existing D17 вмешался в
+final path через ложный `command_execution`, retries и 502.
 D1 остаётся неподтверждённой/deferred P3.
 
 Проект использует **неофициальные** внутренние маршруты веб-сайта DeepSeek
@@ -218,8 +221,21 @@ D1 остаётся неподтверждённой/deferred P3.
   multi-file request сохраняет grouped obligation. Same-file three-step
   additive и create→edit→delete не дедуплицируются, а ambiguous fallback
   сохраняет все known targets. Existing one-to-one matcher/freshness rules не
-  менялись. 34 новых deterministic cases; 35 files / 851 tests. D13 —
-  `IMPLEMENTED / VERIFYING`; open P2 не уменьшается до independent review/live.
+  менялись. 34 новых deterministic cases; 35 files / 851 tests. Implementation
+  `0293f4a5a128766a535d3bf285252abe65e56fd8` прошла independent review. Windows
+  live реально выполнил три отдельных `Write`, затем три отдельных `Read`; все
+  шесть requested results были получены, а PowerShell подтвердил
+  `d13-a.txt = D13-MARKER-A`, `d13-b.txt = D13-MARKER-B`,
+  `d13-c.txt = D13-MARKER-C`. D13 — `CLOSED`; verdict — `PASS WITH COLLATERAL
+  FINDING`, open P2 = 3.
+- D17 / P1 — `OPEN / DIAGNOSED`: generic `Выполни ...` pre-existing classifier
+  ошибочно создаёт `command_execution` при доступном Bash. В D13 live это после
+  уже успешных 3 Write + 3 Read вызвало missing `command_execution`, bounded
+  guard retries, `TOOL_CALL_REQUIRED`/502, поздний непрошенный Bash и
+  retry/rate-limit amplification. Relevant classifier region побайтно одинаков
+  на master baseline `cff9070a` и D13 implementation `0293f4a`; defect независим
+  от D13 action groups. D17 должен идти следующим перед оставшимися P2. Open
+  P1 = 1; G7 и G16 — FAIL; production-ready = NO.
 - D8 PASS B передаёт уже существующий request-scoped logger явно по всей цепочке
   route → handler → DeepSeek client → PoW. Один случайный process-local salt и
   domain separation создают необратимые `client_ref`, `upstream_ref`,
@@ -867,6 +883,12 @@ OpenCode config не изменялся.
 Отсортировано по приоритету.
 
 ### Приоритет 1 (блокирует «из коробки»)
+- [ ] **D17: false `command_execution` obligation** — generic `Выполни ...`
+      ошибочно считается shell request при доступном Bash. Детерминированно и в
+      D13 Windows live подтверждены missing obligation, guard retries,
+      `TOOL_CALL_REQUIRED`/502 и непрошенный Bash после уже завершённых requested
+      Write/Read actions. Defect pre-existing, не относится к D13 matcher; нужен
+      узкий shared explicit-command classifier до продолжения P2 backlog.
 - [x] **Реальный вход через `npm run auth`** — ✅ работает.
 - [x] **`npm run doctor` с реальным аккаунтом** — ✅ все 6/6 проверок проходят.
 - [x] **`npm run test:live`** — ✅ все проверки проходят (health, models,
@@ -931,7 +953,7 @@ OpenCode config не изменялся.
       `deepseek-chat`/`deepseek-reasoner` принимаются, но не рекламируются.
 
 ### Приоритет 3 (улучшения, не блокеры)
-- [~] **Obligation granularity: D13 implemented, live verification pending** —
+- [x] **Obligation granularity: D13 closed after live verification** —
       live smoke 2026-08-22 (после pseudo-XML фикса): prompt требовал Write +
       append + Read + Bash verify, модель выполнила только первый Write и
       заявила полный успех; guard не заблокировал, потому что обе мутации того
@@ -939,8 +961,10 @@ OpenCode config не изменялся.
       успешным результатом. Pre-existing obligations gap, вне scope pseudo-XML
       фикса. D13 PASS B теперь создаёт ordered per-action/per-target
       obligations для 3–5 files и распознаваемых same-file steps;
-      deterministic PB06/PB07/PB09/PB10 controls проходят. До `CLOSED`
-      нужны independent review и Windows Claude Code multi-file live run.
+      deterministic PB06/PB07/PB09/PB10 controls проходят. Independent review
+      — PASS; Windows live получил 3 Write + 3 Read results, а PowerShell
+      подтвердил exact A/B/C markers. D13 — `CLOSED`; ложный command obligation
+      и грязный final path вынесены в отдельный D17 / P1.
 - [~] **Повторить полный autonomous TaskFlow semantic live-test** — obligation
       guard и final-state freshness реализованы. Новый Pro live без command
       hints после tests восстановил exact UTF-8 state; независимые API/storage
