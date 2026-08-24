@@ -206,7 +206,27 @@ describe("LineageStore", () => {
 });
 
 describe("extractToolUseIdFromMessages", () => {
-  it("extracts tool_use_id from tool_result block", () => {
+  it("extracts tool_use_id from the current action cycle", () => {
+    const request: CanonicalRequest = {
+      model: "test",
+      stream: false,
+      system: "",
+      messages: [
+        { role: "user", parts: [{ type: "text", text: "read the file" }] },
+        {
+          role: "user",
+          parts: [{
+            type: "tool_result",
+            toolResult: { toolUseId: "call_ABC", content: "file contents" },
+          }],
+        },
+      ],
+      tools: [],
+    };
+    expect(extractToolUseIdFromMessages(request)).toBe("call_ABC");
+  });
+
+  it("ignores an orphan tool_result without a current user action boundary", () => {
     const request: CanonicalRequest = {
       model: "test",
       stream: false,
@@ -215,12 +235,12 @@ describe("extractToolUseIdFromMessages", () => {
         role: "user",
         parts: [{
           type: "tool_result",
-          toolResult: { toolUseId: "call_ABC", content: "file contents" },
+          toolResult: { toolUseId: "call_orphan", content: "stale contents" },
         }],
       }],
       tools: [],
     };
-    expect(extractToolUseIdFromMessages(request)).toBe("call_ABC");
+    expect(extractToolUseIdFromMessages(request)).toBeUndefined();
   });
 
   it("returns undefined when no tool_result present", () => {

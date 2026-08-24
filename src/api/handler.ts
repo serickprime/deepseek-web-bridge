@@ -14,11 +14,28 @@ import type { ProtocolStream } from "../server/protocolStream.js";
 import type { CanonicalToolCall } from "./canonical.js";
 
 export function extractToolUseIdFromMessages(request: CanonicalRequest): string | undefined {
-  for (const msg of request.messages) {
-    for (const part of msg.parts) {
-      if (part.type === "tool_result" && part.toolResult?.toolUseId) {
-        return part.toolResult.toolUseId;
-      }
+  let currentUserIndex = -1;
+  for (let index = request.messages.length - 1; index >= 0; index--) {
+    const message = request.messages[index]!;
+    const actionText = message.parts
+      .filter(part => part.type === "text")
+      .map(part => part.text ?? "")
+      .join("\n")
+      .replace(/<system-reminder\b[^>]*>[\s\S]*?<\/system-reminder>/gi, "")
+      .trim();
+    const hasToolResult = message.parts.some(part => part.type === "tool_result");
+    if (message.role === "user" && actionText && !hasToolResult) {
+      currentUserIndex = index;
+      break;
+    }
+  }
+  if (currentUserIndex < 0) return undefined;
+
+  for (let messageIndex = request.messages.length - 1; messageIndex > currentUserIndex; messageIndex--) {
+    const message = request.messages[messageIndex]!;
+    for (let partIndex = message.parts.length - 1; partIndex >= 0; partIndex--) {
+      const part = message.parts[partIndex]!;
+      if (part.type === "tool_result" && part.toolResult?.toolUseId) return part.toolResult.toolUseId;
     }
   }
   return undefined;
@@ -58,8 +75,18 @@ export class CompletionHandler {
     const explicitUpstream = resolveUpstreamIdentity(body);
     const callId = typeof headers["x-call-id"] === "string" ? headers["x-call-id"] : undefined;
     const toolResultUseId = extractToolUseIdFromMessages(request);
-    const linkedUpstream = (callId ? lineage.getUpstreamKey(callId) : undefined)
-      ?? (toolResultUseId ? lineage.getUpstreamKey(toolResultUseId) : undefined);
+    let linkedUpstream: string | undefined;
+    if (!explicitUpstream) {
+      const headerUpstream = callId ? lineage.getUpstreamKey(callId) : undefined;
+      const toolResultUpstream = toolResultUseId ? lineage.getUpstreamKey(toolResultUseId) : undefined;
+      if (headerUpstream && toolResultUpstream && headerUpstream !== toolResultUpstream) {
+        throw new BridgeError("Request lineage identifiers resolve to different upstream sessions.", {
+          code: "SESSION_CONFLICT",
+          status: 409,
+        });
+      }
+      linkedUpstream = headerUpstream ?? toolResultUpstream;
+    }
     const upstreamKey = explicitUpstream ?? linkedUpstream ?? `${clientIdentity}:${Date.now()}`;
 
     const state = sessionStore.getOrCreate(upstreamKey);

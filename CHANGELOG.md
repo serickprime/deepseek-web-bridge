@@ -3,6 +3,28 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-24 — Harden lineage freshness and selection
+
+- D5 PASS B перевёл `LineageStore` на единый `SESSION_LINK_TTL_MS`: возраст
+  проверяется при lookup, init durably удаляет expired links до readiness, а
+  каждая awaited mutation сохраняет pruning через общий
+  `PersistentSessionDocument`. Граница `<= TTL` валидна, `> TTL` expired;
+  фоновых disk writes из синхронного lookup нет.
+- Handler теперь выбирает newest `tool_result` только после последней
+  независимой user-инструкции. Historical/orphan results не восстанавливают
+  lineage нового action cycle; Anthropic/OpenAI/Responses normalizers не
+  менялись.
+- Без explicit body identity свежие `x-call-id` и current-cycle result
+  разрешаются независимо. Один mapping или одинаковая пара продолжают session,
+  unknown/expired header fallback-ится к result, а различающиеся mappings дают
+  `SESSION_CONFLICT`/409. Explicit body precedence сохранён.
+- Добавлены 23 deterministic regressions для PB31/PB32: fake-clock TTL
+  boundaries, lookup/restart/durable/lazy pruning, sibling preservation,
+  persistence rollback, latest current-cycle selection, protocol normalization
+  и handler resolution. Итого: 32 test files / 669 tests. D5 —
+  `IMPLEMENTED / VERIFYING`; live verification ещё требуется, число открытых P1
+  не меняется.
+
 ## 2026-08-24 — Close D2 after live verification
 
 - D2 implementation `bc6d0aec8da2579c463d84c3e44cdcc61e175407`

@@ -95,7 +95,10 @@ challenge_start → challenge_received → wasm_download_start → wasm_download
   - **upstream identity** (`x-agent-session`, `metadata.user_id`, `user`, либо
     связь call-id → upstream-сессия для tool result).
 - `src/sessions/lineage.ts` — опциональное сохранение ссылок сессий в
-  `data/sessions.json` атомарно.
+  `data/sessions.json` через единый `PersistentSessionDocument`. Lineage links
+  используют `SESSION_LINK_TTL_MS`: `<= TTL` валидно, `> TTL` expired; lookup
+  никогда не разрешает expired mapping, init durably prune-ит persisted expiry,
+  а awaited mutations сохраняют накопленный cleanup без фоновых disk writes.
 - `src/sessions/mutex.ts` — очередь на одну upstream-сессию: два параллельных
   новых пользовательских сообщения с одинаковым `parent_message_id` не уходят
   одновременно.
@@ -104,7 +107,14 @@ challenge_start → challenge_received → wasm_download_start → wasm_download
 
 - новый пользовательский ход без явного upstream identity — новая анонимная
   upstream-сессия (не общая и не «последняя активная»);
-- tool result возвращается в исходную upstream-сессию по call-id;
+- tool result возвращается в исходную upstream-сессию по newest fresh call-id
+  только внутри текущего action cycle после последней независимой
+  user-инструкции; historical/orphan result не восстанавливает lineage нового
+  хода;
+- без explicit upstream fresh `x-call-id` и current-cycle tool result
+  разрешаются независимо: один/совпадающие mappings продолжают session,
+  различающиеся дают `SESSION_CONFLICT`, unknown/expired header не подавляет
+  valid result fallback;
 - разные клиенты не смешиваются.
 - `state.parentMessageId` хранит только accepted parent. `runCompletion()`
   получает request parent явно и возвращает `message_id` как локальный candidate,
