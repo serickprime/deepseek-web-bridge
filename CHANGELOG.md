@@ -3,6 +3,23 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-24 — Close D11 after live verification
+
+- D11 закрыт после implementation
+  `cd0b3357eff07dc6cb171228853fac622fac8f51`, успешного independent review и
+  Windows live verification с Claude Code 2.1.241 / `deepseek-v4-flash`.
+- Реальный `WebFetch(https://example.com)` получил `559 bytes (200 OK)`, а
+  финальный ответ был `Example Domain`; `TOOL_PARSE_FAILED`, schema rejection,
+  unexpected 502 и hang не наблюдались.
+- Full-schema transport и 128 KiB preflight остаются защищены 23 focused
+  D11 regressions; baseline — 35 test files / 799 tests. Malformed/no-parent
+  repair path подтверждён только deterministic offline evidence и не заявляется
+  live-tested. D12 nested-array parser ordering остаётся отдельным pending
+  defect.
+- D11 переведён в `CLOSED`; открытых P2 теперь 5. Stale release gate G7
+  исправлен на PASS, поскольку открытых P1 — 0. Проект не объявлен
+  production-ready: остальные P2 defects и release gates остаются открытыми.
+
 ## 2026-08-24 — Transport full tool schemas safely
 
 - D11 PASS B заменяет top-level argument-name representation полным compact

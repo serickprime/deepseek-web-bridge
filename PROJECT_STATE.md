@@ -35,8 +35,9 @@ D9 natural directory listing classifier закрыт после deterministic co
 live verification RU typo / EN concrete listing / informational control. Открытых
 P1 — 0. Остальные
 приоритеты и gates — в
-`PRODUCTION_READINESS.md`. D11 full schema transport реализован offline и имеет
-статус `IMPLEMENTED / VERIFYING`; independent review и Windows live ещё нужны.
+`PRODUCTION_READINESS.md`. D11 full schema transport закрыт после deterministic
+offline coverage, independent review и Windows Claude Code live WebFetch.
+D12 nested-array parser ordering остаётся отдельным pending defect.
 D1 остаётся неподтверждённой/deferred P3.
 
 Проект использует **неофициальные** внутренние маршруты веб-сайта DeepSeek
@@ -170,7 +171,7 @@ D1 остаётся неподтверждённой/deferred P3.
   `Example Domain`, а `tool_result` continuation использовал
   `upstream_linked:true` и дошёл до `completion_done`. PB14 catalog identity,
   PB18 34th+/unknown и PB20 catalog stability — PASS; D11 schema fidelity
-  остаётся открытой, D8 теперь `CLOSED`. D7 — `CLOSED`; открытых P1 — 1.
+  позднее закрыта отдельной реализацией, D8 теперь `CLOSED`. D7 — `CLOSED`.
 - D11 PASS B формирует один authoritative full-schema catalog после того же
   case-insensitive `Artifact` filtering: каждое available occurrence содержит
   полный compact `JSON.stringify(inputSchema)`, round-trip проверяется без
@@ -184,8 +185,14 @@ D1 остаётся неподтверждённой/deferred P3.
   43375, 34 — 51183; largest entry — 4073. Envelope
   `51183 + 5×4073 = 71548` оставляет 59524 bytes headroom; exact historical
   39/38 size не заявляется. 23 focused D11 tests покрывают PB14/PB17/PB18,
-  exact limit/+1 и D7/D12 controls. D11 — `IMPLEMENTED / VERIFYING`; independent
-  review и Windows live остаются обязательными.
+  exact limit/+1 и D7/D12 controls. Implementation
+  `cd0b3357eff07dc6cb171228853fac622fac8f51` прошла independent review.
+  Windows live с Claude Code 2.1.241 и `deepseek-v4-flash` подтвердил настоящий
+  `WebFetch(https://example.com)`: `tool_result` получил 559 bytes (HTTP 200),
+  final — `Example Domain`, без `TOOL_PARSE_FAILED`, schema rejection,
+  unexpected 502 или hang. D11 — `CLOSED`; malformed/no-parent repair path
+  остаётся подтверждён только deterministic offline evidence, а D12 — отдельный
+  pending defect.
 - D8 PASS B передаёт уже существующий request-scoped logger явно по всей цепочке
   route → handler → DeepSeek client → PoW. Один случайный process-local salt и
   domain separation создают необратимые `client_ref`, `upstream_ref`,
