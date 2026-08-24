@@ -842,6 +842,34 @@ describe("shouldRetry with Tool: prefixed traces", () => {
   });
 });
 
+const DIRECTORY_LISTING_POSITIVES = [
+  ["A", "что находится в данной директории?"],
+  ["B", "что находится в данной дериктории?"],
+  ["C", "что находится в текущей папке?"],
+  ["D", "что лежит в этой директории?"],
+  ["E", "какие файлы лежат здесь?"],
+  ["F", "что есть в текущем каталоге?"],
+  ["G", "покажи, что находится в папке"],
+  ["H", "перечисли содержимое директории"],
+  ["I", "what is in this directory?"],
+  ["J", "what is inside the current folder?"],
+  ["K", "what files are in this directory?"],
+  ["L", "show what is inside this folder"],
+] as const;
+
+const DIRECTORY_LISTING_NEGATIVES = [
+  "что такое директория?",
+  "что обычно находится в директории?",
+  "какие файлы бывают в проекте?",
+  "расскажи про структуру проекта",
+  "what is a directory?",
+  "what can be found in a directory?",
+  "explain folder structure",
+  "где находится Москва?",
+  "книга лежит на столе",
+  "есть ли жизнь на Марсе?",
+] as const;
+
 describe("fabricated environment execution guard", () => {
   const tools = ["Bash", "Read", "Glob", "Grep"];
 
@@ -877,6 +905,32 @@ describe("fabricated environment execution guard", () => {
       "Покажи реальное содержимое текущей рабочей директории. Используй инструмент.",
       tools,
     )).toBe(true);
+  });
+
+  it.each(DIRECTORY_LISTING_POSITIVES)("requires fresh directory evidence for %s: %s", (_id, prompt) => {
+    expect(looksLikeEnvironmentDataRequest(prompt, tools)).toBe(true);
+    const evidence = inspectCurrentToolCycle([{
+      role: "user",
+      parts: [{ type: "text", text: prompt }],
+    }], tools);
+    expect(evidence.requiresEnvironmentToolResult).toBe(true);
+    expect(evidence.isInformationalRequest).toBe(false);
+  });
+
+  it.each(DIRECTORY_LISTING_NEGATIVES)("keeps informational or unrelated text tool-free: %s", prompt => {
+    expect(looksLikeEnvironmentDataRequest(prompt, tools)).toBe(false);
+    const evidence = inspectCurrentToolCycle([{
+      role: "user",
+      parts: [{ type: "text", text: prompt }],
+    }], tools);
+    expect(evidence.requiresEnvironmentToolResult).toBe(false);
+  });
+
+  it("does not require directory evidence when no listing-capable tool is available", () => {
+    expect(looksLikeEnvironmentDataRequest(
+      "что находится в данной дериктории?",
+      ["Read", "Write"],
+    )).toBe(false);
   });
 
   it("requires live evidence for checking file existence", () => {
@@ -1785,14 +1839,32 @@ describe("DeepSeekClient environment completion guard", () => {
     description: "Run a shell command",
     inputSchema: { type: "object", properties: { command: { type: "string" } } },
   };
+  const globTool = {
+    name: "Glob",
+    description: "List files by pattern",
+    inputSchema: { type: "object", properties: { pattern: { type: "string" } } },
+  };
+  const listDirectoryTool = {
+    name: "ListDirectory",
+    description: "List a directory",
+    inputSchema: { type: "object", properties: { path: { type: "string" } } },
+  };
+  const readTool = {
+    name: "Read",
+    description: "Read a file",
+    inputSchema: { type: "object", properties: { file_path: { type: "string" } } },
+  };
 
-  function request(messages: CanonicalMessage[]): CanonicalRequest {
+  function request(
+    messages: CanonicalMessage[],
+    tools: CanonicalRequest["tools"] = [bashTool, globTool, listDirectoryTool],
+  ): CanonicalRequest {
     return {
       model: "deepseek-reasoner",
       stream: false,
       system: "cwd: D:/test CC NODE",
       messages,
-      tools: [bashTool],
+      tools,
     };
   }
 
@@ -1875,6 +1947,115 @@ describe("DeepSeekClient environment completion guard", () => {
     expect(runCompletion).toHaveBeenCalledTimes(COMPLETION_GUARD_MAX_ATTEMPTS);
   });
 
+  it.each(DIRECTORY_LISTING_POSITIVES)("rejects fabricated plain listing for %s: %s", async (_id, prompt) => {
+    const fabricated = "The current directory contains guessed-a.txt and guessed-b.txt.";
+    const { client, runCompletion } = clientWithOutputs([
+      { content: fabricated },
+      { content: fabricated },
+      { content: fabricated },
+    ]);
+
+    await expect(client.complete(request([{
+      role: "user",
+      parts: [{ type: "text", text: prompt }],
+    }]), state())).rejects.toMatchObject({ code: "TOOL_CALL_REQUIRED", status: 502 });
+    expect(runCompletion).toHaveBeenCalledTimes(COMPLETION_GUARD_MAX_ATTEMPTS);
+  });
+
+  it.each(DIRECTORY_LISTING_POSITIVES)("accepts a real Bash listing call for %s: %s", async (_id, prompt) => {
+    const rawToolCall = '{"tool_call":{"name":"Bash","arguments":{"command":"ls -la"}}}';
+    const { client, runCompletion } = clientWithOutputs([{ content: rawToolCall }]);
+
+    const result = await client.complete(request([{
+      role: "user",
+      parts: [{ type: "text", text: prompt }],
+    }]), state());
+    expect(result.toolCall).toEqual({ name: "Bash", args: { command: "ls -la" } });
+    expect(result.content).toBe("");
+    expect(result.content).not.toContain("tool_call");
+    expect(runCompletion).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["Glob", '{"pattern":"*"}'],
+    ["ListDirectory", '{"path":"."}'],
+  ] as const)("accepts a real %s call for the exact typo request", async (name, rawArguments) => {
+    const { client } = clientWithOutputs([{
+      content: `{"tool_call":{"name":"${name}","arguments":${rawArguments}}}`,
+    }]);
+    const result = await client.complete(request([{
+      role: "user",
+      parts: [{ type: "text", text: "что находится в данной дериктории?" }],
+    }]), state());
+    expect(result.toolCall?.name).toBe(name);
+    expect(result.content).toBe("");
+  });
+
+  it.each(DIRECTORY_LISTING_POSITIVES)("allows final listing after fresh tool_result for %s: %s", async (_id, prompt) => {
+    const finalText = "fixture-a.txt\nfixture-b.txt";
+    const { client, runCompletion } = clientWithOutputs([{ content: finalText }]);
+    const result = await client.complete(request([
+      { role: "user", parts: [{ type: "text", text: prompt }] },
+      { role: "assistant", parts: [{
+        type: "tool_use",
+        toolCall: { id: "call_ls", type: "function", name: "Bash", arguments: { command: "ls -la" } },
+      }] },
+      { role: "user", parts: [{
+        type: "tool_result",
+        toolResult: { toolUseId: "call_ls", content: finalText },
+      }] },
+    ]), state());
+
+    expect(result.content).toBe(finalText);
+    expect(result.toolCall).toBeUndefined();
+    expect(runCompletion).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([DIRECTORY_LISTING_POSITIVES[8], DIRECTORY_LISTING_POSITIVES[9]])(
+    "does not treat concrete English listing %s as informational or leak raw JSON",
+    async (_id, prompt) => {
+      const evidence = inspectCurrentToolCycle([{
+        role: "user",
+        parts: [{ type: "text", text: prompt }],
+      }], ["Bash", "Glob"]);
+      expect(evidence.isInformationalRequest).toBe(false);
+
+      const rawToolCall = '{"tool_call":{"name":"Glob","arguments":{"pattern":"*"}}}';
+      const { client } = clientWithOutputs([{ content: rawToolCall }]);
+      const result = await client.complete(request([{
+        role: "user",
+        parts: [{ type: "text", text: prompt }],
+      }]), state());
+      expect(result.toolCall).toEqual({ name: "Glob", args: { pattern: "*" } });
+      expect(result.content).toBe("");
+      expect(result.content).not.toContain(rawToolCall);
+    },
+  );
+
+  it("does not create an impossible listing requirement without a listing-capable tool", async () => {
+    const finalText = "I cannot inspect directories with the available file-only tool.";
+    const { client, runCompletion } = clientWithOutputs([{ content: finalText }]);
+    const result = await client.complete(request([{
+      role: "user",
+      parts: [{ type: "text", text: "что находится в данной дериктории?" }],
+    }], [readTool]), state());
+    expect(result.content).toBe(finalText);
+    expect(result.toolCall).toBeUndefined();
+    expect(runCompletion).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(DIRECTORY_LISTING_NEGATIVES)("allows an informational final without tools: %s", async prompt => {
+    const answer = "Informational answer.";
+    const { client, runCompletion } = clientWithOutputs([{ content: answer }]);
+    const result = await client.complete(request([{
+      role: "user",
+      parts: [{ type: "text", text: prompt }],
+    }]), state());
+    expect(result.content).toBe(answer);
+    expect(result.toolCall).toBeUndefined();
+    expect(runCompletion).toHaveBeenCalledTimes(1);
+  });
+
   it("returns a real Bash tool_call immediately", async () => {
     const { client, runCompletion } = clientWithOutputs([{
       content: '{"tool_call":{"name":"Bash","arguments":{"command":"pwd"}}}',
@@ -1929,6 +2110,29 @@ describe("DeepSeekClient environment completion guard", () => {
       { role: "assistant", parts: [{ type: "text", text: "Старый ответ" }] },
       { role: "user", parts: [{ type: "text", text: "Проверь текущую рабочую директорию заново" }] },
     ]), state())).rejects.toMatchObject({ code: "TOOL_CALL_REQUIRED" });
+    expect(runCompletion).toHaveBeenCalledTimes(COMPLETION_GUARD_MAX_ATTEMPTS);
+  });
+
+  it("does not satisfy the exact typo listing request with a historical tool_result", async () => {
+    const fabricated = "The directory contains stale-history.txt.";
+    const { client, runCompletion } = clientWithOutputs([
+      { content: fabricated },
+      { content: fabricated },
+      { content: fabricated },
+    ]);
+    await expect(client.complete(request([
+      { role: "user", parts: [{ type: "text", text: "Старый запрос списка файлов" }] },
+      { role: "assistant", parts: [{
+        type: "tool_use",
+        toolCall: { id: "call_old_ls", type: "function", name: "Bash", arguments: { command: "ls -la" } },
+      }] },
+      { role: "user", parts: [{
+        type: "tool_result",
+        toolResult: { toolUseId: "call_old_ls", content: "stale-history.txt" },
+      }] },
+      { role: "assistant", parts: [{ type: "text", text: "Старый список" }] },
+      { role: "user", parts: [{ type: "text", text: "что находится в данной дериктории?" }] },
+    ]), state())).rejects.toMatchObject({ code: "TOOL_CALL_REQUIRED", status: 502 });
     expect(runCompletion).toHaveBeenCalledTimes(COMPLETION_GUARD_MAX_ATTEMPTS);
   });
 

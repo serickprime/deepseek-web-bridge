@@ -31,7 +31,9 @@ verification. Открытых P0 больше нет; G6 — PASS. D7 tool cata
 закрыт после independent review, deterministic coverage и Windows live
 verification 33+ production path. D8 safe request correlation закрыт после
 independent review, deterministic coverage и Windows Claude Code live tool-cycle;
-открытых P1 — 1 (D9). Остальные приоритеты и gates — в
+единственный открытый P1 D9 реализован offline и остаётся `IMPLEMENTED / VERIFYING`
+до independent review и live verification. Открытых P1 — 1. Остальные
+приоритеты и gates — в
 `PRODUCTION_READINESS.md`. D11 schema fidelity не менялась.
 D1 остаётся неподтверждённой/deferred P3.
 
@@ -99,14 +101,14 @@ D1 остаётся неподтверждённой/deferred P3.
 | 7. DeepSeek | pow (WASM), sseParser, updateParser, client | ✅ готово |
 | 8. Server | middleware, output-адаптеры, protocolStream, routes, server | ✅ готово |
 | 9. Entrypoint | app.ts, index.ts, start.ts | ✅ готово |
-| 10. Тесты | 34 файла, 701 тест | ✅ готово |
+| 10. Тесты | 34 файла, 776 тестов | ✅ готово |
 | 11. Скрипты | desktopStart, cdp, auth, doctor, launcher, live, real-OS platform smoke | ✅ live-часть работает |
 | 12. Веб-интерфейс | Bridge Console на `GET /` (Mileo dark theme, two-panel, diagnostics, model picker) | ✅ готово |
 
 **Проверки сейчас:**
 - `npm run typecheck` — ✅ без ошибок.
 - `npm run build` — ✅ собирается.
-- `npm test` — ✅ 701/701 (Windows process-lifecycle case требует разрешённый
+- `npm test` — ✅ 776/776 (Windows process-lifecycle case требует разрешённый
   `taskkill`; sandbox-only запуск отдельно воспроизводит известный D10 finding).
 - `npm run test:platform` — ✅ локально на Windows: real process/platform,
   `buildConfig`, Bridge HTTP, Unicode cwd и env propagation без DeepSeek auth.
@@ -186,6 +188,16 @@ D1 остаётся неподтверждённой/deferred P3.
   raw marker/identity/upstream/call/chat IDs и tool payloads в логах отсутствовали.
   Opaque refs остаются process-local, cross-restart stability не заявляется.
   D8 — `CLOSED`; PB20/PB24/PB28/PB34 telemetry scope — PASS; открытых P1 — 1.
+- D9 PASS B остаётся внутри существующего `looksLikeEnvironmentDataRequest()`:
+  узкий concrete-directory-listing matcher покрывает natural RU/EN phrasing,
+  включая explicit typo stem `дериктор...`, и переопределяет generic `what is`
+  только для конкретного запроса содержимого directory/folder/catalog. Broad
+  `находится/лежит/есть` и fuzzy matching не добавлены. 75 regressions покрывают
+  direct A–L, PB05 informational/unrelated negatives, full completion guard,
+  реальные Bash/Glob/ListDirectory calls, fresh/historical current-cycle
+  evidence и отсутствие impossible requirement без listing-capable tool.
+  PB02/PB05 deterministic scope — PASS; D9 — `IMPLEMENTED / VERIFYING`,
+  independent review и live verification ещё нужны. Открытых P1 остаётся 1.
 - Отдельный D7 live collateral finding не относится к catalog consistency:
   первая streaming-попытка дала `completion_guard_rejected` с
   `malformed_tool_intent=true` и `TOOL_CALL_REQUIRED`/502; retry затем успешно

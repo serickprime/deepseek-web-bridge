@@ -3,6 +3,27 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-24 — Cover natural directory listing requests
+
+- D9 PASS B расширяет существующий environment classifier узким reusable
+  matcher-ом concrete directory listings. Поддержаны RU-формы `что находится`,
+  `что лежит`, `что есть`, `какие файлы лежат здесь`, явный typo stem
+  `дериктор...` и соответствующие EN `what is in/inside`, `what files are in`
+  только при concrete directory/folder/catalog context.
+- Concrete listing теперь переопределяет общий informational prefix `what is`,
+  поэтому корректный tool-call JSON не подавляется и не уходит raw final.
+  Справочные и unrelated формулировки остаются tool-free; fuzzy matching,
+  parser, obligations, retry counts и session/transport behavior не менялись.
+- Добавлены 75 offline regressions: direct A–L, informational/unrelated
+  negatives, full `DeepSeekClient.complete()` rejection fabricated plain text,
+  acceptance Bash/Glob/ListDirectory calls, fresh current-cycle result,
+  historical-result rejection и отсутствие impossible requirement без
+  listing-capable tool. PB02/PB05 scope — deterministic PASS.
+- D9 переведён в `IMPLEMENTED / VERIFYING`; 34 test files / 776 tests,
+  typecheck, full offline suite, build, Windows `test:platform` и
+  `git diff --check` — PASS. Independent review и live verification ещё
+  требуются; открытых P1 остаётся 1, production-ready не заявляется.
+
 ## 2026-08-24 — Close D8 after live verification
 
 - D8 закрыт после implementation `6987ae5cc1983e7cbbe3a5d497a72eeebf8047f3`

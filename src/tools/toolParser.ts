@@ -411,8 +411,17 @@ const INFORMATIONAL_PREFIXES = [
   "why ",
 ];
 
+const CONCRETE_DIRECTORY_LISTING_RU = /(?:что\s+(?:находится|лежит|есть)\s+(?:здесь|в\s+(?:(?:данн|эт|текущ)\S*\s+)?(?:директор\S*|дериктор\S*|папк\S*|каталог\S*))|какие\s+файл\S*\s+(?:находятся|лежат|есть)\s+здесь)\s*[?!.]*\s*$/i;
+const CONCRETE_DIRECTORY_LISTING_EN = /(?:what\s+is\s+(?:in|inside)\s+(?:(?:this|the\s+current|the|current)\s+)?(?:directory|folder)|what\s+files\s+are\s+(?:in|inside)\s+(?:(?:this|the\s+current|the|current)\s+)?(?:directory|folder))\s*[?!.]*\s*$/i;
+
+function looksLikeConcreteDirectoryListingRequest(content: string): boolean {
+  return CONCRETE_DIRECTORY_LISTING_RU.test(content)
+    || CONCRETE_DIRECTORY_LISTING_EN.test(content);
+}
+
 function isInformationalRequest(content: string): boolean {
   const normalized = content.trim().toLowerCase().replace(/\s+/g, " ");
+  if (looksLikeConcreteDirectoryListingRequest(normalized)) return false;
   return INFORMATIONAL_PREFIXES.some(prefix => normalized.startsWith(prefix));
 }
 
@@ -435,7 +444,8 @@ export function looksLikeEnvironmentDataRequest(content: string, allowedToolName
   const explicitPwd = /(?:^|\n)\s*pwd\s*[.!?]*\s*$/im.test(trimmed) || (action && /\bpwd\b/i.test(trimmed));
   if (hasShell && (currentCwd || explicitPwd)) return true;
 
-  const directoryListing = /содержим\S*\s+(?:текущ\S*\s+)?(?:рабоч\S*\s+)?(?:директор|папк)|список\S*\s+(?:файл|папок)|структур\S*\s+проект|какие\s+(?:файл|папк)\S*\s+здесь|что\s+в\s+(?:этой\s+)?папк|directory contents|contents of (?:the )?(?:current )?(?:directory|folder)|list (?:the )?(?:current )?(?:directory|folder|files)|what files are here|project structure/i.test(trimmed);
+  const directoryListing = looksLikeConcreteDirectoryListingRequest(trimmed)
+    || /содержим\S*\s+(?:текущ\S*\s+)?(?:рабоч\S*\s+)?(?:директор|папк)|список\S*\s+(?:файл|папок)|структур\S*\s+проект|какие\s+(?:файл|папк)\S*\s+здесь|что\s+в\s+(?:этой\s+)?папк|directory contents|contents of (?:the )?(?:current )?(?:directory|folder)|list (?:the )?(?:current )?(?:directory|folder|files)|what files are here|project structure/i.test(trimmed);
   const explicitListingCommand = /(?:^|\n)\s*(?:ls(?:\s+[^\r\n]+)?|get-childitem(?:\s+[^\r\n]+)?)\s*$/im.test(trimmed);
   if ((hasShell || hasLister) && (directoryListing || (action && explicitListingCommand))) return true;
 

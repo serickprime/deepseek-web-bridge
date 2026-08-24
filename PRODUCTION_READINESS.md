@@ -2,9 +2,9 @@
 
 > **Статус:** `HARDENING IN PROGRESS`
 >
-> **Baseline:** `6987ae5cc1983e7cbbe3a5d497a72eeebf8047f3` — D8 implementation before live closure
+> **Baseline:** `4850e9f9d5b1a9150e75c2433d4ae88fadbd039e` — master before D9 PASS B
 >
-> **Offline baseline:** 34 test files, 701 tests (D8 PASS B branch)
+> **Offline baseline:** 34 test files, 776 tests (D9 PASS B branch)
 >
 > **Открыто:** P0 — 0, P1 — 1, P2 — 6; deferred P3 — 1
 > **Production scope:** Claude Code → Anthropic-compatible Bridge → DeepSeek Web → Bridge → Claude Code
@@ -58,7 +58,7 @@ transport, policy и persistence defects не объединяются в оди
 | Claude Code — реальный executor tools; Bridge tools самостоятельно не выполняет. | Да | `REPO`: `CompletionHandler` отдаёт Anthropic `tool_use`; execution находится у клиента. |
 | DeepSeek только выбирает tool; Bridge переводит запрос, Claude Code выполняет и возвращает `tool_result`. | Да | `REPO`, normal flow tests в `tests/unit/sse.test.ts` и `tests/unit/tools.test.ts`. |
 | Каждый разрешённый Bridge tool описан DeepSeek в prompt после explicit unavailable filtering. | Да | D7 CLOSED: 17 deterministic regressions и Windows live с 39 received / 38 available tools подтвердили catalog identity; available #33 `WebFetch` выполнен реально. D11 full schema fidelity остаётся открытым. |
-| Fabricated text никогда не считается `tool_result`. | Частично | Механизм `bbd13b2` закрыт, но D9 показывает classifier false-negative. |
+| Fabricated text никогда не считается `tool_result`. | Частично | D9 PASS B закрыл natural listing classifier gap deterministic PB02/PB05 coverage; independent review/live verification ещё нужны. |
 | Historical `tool_result` не подтверждает новое действие. | Да | L2 current-cycle guard и D5 L3 correlated selection защищены deterministic tests; D5 CLOSED. |
 | Mutation нельзя считать успешной без подходящего evidence. | Частично | Multi-step/fresh-state guards закрыты для поддержанного scope; D13 остаётся. |
 | Rejected generation не изменяет accepted session/parent state. | Да | D2 CLOSED: candidate parent живёт только внутри `complete()`; PB29/PB30 deterministic PASS, Windows Claude Code normal turn и real Bash/tool-result continuity PASS. Exact parent IDs в live logs не наблюдались. |
@@ -83,7 +83,7 @@ transport, policy и persistence defects не объединяются в оди
 | **D6** | P0 | L3 | `CLOSED` | Один `PersistentSessionDocument` владеет `sessions.json`; оба store делегируют ему sessions/links mutations. Schema v2, v1 migration, unknown sibling preservation, FIFO queue и init-before-listen устраняют подтверждённую collision в одном процессе. | `REPO`/`TEST`: PB31/PB33 и migration/failure/startup cases, 574/574. `LIVE` Windows, Claude Code 2.1.241, `deepseek-v4-flash`: после real Bash cycle schema v2 содержала sessions=1 и links=2; restart восстановил session и продолжил real tool-cycle с `upstream_linked:true`. | — | `7573fcd20f22890983acda3c153f1217b630ecce` |
 | **D7** | P1 | L2 | `CLOSED` | После explicit unavailable filtering prompt описывает весь authoritative available catalog; отдельного 32-tool cap больше нет. | `TEST`: independent review PASS; 17 focused cases для 0/1/32/33/35/39, Artifact positions, ordering/duplicates, 33+ handler tool-use/continuation, unknown rejection и D11 boundary; 33 files / 689 tests; typecheck/build/Windows test:platform/diff-check PASS. PB14 catalog identity, PB18 34th+/unknown и PB20 catalog stability — PASS. `LIVE` Windows, Claude Code 2.1.241, `deepseek-v4-flash`: 39 received; `Artifact` received #2 unavailable → 38 available; `WebFetch` received #34 / available #33 реально выполнил Fetch example.com, получил 559 bytes/200, final `Example Domain`; tool-result continuation показал `upstream_linked:true` и `completion_done`. | D8 CLOSED; D11 schema fidelity отдельно | `b09067eda568624f5dcd8373dee87b53a1f3c05f` |
 | **D8** | P1 | L4 / L1,L2,L3 | `CLOSED`; D16 merged | Request-scoped logger явно проходит route → handler → DeepSeek → PoW; opaque process-local HMAC refs и safe lifecycle fields связывают L1–L4 без raw IDs/content. | `TEST`: independent review PASS; 12 focused cases / 34 files / 701 tests, typecheck/build/Windows test:platform/diff-check PASS. `LIVE`: Windows, Claude Code 2.1.241, `deepseek-v4-flash`: real Bash `pwd` → `/d/Проекты/test`; request_ref L1–L4, matching process-local call/upstream/chat refs through linked continuation, safe tool events, visible attempt/stage/latency fields and no raw marker/identity/payloads. PB20/PB24/PB28/PB34 telemetry scope PASS; cross-restart ref stability не заявляется. | D3/D4 event taxonomy | `6987ae5cc1983e7cbbe3a5d497a72eeebf8047f3` |
-| **D9** | P1 | L2 | `CONFIRMED CURRENT GAP` | Existing environment classifier не распознаёт natural listing variants и typo, поэтому plain final может пройти без fresh result. | `LIVE`: `что находится в данной дериктории?`. `REPO`: listing regex не покрывает `находится/лежит` и typo. Фраза 34 chars; `INTENT_MAX_LENGTH=300` не является фактором. Existing mechanism — `bbd13b2`, новый subsystem запрещён. | После P0 и D7 | —; base mechanism `bbd13b2` |
+| **D9** | P1 | L2 | `IMPLEMENTED / VERIFYING` | Existing classifier использует narrow concrete-directory-listing matcher для natural RU/EN variants и explicit `дериктор...`; concrete listing переопределяет generic informational `what is` без broad/fuzzy matching. | `TEST`: 75 focused regressions; direct A–L, PB05 negatives, fabricated final rejection, Bash/Glob/ListDirectory acceptance, fresh/historical evidence и no-listing-tool fallback; 34 files / 776 tests, typecheck/build/Windows test:platform/diff-check PASS. `LIVE`: исходный typo regression известен, post-fix live verification pending. | После P0 и D7 | current branch; base mechanism `bbd13b2` |
 | **D10** | P2 | L1 / platform | `NEEDS REPRODUCTION` | Graceful shutdown/PID timing может видеть tracked child живым спустя ~1s. | `HANDOFF`: test иногда падал, orphan позже не оставался. Current sandbox также блокировал `taskkill`, вне sandbox test прошёл; platform cause не изолирован. | D8 telemetry | — |
 | **D11** | P2 | L2 | `CONFIRMED STATIC GAP` | Prompt-facing tool schema перечисляет только имена arguments, не полную JSON schema semantics. | `REPO`: `toolPrompt.ts` извлекает `Object.keys(properties)`; types/required/nested constraints модели не показываются. Production impact требует PASS A. | D7 single catalog | — |
 | **D12** | P2 | L2 | `NEEDS REPRODUCTION` | Подозреваемая неверная validation ordering для nested arrays. | `REPO`: `inspectNestedValues()` проверяет `!isPlainObject(value)` до `Array.isArray(value)`, делая array traversal недостижимым. Нужен exact parser reproduction и desired contract. | D11 schema contract | — |
@@ -268,7 +268,8 @@ green, создавать новый mechanism при подходящем су�
    independent review и Windows 39-tool / available #33 `WebFetch` live.
 7. **D8/D16 — observability/correlation.** CLOSED после deterministic coverage,
    independent review и Windows Claude Code Bash live verification.
-8. **D9**, затем D11, D12, D13, D14, D15 — по одному correctness P1/P2 defect за branch.
+8. **D9** — IMPLEMENTED / VERIFYING; independent review и live verification,
+   затем D11, D12, D13, D14, D15 — по одному correctness P1/P2 defect за branch.
 9. **D10**, затем полный PB-v1, 30–50-tool stress, `/compact`, restart/resume.
 10. **D1** — повторный controlled A/B/C только после стабилизации остальных причин.
 
@@ -288,8 +289,9 @@ green, создавать новый mechanism при подходящем су�
 
 Проект **не является Production Ready**. D6, D3, D4, D2, D5, D7 и D8 закрыты после
 independent review, deterministic coverage и релевантной Windows live
-verification. Открытых P0 нет, G6 пройден; открытых P1 — 1 (D9). P1/P2 defects
-и остальные release gates остаются открытыми.
+verification. Открытых P0 нет, G6 пройден; единственный P1 D9 находится в
+`IMPLEMENTED / VERIFYING` и требует independent review/live verification.
+P1/P2 defects и остальные release gates остаются открытыми.
 
 Отдельный D7 live collateral finding не относится к catalog consistency:
 первая streaming-попытка дала `completion_guard_rejected` с
