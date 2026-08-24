@@ -38,8 +38,9 @@ P1 — 0. Остальные
 `PRODUCTION_READINESS.md`. D11 full schema transport закрыт после deterministic
 offline coverage, independent review и Windows Claude Code live WebFetch. D12
 nested-array parser ordering закрыт после deterministic coverage, independent
-review и Windows Claude Code `AskUserQuestion` live. Следующий correctness P2 —
-D13.
+review и Windows Claude Code `AskUserQuestion` live. D13 multi-target
+obligation fidelity реализован deterministic offline и ожидает independent
+review / Windows live verification (`IMPLEMENTED / VERIFYING`).
 D1 остаётся неподтверждённой/deferred P3.
 
 Проект использует **неофициальные** внутренние маршруты веб-сайта DeepSeek
@@ -106,14 +107,14 @@ D1 остаётся неподтверждённой/deferred P3.
 | 7. DeepSeek | pow (WASM), sseParser, updateParser, client | ✅ готово |
 | 8. Server | middleware, output-адаптеры, protocolStream, routes, server | ✅ готово |
 | 9. Entrypoint | app.ts, index.ts, start.ts | ✅ готово |
-| 10. Тесты | 35 файлов, 817 тестов | ✅ готово |
+| 10. Тесты | 35 файлов, 851 тест | ✅ готово |
 | 11. Скрипты | desktopStart, cdp, auth, doctor, launcher, live, real-OS platform smoke | ✅ live-часть работает |
 | 12. Веб-интерфейс | Bridge Console на `GET /` (Mileo dark theme, two-panel, diagnostics, model picker) | ✅ готово |
 
 **Проверки сейчас:**
 - `npm run typecheck` — ✅ без ошибок.
 - `npm run build` — ✅ собирается.
-- `npm test` — ✅ 817/817 (Windows process-lifecycle case требует разрешённый
+- `npm test` — ✅ 851/851 (Windows process-lifecycle case требует разрешённый
   `taskkill`; sandbox-only запуск отдельно воспроизводит известный D10 finding).
 - `npm run test:platform` — ✅ локально на Windows: real process/platform,
   `buildConfig`, Bridge HTTP, Unicode cwd и env propagation без DeepSeek auth.
@@ -210,7 +211,15 @@ D1 остаётся неподтверждённой/deferred P3.
   final — `Alpha`, без `unsafe_arguments`, `TOOL_CALL_REQUIRED` exhaustion,
   unexpected 502 или hang. Exact raw argument preservation остаётся только
   deterministic offline evidence и не заявляется live-tested. D12 — `CLOSED`;
-  open P2 = 4, следующий correctness P2 — D13.
+  open P2 = 4.
+- D13 PASS B обобщает file-action inference с two-target special case на
+  ordered action groups. Отдельные create/edit/read clauses для 1–5 paths
+  получают `file_mutation#N` / `file_verification#N`; explicit single-command
+  multi-file request сохраняет grouped obligation. Same-file three-step
+  additive и create→edit→delete не дедуплицируются, а ambiguous fallback
+  сохраняет все known targets. Existing one-to-one matcher/freshness rules не
+  менялись. 34 новых deterministic cases; 35 files / 851 tests. D13 —
+  `IMPLEMENTED / VERIFYING`; open P2 не уменьшается до independent review/live.
 - D8 PASS B передаёт уже существующий request-scoped logger явно по всей цепочке
   route → handler → DeepSeek client → PoW. Один случайный process-local salt и
   domain separation создают необратимые `client_ref`, `upstream_ref`,
@@ -922,13 +931,16 @@ OpenCode config не изменялся.
       `deepseek-chat`/`deepseek-reasoner` принимаются, но не рекламируются.
 
 ### Приоритет 3 (улучшения, не блокеры)
-- [ ] **Obligation granularity: несколько мутаций одного файла схлопываются** —
+- [~] **Obligation granularity: D13 implemented, live verification pending** —
       live smoke 2026-08-22 (после pseudo-XML фикса): prompt требовал Write +
       append + Read + Bash verify, модель выполнила только первый Write и
       заявила полный успех; guard не заблокировал, потому что обе мутации того
       же файла инферировались как один `file_mutation`, закрытый единственным
       успешным результатом. Pre-existing obligations gap, вне scope pseudo-XML
-      фикса; нужен per-step учёт при нескольких изменениях одного файла.
+      фикса. D13 PASS B теперь создаёт ordered per-action/per-target
+      obligations для 3–5 files и распознаваемых same-file steps;
+      deterministic PB06/PB07/PB09/PB10 controls проходят. До `CLOSED`
+      нужны independent review и Windows Claude Code multi-file live run.
 - [~] **Повторить полный autonomous TaskFlow semantic live-test** — obligation
       guard и final-state freshness реализованы. Новый Pro live без command
       hints после tests восстановил exact UTF-8 state; независимые API/storage

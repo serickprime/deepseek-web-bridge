@@ -2715,15 +2715,18 @@ describe("distinct file mutation obligations", () => {
     expect(obligations.filter(o => o.kind === "file_mutation").map(o => o.id)).toEqual(["file_mutation"]);
   });
 
-  it("does not split for three distinct paths (fallback)", () => {
+  it("splits three distinct paths instead of falling back to one generic obligation", () => {
     const obligations = inferToolObligations("Создай a.txt, b.txt и c.txt.", multiNames);
-    expect(obligations.filter(o => o.kind === "file_mutation").map(o => o.id)).toEqual(["file_mutation"]);
+    expect(obligations.filter(o => o.kind === "file_mutation").map(o => o.id))
+      .toEqual(["file_mutation#1", "file_mutation#2", "file_mutation#3"]);
   });
 
   it("falls back when an isolated third path has unknown context", () => {
     const filler = "перед этим обязательно внимательно изучи структуру проекта и контекст, ";
     const obligations = inferToolObligations(`Создай a.txt и запиши b.txt. ${filler}${filler}Сформируй c.txt.`, multiNames);
     expect(obligations.filter(o => o.kind === "file_mutation").map(o => o.id)).toEqual(["file_mutation"]);
+    expect(obligations.find(o => o.id === "file_mutation")?.argumentLiterals)
+      .toEqual(["a.txt", "b.txt", "c.txt"]);
   });
 
   it("keeps the split when the third path is a verification target", () => {
@@ -2739,6 +2742,213 @@ describe("distinct file mutation obligations", () => {
     ]);
     expect(evidence.fulfilledObligationIds).not.toContain("file_mutation#2");
     expect(evidence.missingObligations.map(o => o.id)).toContain("file_mutation#2");
+  });
+});
+
+describe("D13 multi-target obligation fidelity", () => {
+  const tools = ["Read", "Write", "Edit", "Bash", "Glob"];
+
+  function msg(role: "user" | "assistant", parts: unknown[]): CanonicalMessage {
+    return { role, parts } as unknown as CanonicalMessage;
+  }
+  const tu = (id: string, name: string, args: Record<string, unknown>): CanonicalMessage =>
+    msg("assistant", [{ type: "tool_use", toolCall: { id, type: "function", name, arguments: args } }]);
+  const tr = (id: string, content = "ok", isError = false): CanonicalMessage =>
+    msg("user", [{ type: "tool_result", toolResult: { toolUseId: id, content, isError } }]);
+  const cycle = (prompt: string, calls: CanonicalMessage[]) =>
+    inspectCurrentToolCycle([msg("user", [{ type: "text", text: prompt }]), ...calls], tools);
+  const kind = (prompt: string, obligationKind: "file_mutation" | "file_verification") =>
+    inferToolObligations(prompt, tools).filter(obligation => obligation.kind === obligationKind);
+  const clauses = (verb: string, count: number) =>
+    Array.from({ length: count }, (_, index) => `${verb} f${index + 1}.txt.`).join(" ");
+  const success = (name: "Write" | "Edit" | "Read", count: number): CanonicalMessage[] =>
+    Array.from({ length: count }, (_, index) => {
+      const id = `c${index + 1}`;
+      const args = name === "Edit"
+        ? { file_path: `f${index + 1}.txt`, old_string: "old", new_string: "new" }
+        : { file_path: `f${index + 1}.txt`, ...(name === "Write" ? { content: `value-${index + 1}` } : {}) };
+      return [tu(id, name, args), tr(id)];
+    }).flat();
+
+  it.each([1, 2, 3, 4, 5])("keeps %i independent create target(s)", count => {
+    const obligations = kind(clauses("Create", count), "file_mutation");
+    expect(obligations).toHaveLength(count);
+    expect(obligations.map(obligation => obligation.argumentLiterals))
+      .toEqual(Array.from({ length: count }, (_, index) => [`f${index + 1}.txt`]));
+  });
+
+  it.each([1, 2, 3, 4, 5])("keeps %i independent edit target(s)", count => {
+    const obligations = kind(clauses("Edit", count), "file_mutation");
+    expect(obligations).toHaveLength(count);
+    expect(obligations.map(obligation => obligation.argumentLiterals))
+      .toEqual(Array.from({ length: count }, (_, index) => [`f${index + 1}.txt`]));
+  });
+
+  it.each([2, 3, 4, 5])("keeps and independently fulfills %i read target(s)", count => {
+    const prompt = clauses("Read", count);
+    const obligations = kind(prompt, "file_verification");
+    expect(obligations).toHaveLength(count);
+    const evidence = cycle(prompt, success("Read", count));
+    expect(evidence.missingObligations).toHaveLength(0);
+    expect(evidence.fulfilledObligationIds).toHaveLength(count);
+  });
+
+  it("keeps B and C missing when only A succeeds", () => {
+    const prompt = clauses("Create", 3);
+    const evidence = cycle(prompt, success("Write", 1));
+    expect(evidence.fulfilledObligationIds).toEqual(["file_mutation#1"]);
+    expect(evidence.missingObligations.map(obligation => obligation.id))
+      .toEqual(["file_mutation#2", "file_mutation#3"]);
+  });
+
+  it("keeps only C missing when A and B succeed", () => {
+    const prompt = clauses("Create", 3);
+    const evidence = cycle(prompt, success("Write", 2));
+    expect(evidence.fulfilledObligationIds).toEqual(["file_mutation#1", "file_mutation#2"]);
+    expect(evidence.missingObligations.map(obligation => obligation.id)).toEqual(["file_mutation#3"]);
+  });
+
+  it("allows final completion only after all three targets succeed", () => {
+    const evidence = cycle(clauses("Create", 3), success("Write", 3));
+    expect(evidence.requiresActionToolResult).toBe(false);
+    expect(evidence.missingObligations).toHaveLength(0);
+  });
+
+  it("keeps a failed middle mutation missing", () => {
+    const prompt = clauses("Create", 3);
+    const calls = success("Write", 3);
+    calls[3] = tr("c2", "permission denied", true);
+    const evidence = cycle(prompt, calls);
+    expect(evidence.missingObligations.map(obligation => obligation.id)).toEqual(["file_mutation#2"]);
+  });
+
+  it("retry requirements omit an already fulfilled target", () => {
+    const prompt = clauses("Create", 3);
+    const evidence = cycle(prompt, success("Write", 1));
+    const retry = createToolRetryPrompt(tools, {
+      missingObligations: evidence.missingObligations.map(obligation => obligation.description),
+      fulfilledObligations: evidence.obligations
+        .filter(obligation => evidence.fulfilledObligationIds.includes(obligation.id))
+        .map(obligation => obligation.description),
+    });
+    const missingLine = retry.split("\n").find(line => line.startsWith("Still-unverified current-user requirements:"));
+    expect(missingLine).not.toContain("f1.txt");
+    expect(missingLine).toContain("f2.txt");
+    expect(missingLine).toContain("f3.txt");
+  });
+
+  it("keeps mixed read, edit, and create targets independent", () => {
+    const prompt = "Read a.txt. Edit b.txt. Create c.txt.";
+    const obligations = inferToolObligations(prompt, tools).filter(obligation =>
+      obligation.kind === "file_mutation" || obligation.kind === "file_verification");
+    expect(obligations.map(obligation => [obligation.id, obligation.argumentLiterals])).toEqual([
+      ["file_mutation#1", ["b.txt"]],
+      ["file_mutation#2", ["c.txt"]],
+      ["file_verification", ["a.txt"]],
+    ]);
+  });
+
+  it("keeps three distinguishable same-file additive steps", () => {
+    const prompt = 'Create report.txt with content: "ALPHA". Then append content: "BETA" to the same file. Then append content: "GAMMA" to the same file.';
+    const obligations = kind(prompt, "file_mutation");
+    expect(obligations.map(obligation => obligation.id))
+      .toEqual(["file_mutation#1", "file_mutation#2", "file_mutation#3"]);
+    expect(obligations.map(obligation => obligation.argumentLiterals)).toEqual([
+      ["ALPHA", "report.txt"],
+      ["BETA", "report.txt"],
+      ["GAMMA", "report.txt"],
+    ]);
+    const oneStep = cycle(prompt, [
+      tu("s1", "Write", { file_path: "report.txt", content: "ALPHA" }), tr("s1"),
+    ]);
+    expect(oneStep.fulfilledObligationIds).toEqual(["file_mutation#1"]);
+    expect(oneStep.missingObligations.map(obligation => obligation.id))
+      .toEqual(["file_mutation#2", "file_mutation#3"]);
+  });
+
+  it("keeps create, edit, and delete on the same target distinct", () => {
+    const obligations = kind(
+      "Create report.txt. Then edit the same file. Then delete the same file.",
+      "file_mutation",
+    );
+    expect(obligations.map(obligation => obligation.id))
+      .toEqual(["file_mutation#1", "file_mutation#2", "file_mutation#3"]);
+    expect(obligations.every(obligation => obligation.argumentLiterals.includes("report.txt"))).toBe(true);
+  });
+
+  it("does not collapse an explicit twice request on the same target", () => {
+    const obligations = kind("Edit report.txt twice.", "file_mutation");
+    expect(obligations.map(obligation => obligation.id))
+      .toEqual(["file_mutation#1", "file_mutation#2"]);
+    expect(obligations.map(obligation => obligation.argumentLiterals))
+      .toEqual([["report.txt"], ["report.txt"]]);
+  });
+
+  it("keeps an explicit one-command multi-file operation grouped", () => {
+    const prompt = "Using one command create a.txt, b.txt and c.txt.";
+    const obligations = kind(prompt, "file_mutation");
+    expect(obligations).toHaveLength(1);
+    expect(obligations[0]?.argumentLiterals).toEqual(["a.txt", "b.txt", "c.txt"]);
+    const evidence = cycle(prompt, [
+      tu("g1", "Bash", { command: "touch a.txt b.txt c.txt" }),
+      tr("g1"),
+    ]);
+    expect(evidence.missingObligations).toHaveLength(0);
+  });
+
+  it("does not let partial evidence fulfill a grouped operation", () => {
+    const prompt = "Using one command create a.txt, b.txt and c.txt.";
+    const evidence = cycle(prompt, [tu("g1", "Write", { file_path: "a.txt", content: "a" }), tr("g1")]);
+    expect(evidence.missingObligations.map(obligation => obligation.id)).toEqual(["file_mutation"]);
+  });
+
+  it("distinguishes identical basenames in different directories", () => {
+    const obligations = kind("Create one/a.txt. Create two/a.txt. Create three/a.txt.", "file_mutation");
+    expect(obligations.map(obligation => obligation.argumentLiterals))
+      .toEqual([["one/a.txt"], ["two/a.txt"], ["three/a.txt"]]);
+  });
+
+  it("preserves Unicode and space-containing Windows paths", () => {
+    const prompt = 'Create path: "D:\\Проекты\\Папка ёжик\\a one.txt". Create path: "D:\\Проекты\\Папка ёжик\\b two.txt".';
+    const obligations = kind(prompt, "file_mutation");
+    expect(obligations.map(obligation => obligation.argumentLiterals)).toEqual([
+      ["D:\\Проекты\\Папка ёжик\\a one.txt"],
+      ["D:\\Проекты\\Папка ёжик\\b two.txt"],
+    ]);
+  });
+
+  it("deduplicates NFC-equivalent path literals without changing separator or case semantics", () => {
+    const decomposed = "cafe\u0301.txt";
+    const composed = "café.txt";
+    const obligations = kind(`Create file path: "${decomposed}". Create file path: "${composed}".`, "file_mutation");
+    expect(obligations).toHaveLength(1);
+    expect(obligations[0]?.argumentLiterals).toEqual([composed]);
+  });
+
+  it("ignores historical successful evidence before the current instruction", () => {
+    const messages = [
+      msg("user", [{ type: "text", text: "Create a.txt." }]),
+      tu("old", "Write", { file_path: "a.txt", content: "old" }),
+      tr("old"),
+      msg("user", [{ type: "text", text: "Create a.txt. Create b.txt. Create c.txt." }]),
+    ];
+    const evidence = inspectCurrentToolCycle(messages, tools);
+    expect(evidence.fulfilledObligationIds).toHaveLength(0);
+    expect(evidence.missingObligations).toHaveLength(3);
+  });
+
+  it("keeps a successful read stale after a later mutation of that target", () => {
+    const prompt = "Edit a.txt. Then read a.txt.";
+    const evidence = cycle(prompt, [
+      tu("r1", "Read", { file_path: "a.txt" }), tr("r1", "old"),
+      tu("e1", "Edit", { file_path: "a.txt", old_string: "old", new_string: "new" }), tr("e1"),
+    ]);
+    expect(evidence.staleObligations.map(obligation => obligation.id)).toContain("file_verification");
+    expect(evidence.missingObligations.map(obligation => obligation.id)).toContain("file_verification");
+  });
+
+  it("does not infer actions from informational filename mentions", () => {
+    expect(inferToolObligations("Explain how a.txt, b.txt, and c.txt are normally organized.", tools)).toEqual([]);
   });
 });
 
@@ -2945,6 +3155,57 @@ describe("DeepSeekClient action completion guard", () => {
   function actionState(): UpstreamSessionState {
     return { chatSessionId: "action-session", parentMessageId: null, history: [], updatedAt: 0 };
   }
+
+  function d13Messages(completed: number): CanonicalMessage[] {
+    const messages: CanonicalMessage[] = [{
+      role: "user",
+      parts: [{ type: "text", text: "Create a.txt. Create b.txt. Create c.txt." }],
+    }];
+    for (let index = 0; index < completed; index++) {
+      const id = `d13-${index + 1}`;
+      const path = `${String.fromCharCode(97 + index)}.txt`;
+      messages.push({
+        role: "assistant",
+        parts: [{ type: "tool_use", toolCall: { id, type: "function", name: "Write", arguments: { file_path: path, content: path } } }],
+      });
+      messages.push({
+        role: "user",
+        parts: [{ type: "tool_result", toolResult: { toolUseId: id, content: "ok", isError: false } }],
+      });
+    }
+    return messages;
+  }
+
+  it("D13 root guard rejects plain final after only A and does not request A again", async () => {
+    const { client, runCompletion } = actionClient(["All done.", "All done.", "All done."]);
+    await expect(client.complete(actionRequest(d13Messages(1)), actionState()))
+      .rejects.toMatchObject({ code: "TOOL_CALL_REQUIRED", status: 502 });
+    expect(runCompletion).toHaveBeenCalledTimes(COMPLETION_GUARD_MAX_ATTEMPTS);
+    const retry = runCompletion.mock.calls[1]?.[0] ?? "";
+    const missingLine = retry.split("\n").find(line => line.startsWith("Still-unverified current-user requirements:"));
+    expect(missingLine).not.toContain("a.txt");
+    expect(missingLine).toContain("b.txt");
+    expect(missingLine).toContain("c.txt");
+  });
+
+  it("D13 root guard rejects plain final after A and B", async () => {
+    const { client, runCompletion } = actionClient(["All done.", "All done.", "All done."]);
+    await expect(client.complete(actionRequest(d13Messages(2)), actionState()))
+      .rejects.toMatchObject({ code: "TOOL_CALL_REQUIRED", status: 502 });
+    expect(runCompletion).toHaveBeenCalledTimes(COMPLETION_GUARD_MAX_ATTEMPTS);
+    const retry = runCompletion.mock.calls[1]?.[0] ?? "";
+    const missingLine = retry.split("\n").find(line => line.startsWith("Still-unverified current-user requirements:"));
+    expect(missingLine).not.toContain("a.txt");
+    expect(missingLine).not.toContain("b.txt");
+    expect(missingLine).toContain("c.txt");
+  });
+
+  it("D13 root guard accepts final only after A, B, and C", async () => {
+    const { client, runCompletion } = actionClient(["All three files are ready."]);
+    const result = await client.complete(actionRequest(d13Messages(3)), actionState());
+    expect(result.content).toBe("All three files are ready.");
+    expect(runCompletion).toHaveBeenCalledTimes(1);
+  });
 
   it("filters Artifact at the root and retries with a supported tool", async () => {
     const { client, runCompletion } = actionClient([

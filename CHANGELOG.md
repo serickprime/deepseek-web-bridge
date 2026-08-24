@@ -3,6 +3,27 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-24 — Generalize multi-target obligations
+
+- D13 PASS B заменяет hardcoded two-file split позиционными
+  action groups в `inferToolObligations()`. Отдельные create/edit/read clauses для
+  1–5 targets получают stable `kind#N` obligations; explicit one-command
+  multi-target action остаётся одной grouped obligation. При неоднозначной
+  partition один conservative obligation сохраняет все known targets, а не
+  только первый.
+- Same-file sequential/again/twice semantics не схлопываются: три
+  additive steps и create→edit→delete имеют три independent instances.
+  Existing one-to-one `matchObligationsToEvidence()` не менялся. Узко уточнён
+  quoted `path:` literal для Unicode/пробелов; separator/case canonicalization не
+  добавлялась.
+- Добавлены 34 deterministic regressions: create/edit/read 1–5, partial/failure,
+  mixed actions, grouped operation, same-file cardinality, same basename,
+  Unicode/NFC, historical/stale/informational controls и root `DeepSeekClient`
+  A/A+B/A+B+C guard. Focused `tools.test.ts` — 413/413; full baseline —
+  35 files / 851 tests. D13 — `IMPLEMENTED / VERIFYING`; open P2 остаётся 4.
+- Sandbox-only D10 PID timing повторился в первом прогоне; разрешённый
+  full-control `npm test` прошёл; final baseline 851/851. Shutdown code не менялся.
+
 ## 2026-08-24 — Close D12 after live verification
 
 - D12 закрыт после implementation

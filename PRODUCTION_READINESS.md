@@ -4,7 +4,7 @@
 >
 > **Baseline:** `fix/d12-nested-array-validation` — D12 closure branch
 >
-> **Offline baseline:** 35 test files, 817 tests (D12 PASS B branch)
+> **Offline baseline:** 35 test files, 851 tests (D13 PASS B branch)
 >
 > **Открыто:** P0 — 0, P1 — 0, P2 — 4; deferred P3 — 1
 > **Production scope:** Claude Code → Anthropic-compatible Bridge → DeepSeek Web → Bridge → Claude Code
@@ -60,7 +60,7 @@ transport, policy и persistence defects не объединяются в оди
 | Каждый разрешённый Bridge tool описан DeepSeek в prompt после explicit unavailable filtering. | Да | D7 CLOSED подтверждает membership; D11 CLOSED после deterministic full-schema/preflight coverage, independent review и Windows Claude Code WebFetch live verification. |
 | Fabricated text никогда не считается `tool_result`. | Да для поддержанного scope | D9 CLOSED: natural listing classifier gap закрыт deterministic PB02/PB05 coverage и live RU typo / EN listing / informational controls. |
 | Historical `tool_result` не подтверждает новое действие. | Да | L2 current-cycle guard и D5 L3 correlated selection защищены deterministic tests; D5 CLOSED. |
-| Mutation нельзя считать успешной без подходящего evidence. | Частично | Multi-step/fresh-state guards закрыты для поддержанного scope; D13 остаётся. |
+| Mutation нельзя считать успешной без подходящего evidence. | Частично | D13 implementation расширил multi-target/same-kind offline scope; independent review/live pending. |
 | Rejected generation не изменяет accepted session/parent state. | Да | D2 CLOSED: candidate parent живёт только внутри `complete()`; PB29/PB30 deterministic PASS, Windows Claude Code normal turn и real Bash/tool-result continuity PASS. Exact parent IDs в live logs не наблюдались. |
 | Transport error не превращается в fake successful completion. | Да | D3 CLOSED: body/transport failures нормализованы, empty/INCOMPLETE/non-terminal stream отклоняются; deterministic offline и Windows live verification PASS. |
 | HTTP 200 сам по себе не означает successful DeepSeek completion. | Да | D3 CLOSED: требуется authoritative FINISHED/old done terminal; PB22–PB27 deterministic и релевантная live verification green. |
@@ -87,7 +87,7 @@ transport, policy и persistence defects не объединяются в оди
 | **D10** | P2 | L1 / platform | `NEEDS REPRODUCTION` | Graceful shutdown/PID timing может видеть tracked child живым спустя ~1s. | `HANDOFF`: test иногда падал, orphan позже не оставался. Current sandbox также блокировал `taskkill`, вне sandbox test прошёл; platform cause не изолирован. | D8 telemetry | — |
 | **D11** | P2 | L2 | `CLOSED` | Каждый available occurrence описан полным compact lossless `JSON.stringify(inputSchema)`; initial/no-parent repair используют один catalog. 128 KiB UTF-8 preflight fail-closed выполняется до session/upstream/stream exposure, без truncation или content logging. | `TEST`: independent review PASS; 23 focused cases; PB14/PB17/PB18 root/nested/array/enum/`oneOf`/`$defs`, Unicode, round-trip, exact 131072/+1, dynamic 25/30/34/38/40, Artifact/Tool33+, D7 compatibility и D12 boundary control; 35 files / 799 tests. Measurements: max observed catalog 51183, entry 4073; projected 71548 leaves 59524 bytes. `LIVE`: Windows, Claude Code 2.1.241, `deepseek-v4-flash`; real `WebFetch(https://example.com)` получил 559 bytes/200 и final `Example Domain`, без parse/schema/unexpected-502/hang failures. Malformed/no-parent repair live не заявляется. | D7 single catalog; D12 отдельно | `cd0b3357eff07dc6cb171228853fac622fac8f51` |
 | **D12** | P2 | L2 | `CLOSED` | Nested arrays проходят existing recursive safety inspection до plain-object rejection; root arguments остаётся plain object, а dangerous keys/depth/size/allowlist/malformed controls сохранены. | `TEST`: independent review PASS; 18 focused D12 regressions в `tools.test.ts` для primitive/empty/object/nested arrays, exact CanonicalToolCall, no-retry client, Anthropic handler exposure, root-array/depth/pollution/unknown/malformed controls; D11 array-schema transport green; 35 files / 817 tests. `LIVE`: Windows, Claude Code 2.1.241, `deepseek-v4-flash`; real `AskUserQuestion` с one-object `questions` array и nested `Alpha`/`Beta` options, user selected `Alpha`, real `tool_result` continuation и final `Alpha`, без unsafe/guard-exhaustion/unexpected-502/hang failures. Exact raw arguments live не заявляются. | D11 schema contract | `e237562bfb43d782b64eeb9673e0d5eba6abdbe8` |
-| **D13** | P2 | L2 | `KNOWN LIMITATION` | 3+ distinct file targets и часть same-kind steps схлопываются в generic obligation. | `REPO`/history: two-file split intentionally gated to exactly two; 3+ остаётся fallback. | D7, frozen mutation cases | — |
+| **D13** | P2 | L2 | `IMPLEMENTED / VERIFYING` | Independent create/edit/read action-target groups получают stable per-kind instances для 1–5 targets; explicit grouped operation остаётся одной obligation, ambiguous fallback сохраняет все targets. | `TEST`: 34 D13 cases; create/edit/read 1–5, partial/failure, mixed, grouped, same-file three-step/twice, Unicode/NFC, historical/stale/informational и root client guard; 35 files / 851 tests. Independent review и Windows live pending. | Existing one-to-one matcher; D9/D12 controls | PASS B branch |
 | **D14** | P2 | L1 | `NEEDS VERIFICATION` | Anthropic `system` content-block arrays могут теряться при normalization. | `REPO`: `normalizeAnthropic()` читает system через string-only `stringField`; tests покрывают только string. Нужен diagnostic protocol case до объявления runtime defect. | Нет | — |
 | **D15** | P2 | L1 / L4 | `CONFIRMED STATIC GAP` | `max_tokens` нормализуется, но не передаётся DeepSeek; Anthropic streaming usage всегда 0, new-format usage coverage отсутствует. | `REPO`: `CanonicalRequest.maxTokens` не используется в payload; Anthropic SSE start/done hardcode zero; usage parser есть только в legacy data path. | D3 terminal/usage semantics | — |
 
@@ -107,7 +107,7 @@ transport, policy и persistence defects не объединяются в оди
 | D10 | Tracked child/server terminate within documented deadline; no orphan; untracked process survives; platform/sandbox distinctions explicit. | Windows/macOS/Linux process-owner tests plus desktop live shutdown. | PB39 |
 | D11 | Prompt-facing representation сохраняет required/type/nested schema within 128 KiB UTF-8 catalog limit; no silent schema truncation; overflow fails before upstream/downstream exposure. | Dynamic Claude catalog measurements; nested object/array/enum/required/`oneOf`/`$defs`, semantic round-trip, exact boundary/+1, initial/no-parent repair. | PB14, PB17–PB18 |
 | D12 | Valid nested arrays accepted up to depth limit; unsafe keys/depth rejected; contract documented. | Exact nested array reproduction, nested object+array, depth boundary, pollution keys. | PB14–PB15 |
-| D13 | 3+ distinct mutations получают separate evidence or request is conservatively rejected; one result cannot close several targets. | 3/4 files, same-kind steps, partial/failure/duplicate prevention. | PB07, PB09–PB10 |
+| D13 | `IMPLEMENTED / VERIFYING`: 3+ distinct actions получают separate evidence; grouped action не over-split; one result не закрывает unrelated instances. | 1–5 files, same-kind/same-file steps, partial/failure/grouped/root-guard deterministic PASS; independent review/live pending. | PB06–PB07, PB09–PB10 |
 | D14 | Anthropic string and block-array system content preserve ordered text exactly or unsupported shape returns INVALID_REQUEST. | Text blocks, multiple blocks, mixed/unknown blocks, Unicode, root prompt capture. | PB14 |
 | D15 | Supported output limit reaches upstream or is explicitly rejected; usage is real/absent, never fabricated zero presented as measured. | Payload capture, streaming/non-streaming usage, missing/new/legacy usage. | PB22, PB28 |
 
@@ -126,7 +126,7 @@ Closed означает «не переисследовать без новой 
 | Multi-step completion integrity | `7c3cb39`, `67c6f68` | `external action completion integrity`, `DeepSeekClient action completion guard` | Success final появляется при missing supported obligation evidence. |
 | Fresh final-state evidence | `06b1e4e`, `c8693ac` | `final-state tool flow regression`, stale/cardinality cases | Evidence до последующей invalidating mutation принимается как final state. |
 | Multiple obligation instances | `8dfd84f` | `multiple obligation instances per kind` | Один evidence закрывает две поддержанные instances одного kind. |
-| Two distinct file mutations | `7017c04`, `93bfde8` | `distinct file mutation obligations` | Два explicit targets закрываются одним mutation result. 3+ targets — D13, не reopen. |
+| Distinct file mutations | `7017c04`, `93bfde8`, D13 PASS B | `distinct file mutation obligations`, `D13 multi-target obligation fidelity` | Один mutation result закрывает unrelated target; 1–5 targets, grouped action и partial completion покрыты offline. |
 | Same-file additive final verification | `bab6a9c`, `358df9c` | `same-file additive final-state verification` | Поддержанный two-clause additive scenario не требует fresh final Read или destructive wording даёт false positive. |
 | HTTP 200 SSE `rate_limit_reached` | `bedcab2` | `tests/unit/deepseekRateLimit.test.ts` | Exact hint не даёт retryable 429, вызывает >1 completion attempt или ordinary hint становится false positive. |
 | D6 unified session/lineage persistence | `7573fcd` | `persistentSessionDocument.test.ts`, `persistenceStartup.test.ts`, `atomicFile.test.ts`; Windows Claude Code restart/resume live | Session/lineage writer снова удаляет sibling state, restart не восстанавливает оба типа либо durable/atomic failure возвращается как success/corrupt target. |
@@ -157,7 +157,7 @@ versioned addendum; новые regressions добавляются новыми I
 | PB04 | Read/env | Known file + missing file; ask content/existence. | Read/Glob evidence; exact content and true/false. | Fabricated content/existence. | Offline + live | D9 |
 | PB05 | Read/env | Ask `что такое директория?`, `what does current directory mean?`, `как работает cd?`. | No tool; accurate text. | Unnecessary tool/TOOL_CALL_REQUIRED. | Offline | D9 |
 | PB06 | Mutation | Create, edit, then delete one temp file. | Three correlated mutations; final absence verified. | Skipped step or success after failure. | Offline + live | D2,D13 |
-| PB07 | Mutation | Mutate two distinct files with exact markers. | Separate evidence per target. | One result closes both; cross-file write. | Offline + live | D13 |
+| PB07 | Mutation | Mutate 2–5 distinct files with exact markers. | Separate evidence per target. | One result closes several; cross-file write. | Offline + live | D13 |
 | PB08 | Mutation | Two additive clauses on same file, then verify. | Mutation(s) + fresh Read containing both markers. | Destructive false-positive; stale Read. | Offline + live | closed guard |
 | PB09 | Mutation | Two obligations of same kind with distinct targets/values. | One-to-one evidence binding. | Evidence reuse across instances. | Offline | D13 |
 | PB10 | Mutation | First mutation fails; model retries identical then corrected action. | Identical failure executes once; changed action may succeed. | Duplicate mutation, empty final, fake success. | Offline + live | D2,D13 |
@@ -198,7 +198,7 @@ versioned addendum; новые regressions добавляются новыми I
 | Gate | Pass condition | Baseline status |
 | --- | --- | --- |
 | G1 | `npm run typecheck` green | PASS (recheck each branch) |
-| G2 | `npm test` 100% green | PASS: 817/817 on D12 PASS B branch (recheck release commit) |
+| G2 | `npm test` 100% green | PASS: 851/851 on D13 PASS B branch; full-control Windows run (recheck release commit) |
 | G3 | `npm run build` green | PASS (recheck each branch) |
 | G4 | `npm run test:platform` green | PASS on current Windows baseline |
 | G5 | CI Windows/Linux/macOS green for release commit | NEEDS RELEASE-COMMIT VERIFICATION |
@@ -274,8 +274,8 @@ green, создавать новый mechanism при подходящем су�
    RU typo / EN concrete listing / informational control. **D11** — CLOSED после
    full-schema deterministic coverage, independent review и Windows WebFetch
    live. **D12** — CLOSED после deterministic coverage, independent review и
-   Windows `AskUserQuestion` live; затем D13, D14, D15 — по одному correctness
-   P2 defect за branch.
+   Windows `AskUserQuestion` live. D13 реализован и ожидает independent
+   review / Windows live; затем D14 и D15 — по одному correctness P2 defect за branch.
 9. **D10**, затем полный PB-v1, 30–50-tool stress, `/compact`, restart/resume.
 10. **D1** — повторный controlled A/B/C только после стабилизации остальных причин.
 
@@ -310,7 +310,10 @@ D12 имеет статус `CLOSED`: implementation `e237562` прошла inde
 выбор `Alpha` вернулся реальным `tool_result` и завершился final `Alpha` без
 unsafe/guard-exhaustion/unexpected-502/hang failures. Exact raw argument
 preservation остаётся deterministic offline evidence и не заявляется live-tested.
-D13 — следующий correctness P2.
+D13 — `IMPLEMENTED / VERIFYING`: 34 deterministic regressions подтверждают
+ordered obligations для 1–5 create/edit/read targets, grouped/same-file/partial
+и root-guard controls. Independent review и Windows Claude Code multi-file live
+ещё требуются; D13 не `CLOSED`.
 
 D9 live verification выполнялась с реальным 39-tool Claude catalog и подтвердила
 PB02/PB05 scope. Во второй части наблюдались upstream `DEEPSEEK_RATE_LIMIT`, один

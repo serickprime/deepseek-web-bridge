@@ -175,6 +175,16 @@ tool arguments: array branch выполняется до plain-object rejection 
 проверяет каждый element. Root `arguments` остаётся plain object; dangerous
 keys, nesting limit и 48 KiB tool-call limit сохраняются.
 
+Completion guard выводит ordered file-action groups из текущей
+user-инструкции. Каждая independently requested create/edit/read action-target
+группа получает stable `kind#N` obligation; existing one-to-one matcher не
+позволяет одному evidence закрыть unrelated instances одного kind.
+Explicit one-command/one-operation multi-target clause сохраняется как одна
+grouped obligation, которая требует evidence всех targets. Если clause→target
+partition неоднозначна, conservative single obligation удерживает все
+known targets. Paths нормализуются только в Unicode NFC; filesystem
+separator/case canonicalization в этот contract не входит.
+
 `src/tools/toolRetry.ts` — максимум одна корректирующая попытка. Бесконечных
 retry нет. Bridge не выполняет инструменты — он только сообщает клиенту, какой
 инструмент запросила модель.

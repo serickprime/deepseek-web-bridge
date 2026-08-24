@@ -524,13 +524,13 @@ function extractExactUserLiterals(content: string): ExactUserLiteral[] {
     if (literals.length >= 8) return literals;
   }
 
-  const labeled = /(?:путь|path)\s*[:=]\s*([^\s,;]+)|(?:url|адрес|endpoint)\s*[:=]\s*(https?:\/\/[^\s,;]+)/gi;
+  const labeled = /(?:путь|path)\s*[:=]\s*(?:"([^"\r\n]+)"|'([^'\r\n]+)'|([^\s,;]+))|(?:url|адрес|endpoint)\s*[:=]\s*(https?:\/\/[^\s,;]+)/gi;
   for (const match of content.matchAll(labeled)) {
-    const value = match[1] ?? match[2] ?? "";
+    const value = match[1] ?? match[2] ?? match[3] ?? match[4] ?? "";
     const normalized = value.normalize("NFC");
     if (!normalized || seen.has(normalized)) continue;
     seen.add(normalized);
-    literals.push({ value, role: match[1] ? "path" : "url" });
+    literals.push({ value, role: match[4] ? "url" : "path" });
     if (literals.length >= 8) return literals;
   }
 
@@ -646,72 +646,168 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
     };
   });
 
-  // Conservative multi-file scope: exactly two DISTINCT path literals that both
-  // appear in a mutation-verb context split the file mutation into per-path
-  // instances (file_mutation#1/#2). Every other distinct path must be clearly
-  // verification/read-context ("проверь файл хранения data/tasks.json"); any
-  // path with unknown context (isolated, or shielded by an unrecognized verb)
-  // forbids the split and falls back to the historical single obligation
-  // instead of silently under-tracking a third requested file. One candidate,
-  // repeated same-path mentions and three or more mutation candidates also
-  // fall back.
-  const mutationIndex = inferred.findIndex(obligation => obligation.id === "file_mutation");
-  if (mutationIndex >= 0) {
-    const mutationVerb = /(?:созда|сделай|сохран|запиш|измен|отредактир|удал|переимен|перемест|скопир|create|make|save|write|modify|change|edit|delete|remove|rename|move|copy)/gi;
-    const verifyVerb = /(?:провер|прочит|прочти|убедись|verify|check|inspect|read|cat\b|show|display)/gi;
-    const lastVerbEnd = (pattern: RegExp, text: string): number => {
-      pattern.lastIndex = 0;
-      let last = -1;
-      let match: RegExpExecArray | null;
-      while ((match = pattern.exec(text))) {
-        last = match.index + match[0].length;
-        if (match[0].length === 0) pattern.lastIndex++;
-      }
-      return last;
-    };
-    const classifyPath = (path: string): "mutation" | "verification" | "none" => {
-      const needle = path.normalize("NFC");
-      let from = 0;
-      let sawVerify = false;
+  type FileActionContext = "mutation" | "verification";
+  interface FileActionMatch {
+    context: FileActionContext;
+    start: number;
+    verbEnd: number;
+    end: number;
+    verb: string;
+    paths: string[];
+    span: string;
+    sequential: boolean;
+    explicitlyGrouped: boolean;
+  }
+  interface FileActionGroup {
+    context: FileActionContext;
+    paths: string[];
+    argumentLiterals: string[];
+    resultLiterals: string[];
+  }
+
+  const distinctPaths = [...new Set(pathLiterals.map(path => path.normalize("NFC")))];
+  const mutationVerb = /(?:созда\S*|сделай|сохран\S*|запиш\S*|добав\S*|дополн\S*|допис\S*|измен\S*|отредактир\S*|удал\S*|переимен\S*|перемест\S*|скопир\S*|create|make|save|write|append|add|modify|change|edit|delete|remove|rename|move|copy)/gi;
+  const verifyVerb = /(?:провер\S*|прочит\S*|прочти|убедись|verify|check|inspect|read|cat\b|show|display)/gi;
+  const actionMatches: FileActionMatch[] = [];
+  const collectActions = (pattern: RegExp, context: FileActionContext): void => {
+    pattern.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(content))) {
+      actionMatches.push({
+        context,
+        start: match.index,
+        verbEnd: match.index + match[0].length,
+        end: content.length,
+        verb: match[0].toLowerCase(),
+        paths: [],
+        span: "",
+        sequential: false,
+        explicitlyGrouped: false,
+      });
+      if (match[0].length === 0) pattern.lastIndex++;
+    }
+  };
+  collectActions(mutationVerb, "mutation");
+  collectActions(verifyVerb, "verification");
+  actionMatches.sort((left, right) => left.start - right.start || left.verbEnd - right.verbEnd);
+
+  const sequenceCue = /(?:затем|после\s+этого|потом|снова|ещ[её]\s+раз|\bthen\b|\bagain\b|\btwice\b|дважды|два\s+раза)/i;
+  const groupedCue = /(?:одн\S*\s+(?:команд\S*|операц\S*|действ\S*)|(?:using|with)\s+(?:one|a\s+single)\s+(?:command|operation|action)|\bone\s+command\b|\bsingle\s+(?:command|operation|action)\b)/i;
+  for (let index = 0; index < actionMatches.length; index++) {
+    const action = actionMatches[index]!;
+    action.end = actionMatches[index + 1]?.start ?? content.length;
+    action.span = content.slice(action.start, action.end);
+    const prefix = content.slice(Math.max(0, action.start - 80), action.start);
+    const previousVerbEnd = actionMatches[index - 1]?.verbEnd ?? action.start;
+    const transition = content.slice(previousVerbEnd, action.start);
+    action.sequential = sequenceCue.test(`${transition} ${action.span}`);
+    action.explicitlyGrouped = groupedCue.test(`${prefix} ${action.span}`);
+    action.paths = distinctPaths.filter(path => {
+      let from = action.verbEnd;
       for (;;) {
-        const at = content.indexOf(needle, from);
-        if (at < 0) break;
-        const window = content.slice(Math.max(0, at - 120), at);
-        const mutationAt = lastVerbEnd(mutationVerb, window);
-        const verifyAt = lastVerbEnd(verifyVerb, window);
-        if (mutationAt >= 0 && mutationAt >= verifyAt) return "mutation";
-        if (verifyAt >= 0) sawVerify = true;
-        from = at + needle.length;
+        const at = content.indexOf(path, from);
+        if (at < 0 || at >= action.end) return false;
+        if (at - action.verbEnd <= 120) return true;
+        from = at + path.length;
       }
-      return sawVerify ? "verification" : "none";
-    };
-    const distinctPaths = [...new Set(pathLiterals.map(path => path.normalize("NFC")))];
-    const classifiedPaths = distinctPaths.map(path => ({ path, context: classifyPath(path) }));
-    const mutationPaths = classifiedPaths
-      .filter(entry => entry.context === "mutation")
-      .map(entry => entry.path);
-    const hasUnknownContextPath = classifiedPaths.some(entry => entry.context === "none");
-    if (mutationPaths.length === 2 && !hasUnknownContextPath) {
-      inferred.splice(mutationIndex, 1,
-        {
-          id: "file_mutation#1",
-          kind: "file_mutation",
-          description: obligationDescription("file_mutation", [mutationPaths[0]!], []),
-          argumentLiterals: [mutationPaths[0]!],
-          resultLiterals: [],
-          requiredExactResultCount: undefined,
-        },
-        {
-          id: "file_mutation#2",
-          kind: "file_mutation",
-          description: obligationDescription("file_mutation", [mutationPaths[1]!], []),
-          argumentLiterals: [mutationPaths[1]!],
-          resultLiterals: [],
-          requiredExactResultCount: undefined,
-        },
-      );
+    });
+  }
+
+  if (distinctPaths.length === 1) {
+    const implicitPath = distinctPaths[0]!;
+    for (let index = 1; index < actionMatches.length; index++) {
+      const action = actionMatches[index]!;
+      if (action.paths.length > 0) continue;
+      const priorSameContext = actionMatches
+        .slice(0, index)
+        .reverse()
+        .find(previous => previous.context === action.context && previous.paths.includes(implicitPath));
+      if (!priorSameContext) continue;
+      const pronoun = /(?:эт\S*\s+же\s+файл|в\s+него|\b(?:it|the\s+same\s+file)\b)/i.test(action.span);
+      if (action.sequential || pronoun) action.paths = [implicitPath];
     }
   }
+
+  const associatedPaths = new Set(actionMatches.flatMap(action => action.paths));
+  const hasUnknownContextPath = distinctPaths.some(path => !associatedPaths.has(path));
+  const localValues = (action: FileActionMatch, roles: ExactLiteralRole[]): string[] =>
+    literalValues(extractExactUserLiterals(action.span), roles);
+  const actionGroups = (context: FileActionContext): FileActionGroup[] => {
+    if (hasUnknownContextPath) return [];
+    const actions = actionMatches.filter(action => action.context === context && action.paths.length > 0);
+    const groups: FileActionGroup[] = [];
+    let previousSignature = "";
+    let previousVerb = "";
+    for (const action of actions) {
+      const localContent = localValues(action, ["content", "marker", "generic"]);
+      const localPaths = action.paths;
+      const localUrls = localValues(action, ["url"]);
+      const localResult = context === "verification" ? localContent : [];
+      const mutationContent = context === "mutation" && kinds.has("data_mutation")
+        ? localContent.filter(value => !titleDescriptionLiterals.has(value.normalize("NFC")))
+        : localContent;
+      const values = context === "mutation" ? mutationContent : [];
+      const ambiguousLiteralAssociation = localPaths.length > 1 && (values.length > 0 || localResult.length > 0);
+      const grouped = action.explicitlyGrouped || ambiguousLiteralAssociation;
+      const pathGroups = grouped ? [localPaths] : localPaths.map(path => [path]);
+      const repeatCount = /(?:\btwice\b|дважды|два\s+раза)/i.test(action.span) ? 2 : 1;
+
+      for (const paths of pathGroups) {
+        const signature = `${context}\n${action.verb}\n${paths.join("\n")}`;
+        if (signature === previousSignature && action.verb === previousVerb && !action.sequential) continue;
+        for (let repeat = 0; repeat < repeatCount; repeat++) {
+          groups.push({
+            context,
+            paths,
+            argumentLiterals: context === "mutation" ? [...values, ...paths, ...localUrls] : paths,
+            resultLiterals: localResult,
+          });
+        }
+        previousSignature = signature;
+        previousVerb = action.verb;
+      }
+    }
+    return groups;
+  };
+
+  const replaceKind = (kind: "file_mutation" | "file_verification", groups: FileActionGroup[]): void => {
+    const index = inferred.findIndex(obligation => obligation.id === kind);
+    if (index < 0) return;
+    if (groups.length === 0) {
+      const existing = inferred[index]!;
+      existing.argumentLiterals = kind === "file_mutation"
+        ? [...contentLiterals, ...distinctPaths, ...urlLiterals]
+        : distinctPaths;
+      existing.description = obligationDescription(kind, existing.argumentLiterals, existing.resultLiterals)
+        + (existing.requiredExactResultCount === 1 ? " occurring exactly once in the final state" : "");
+      return;
+    }
+    const obligations = groups.map((group, groupIndex): ToolObligation => {
+      const id = groups.length === 1 ? kind : `${kind}#${groupIndex + 1}`;
+      const requiredExactResultCount = requiresExactlyOne
+        && group.resultLiterals.length > 0
+        && kind === "file_verification"
+        ? 1
+        : undefined;
+      return {
+        id,
+        kind,
+        description: obligationDescription(kind, group.argumentLiterals, group.resultLiterals)
+          + (requiredExactResultCount === 1 ? " occurring exactly once in the final state" : ""),
+        argumentLiterals: group.argumentLiterals,
+        resultLiterals: group.resultLiterals,
+        requiredExactResultCount,
+      };
+    });
+    inferred.splice(index, 1, ...obligations);
+  };
+
+  const mutationGroups = actionGroups("mutation");
+  const preservesTwoStepAdditive = inferSequentialAdditiveFinalState(content) !== null
+    && mutationGroups.length === 2
+    && new Set(mutationGroups.flatMap(group => group.paths)).size === 1;
+  if (!preservesTwoStepAdditive) replaceKind("file_mutation", mutationGroups);
+  replaceKind("file_verification", actionGroups("verification"));
   // Narrow same-file additive scope: exactly two sequential mutation clauses
   // about ONE path ("Создай report.txt с содержимым \"STEP-1\". Затем добавь
   // строку \"STEP-2\".") synthesize a final-state file_verification whose
