@@ -3,6 +3,26 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-24 — Close D8 after live verification
+
+- D8 закрыт после implementation `6987ae5cc1983e7cbbe3a5d497a72eeebf8047f3`
+  и успешного independent review. Подтверждённый baseline: 34 test files / 701
+  tests; typecheck, build, Windows `test:platform` и `git diff --check` — PASS.
+- Windows live verification с Claude Code 2.1.241 и
+  `deepseek-v4-flash` выполнила настоящий Bash `pwd` и вернула
+  `/d/Проекты/test`. Один `request_ref` прошёл L1–L4; `tool_selected` и
+  `tool_exposed` содержали только safe `tool_name`, а `call_ref`,
+  `upstream_ref` и `chat_ref` совпали через `tool_use → tool_result`
+  continuation с `upstream_linked:true` и успешным `completion_done`.
+- Live guard retry показал отдельные `completion_attempt=2`, `guard_attempt=1`,
+  `parent_state=repair_candidate`, а также transport attempt, stage и latency.
+  Raw prompt marker, client identity, upstream key, call/chat IDs, tool
+  arguments и results в логах отсутствовали. PowerShell `Tee-Object`
+  представлял warn stderr как `NativeCommandError`; это только shell formatting.
+- PB20/PB24/PB28/PB34 telemetry scope — PASS. Cross-restart stability opaque
+  refs не заявляется: refs остаются process-local. D8 переведён в `CLOSED`;
+  открытых P1 теперь 1 — D9. Проект не объявлен production-ready.
+
 ## 2026-08-24 — Add safe request correlation telemetry
 
 - D8 PASS B явно передаёт request-scoped `Logger` по цепочке route → handler →

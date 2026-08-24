@@ -2,11 +2,11 @@
 
 > **Статус:** `HARDENING IN PROGRESS`
 >
-> **Baseline:** `3e2a3654f4de681a635822cf2f7dae00be05fe66` — D7 closed master before D8
+> **Baseline:** `6987ae5cc1983e7cbbe3a5d497a72eeebf8047f3` — D8 implementation before live closure
 >
-> **Offline baseline:** 34 test files, 701 test (D8 PASS B branch)
+> **Offline baseline:** 34 test files, 701 tests (D8 PASS B branch)
 >
-> **Открыто:** P0 — 0, P1 — 2, P2 — 6; deferred P3 — 1
+> **Открыто:** P0 — 0, P1 — 1, P2 — 6; deferred P3 — 1
 > **Production scope:** Claude Code → Anthropic-compatible Bridge → DeepSeek Web → Bridge → Claude Code
 
 Этот файл — главный источник production-hardening backlog, frozen benchmark и
@@ -81,8 +81,8 @@ transport, policy и persistence defects не объединяются в оди
 | **D4** | P0 | L1 / L4 | `CLOSED` | Anthropic HTTP 200 commit отложен до первого SSE byte; pre-start errors возвращают real HTTP JSON, late failures — one safe `event:error`; success/error mutually exclusive. Tool lineage persist-ится до exposure. | `TEST`: T1–T26/PB28 route-level timeout/rate-limit/incomplete/partial/persistence/unknown/pre-start cases и protocol regressions green. `LIVE` Windows, Claude Code 2.1.241, `deepseek-v4-flash`: real Bash cycle PASS; controlled stalled challenge дал visible typed 504 без fake success; raw midstream PB28 дал `message_start` + one `event:error` и no success terminal. | D3 failure taxonomy | `b16307b0c59586709475aaeac312172e53771573` |
 | **D5** | P1 | L3 | `CLOSED` | Единый `SESSION_LINK_TTL_MS` применяется при lookup/init/mutations; persisted expiry durably prune-ится без нарушения D6 ownership. Handler выбирает newest current-cycle result только при matching current-cycle `tool_use` и отклоняет конфликтующие header/correlated-result mappings. | `TEST`: PB31/PB32 authoritative, 26 regressions, 32 files / 672 tests; typecheck/build/Windows test:platform/diff-check PASS. `LIVE`: independent review PASS; Windows, Claude Code 2.1.241, `deepseek-v4-flash`: clean Bridge restart, первая post-restart continuation восстановила тот же persisted upstream key, `upstream_linked:true`, `completion_done`. Исходный Bash result уже имел linked request до restart; first-arrival-after-restart не заявляется. | D6 | `3614d4b`, `051e3ec` |
 | **D6** | P0 | L3 | `CLOSED` | Один `PersistentSessionDocument` владеет `sessions.json`; оба store делегируют ему sessions/links mutations. Schema v2, v1 migration, unknown sibling preservation, FIFO queue и init-before-listen устраняют подтверждённую collision в одном процессе. | `REPO`/`TEST`: PB31/PB33 и migration/failure/startup cases, 574/574. `LIVE` Windows, Claude Code 2.1.241, `deepseek-v4-flash`: после real Bash cycle schema v2 содержала sessions=1 и links=2; restart восстановил session и продолжил real tool-cycle с `upstream_linked:true`. | — | `7573fcd20f22890983acda3c153f1217b630ecce` |
-| **D7** | P1 | L2 | `CLOSED` | После explicit unavailable filtering prompt описывает весь authoritative available catalog; отдельного 32-tool cap больше нет. | `TEST`: independent review PASS; 17 focused cases для 0/1/32/33/35/39, Artifact positions, ordering/duplicates, 33+ handler tool-use/continuation, unknown rejection и D11 boundary; 33 files / 689 tests; typecheck/build/Windows test:platform/diff-check PASS. PB14 catalog identity, PB18 34th+/unknown и PB20 catalog stability — PASS. `LIVE` Windows, Claude Code 2.1.241, `deepseek-v4-flash`: 39 received; `Artifact` received #2 unavailable → 38 available; `WebFetch` received #34 / available #33 реально выполнил Fetch example.com, получил 559 bytes/200, final `Example Domain`; tool-result continuation показал `upstream_linked:true` и `completion_done`. | D8 catalog telemetry остаётся открытым; D11 schema fidelity отдельно | `b09067eda568624f5dcd8373dee87b53a1f3c05f` |
-| **D8** | P1 | L4 / L1,L2,L3 | `IMPLEMENTED / VERIFYING`; D16 merged | Request-scoped logger явно проходит route → handler → DeepSeek → PoW; opaque process-local HMAC refs и safe lifecycle fields связывают L1–L4 без raw IDs/content. | `TEST`: 12 focused cases / 34 files / 701 test покрывают normal/tool/linked flow, guard retry/exhaustion, timeout/rate-limit/incomplete/conflict, concurrency, LogLevel и no-raw-data contract. PB20/PB24/PB28/PB34 telemetry scope offline PASS; independent/live verification pending. | D3/D4 event taxonomy | — |
+| **D7** | P1 | L2 | `CLOSED` | После explicit unavailable filtering prompt описывает весь authoritative available catalog; отдельного 32-tool cap больше нет. | `TEST`: independent review PASS; 17 focused cases для 0/1/32/33/35/39, Artifact positions, ordering/duplicates, 33+ handler tool-use/continuation, unknown rejection и D11 boundary; 33 files / 689 tests; typecheck/build/Windows test:platform/diff-check PASS. PB14 catalog identity, PB18 34th+/unknown и PB20 catalog stability — PASS. `LIVE` Windows, Claude Code 2.1.241, `deepseek-v4-flash`: 39 received; `Artifact` received #2 unavailable → 38 available; `WebFetch` received #34 / available #33 реально выполнил Fetch example.com, получил 559 bytes/200, final `Example Domain`; tool-result continuation показал `upstream_linked:true` и `completion_done`. | D8 CLOSED; D11 schema fidelity отдельно | `b09067eda568624f5dcd8373dee87b53a1f3c05f` |
+| **D8** | P1 | L4 / L1,L2,L3 | `CLOSED`; D16 merged | Request-scoped logger явно проходит route → handler → DeepSeek → PoW; opaque process-local HMAC refs и safe lifecycle fields связывают L1–L4 без raw IDs/content. | `TEST`: independent review PASS; 12 focused cases / 34 files / 701 tests, typecheck/build/Windows test:platform/diff-check PASS. `LIVE`: Windows, Claude Code 2.1.241, `deepseek-v4-flash`: real Bash `pwd` → `/d/Проекты/test`; request_ref L1–L4, matching process-local call/upstream/chat refs through linked continuation, safe tool events, visible attempt/stage/latency fields and no raw marker/identity/payloads. PB20/PB24/PB28/PB34 telemetry scope PASS; cross-restart ref stability не заявляется. | D3/D4 event taxonomy | `6987ae5cc1983e7cbbe3a5d497a72eeebf8047f3` |
 | **D9** | P1 | L2 | `CONFIRMED CURRENT GAP` | Existing environment classifier не распознаёт natural listing variants и typo, поэтому plain final может пройти без fresh result. | `LIVE`: `что находится в данной дериктории?`. `REPO`: listing regex не покрывает `находится/лежит` и typo. Фраза 34 chars; `INTENT_MAX_LENGTH=300` не является фактором. Existing mechanism — `bbd13b2`, новый subsystem запрещён. | После P0 и D7 | —; base mechanism `bbd13b2` |
 | **D10** | P2 | L1 / platform | `NEEDS REPRODUCTION` | Graceful shutdown/PID timing может видеть tracked child живым спустя ~1s. | `HANDOFF`: test иногда падал, orphan позже не оставался. Current sandbox также блокировал `taskkill`, вне sandbox test прошёл; platform cause не изолирован. | D8 telemetry | — |
 | **D11** | P2 | L2 | `CONFIRMED STATIC GAP` | Prompt-facing tool schema перечисляет только имена arguments, не полную JSON schema semantics. | `REPO`: `toolPrompt.ts` извлекает `Object.keys(properties)`; types/required/nested constraints модели не показываются. Production impact требует PASS A. | D7 single catalog | — |
@@ -134,6 +134,7 @@ Closed означает «не переисследовать без новой 
 | D4 downstream Anthropic SSE lifecycle | `b16307b` | T1–T26/PB28 route/protocol regressions; Windows Claude Code Bash and controlled pre-/midstream failure live | Lazy commit, safe single error terminal, persistence-before-exposure либо lineage ordering снова нарушаются; downstream видит hang, truncated stream, double terminal или fake success. |
 | D2 accepted parent isolation | `bc6d0ae` | `deepseekParentIsolation.test.ts`, PB29/PB30; Windows Claude Code normal turn and Bash/tool-result continuity live | Rejected/failed candidate снова меняет shared accepted parent, exhaustion загрязняет следующий request или accepted progression ломается. |
 | D7 tool catalog consistency | `b09067e` | `toolCatalogConsistency.test.ts`, PB14/PB18/PB20 catalog scope; Windows 39-tool WebFetch #33 live | Разрешённый available tool снова отсутствует в prompt, 33+ supported tool не становится настоящим `tool_use` либо unknown tool проходит allowlist. D8 telemetry и D11 schema fidelity не являются reopen D7. |
+| D8 safe request correlation | `6987ae5` | `observabilityCorrelation.test.ts`, PB20/PB24/PB28/PB34 telemetry scope; Windows Claude Code Bash tool-cycle live | `request_ref` снова теряется между L1–L4, raw identity/content попадает в logs, attempts смешиваются либо tool/result refs не коррелируют linked continuation. Cross-restart equality opaque refs не является контрактом. |
 | Normal Anthropic tool streaming | `bd6208e`, `61c44c8` | normal lifecycle sections in `tests/unit/sse.test.ts` | Normal message/tool block ordering ломается. |
 
 **Reopening rule:** нужен reproducible regression, failing existing regression
@@ -265,9 +266,9 @@ green, создавать новый mechanism при подходящем су�
    и Windows persisted-lineage restart verification; сохранять regressions.
 6. **D7 — tool catalog consistency.** CLOSED после deterministic coverage,
    independent review и Windows 39-tool / available #33 `WebFetch` live.
-7. **D8/D16 — observability/correlation.** Инструментирует уже стабилизированные
-   lifecycle states без утечки secrets/prompts.
-8. **D9, D11, D12, D13, D14, D15** — по одному correctness P1/P2 defect за branch.
+7. **D8/D16 — observability/correlation.** CLOSED после deterministic coverage,
+   independent review и Windows Claude Code Bash live verification.
+8. **D9**, затем D11, D12, D13, D14, D15 — по одному correctness P1/P2 defect за branch.
 9. **D10**, затем полный PB-v1, 30–50-tool stress, `/compact`, restart/resume.
 10. **D1** — повторный controlled A/B/C только после стабилизации остальных причин.
 
@@ -285,11 +286,10 @@ green, создавать новый mechanism при подходящем су�
 
 ## 12. Current decision
 
-Проект **не является Production Ready**. D6, D3, D4, D2, D5 и D7 закрыты после
+Проект **не является Production Ready**. D6, D3, D4, D2, D5, D7 и D8 закрыты после
 independent review, deterministic coverage и релевантной Windows live
-verification. Открытых P0 нет, G6 пройден; открытых P1 — 2. P1/P2 defects и
-остальные release gates остаются открытыми. D8 реализован, но остаётся
-`IMPLEMENTED / VERIFYING` до independent/live verification.
+verification. Открытых P0 нет, G6 пройден; открытых P1 — 1 (D9). P1/P2 defects
+и остальные release gates остаются открытыми.
 
 Отдельный D7 live collateral finding не относится к catalog consistency:
 первая streaming-попытка дала `completion_guard_rejected` с

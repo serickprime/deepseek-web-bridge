@@ -29,9 +29,10 @@ live verification. D5 lineage freshness/current-cycle selection закрыт п�
 independent review, deterministic PB31/PB32 и ограниченной Windows restart/live
 verification. Открытых P0 больше нет; G6 — PASS. D7 tool catalog consistency
 закрыт после independent review, deterministic coverage и Windows live
-verification 33+ production path; открытых P1 — 2. Остальные приоритеты и gates
-— в `PRODUCTION_READINESS.md`. D8 safe request correlation реализован и остаётся
-`IMPLEMENTED / VERIFYING`; D11 schema fidelity не менялась.
+verification 33+ production path. D8 safe request correlation закрыт после
+independent review, deterministic coverage и Windows Claude Code live tool-cycle;
+открытых P1 — 1 (D9). Остальные приоритеты и gates — в
+`PRODUCTION_READINESS.md`. D11 schema fidelity не менялась.
 D1 остаётся неподтверждённой/deferred P3.
 
 Проект использует **неофициальные** внутренние маршруты веб-сайта DeepSeek
@@ -163,8 +164,7 @@ D1 остаётся неподтверждённой/deferred P3.
   `Example Domain`, а `tool_result` continuation использовал
   `upstream_linked:true` и дошёл до `completion_done`. PB14 catalog identity,
   PB18 34th+/unknown и PB20 catalog stability — PASS; D11 schema fidelity
-  остаётся открытой, D8 теперь `IMPLEMENTED / VERIFYING`. D7 — `CLOSED`;
-  открытых P1 — 2.
+  остаётся открытой, D8 теперь `CLOSED`. D7 — `CLOSED`; открытых P1 — 1.
 - D8 PASS B передаёт уже существующий request-scoped logger явно по всей цепочке
   route → handler → DeepSeek client → PoW. Один случайный process-local salt и
   domain separation создают необратимые `client_ref`, `upstream_ref`,
@@ -177,8 +177,15 @@ D1 остаётся неподтверждённой/deferred P3.
   логирует только безопасное имя tool и opaque call ref; per-SSE-chunk events
   отсутствуют. Logger derivatives теперь сохраняют configured LogLevel.
   Focused offline suite покрывает PB20/PB24/PB28/PB34 correlation scope,
-  concurrency isolation и redaction. D8 — `IMPLEMENTED / VERIFYING`; до
-  independent/live verification не закрывается, открытых P1 остаётся 2.
+  concurrency isolation и redaction. Independent review — PASS; implementation
+  `6987ae5`. Windows live с Claude Code 2.1.241 и `deepseek-v4-flash` реально
+  выполнил Bash `pwd` и вернул `/d/Проекты/test`: один `request_ref` прошёл
+  L1–L4, safe `tool_name` присутствовал, а `call_ref`, `upstream_ref` и
+  `chat_ref` совпали через linked tool-result continuation. Guard retry показал
+  `completion_attempt=2`, `guard_attempt=1`, `parent_state=repair_candidate`;
+  raw marker/identity/upstream/call/chat IDs и tool payloads в логах отсутствовали.
+  Opaque refs остаются process-local, cross-restart stability не заявляется.
+  D8 — `CLOSED`; PB20/PB24/PB28/PB34 telemetry scope — PASS; открытых P1 — 1.
 - Отдельный D7 live collateral finding не относится к catalog consistency:
   первая streaming-попытка дала `completion_guard_rejected` с
   `malformed_tool_intent=true` и `TOOL_CALL_REQUIRED`/502; retry затем успешно
