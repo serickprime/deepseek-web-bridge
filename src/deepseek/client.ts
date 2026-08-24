@@ -76,6 +76,15 @@ interface CompletionAttemptResult {
 const MAX_COMPLETIONS = 2;
 
 type CompletionStage = "completion_headers" | "completion_body";
+type ParentState = "none" | "accepted" | "repair_candidate";
+
+interface CompletionTelemetry {
+  logger: Logger;
+  completionAttempt: number;
+  guardAttempt: number;
+  parentState: ParentState;
+  historyEntries: number;
+}
 
 interface RequestDeadline {
   race<T>(operation: Promise<T>): Promise<T>;
@@ -116,6 +125,25 @@ function isMalformedSupportedUpdate(event: SseEvent): boolean {
   if (event.type !== "update" || !event.jsonParseFailed || typeof event.data !== "string") return false;
   const trimmed = event.data.trimStart();
   return trimmed.startsWith("{") || trimmed.startsWith("[");
+}
+
+function failureFields(error: unknown): Record<string, unknown> {
+  if (error instanceof BridgeError) {
+    return {
+      failure_class: error.code,
+      cause_code: error.causeCode ?? "unspecified",
+      retryable: error.retryable,
+    };
+  }
+  return {
+    failure_class: "UNHANDLED_ERROR",
+    cause_code: "unhandled_error",
+    retryable: false,
+  };
+}
+
+function childLogger(logger: Logger, fields: Record<string, unknown>): Logger {
+  return typeof logger.child === "function" ? logger.child(fields) : logger;
 }
 
 export class DeepSeekClient {
@@ -160,14 +188,18 @@ export class DeepSeekClient {
     }
   }
 
-  async ensureSession(state: UpstreamSessionState, authGeneration = this.authGeneration): Promise<void> {
+  async ensureSession(
+    state: UpstreamSessionState,
+    authGeneration = this.authGeneration,
+    logger = this.options.logger,
+  ): Promise<void> {
     this.assertAuthGeneration(authGeneration);
     if (state.chatSessionId) return;
     await this.sessionLimiter.acquire();
     this.assertAuthGeneration(authGeneration);
     if (state.chatSessionId) return;
     const body = JSON.stringify({});
-    const res = await this.fetch(SESSION_CREATE_PATH, { method: "POST", body }, null, authGeneration);
+    const res = await this.fetch(SESSION_CREATE_PATH, { method: "POST", body }, null, authGeneration, logger, "session_create");
     if (res.status === 401 || res.status === 403) {
       throw new BridgeError(
         `DeepSeek authorization expired (HTTP ${res.status}). Use AUTH in Bridge Console, or run \`npm run auth\`.`,
@@ -209,7 +241,9 @@ export class DeepSeekClient {
     state: UpstreamSessionState,
     callbacks: CompletionCallbacks = {},
     authGeneration = this.authGeneration,
+    logger = this.options.logger,
   ): Promise<CompletionResult> {
+    const startedAt = Date.now();
     this.assertAuthGeneration(authGeneration);
     const modelSelection = resolveModelSelection(request.model, request.reasoning, request.search);
     const toolSelection = selectBridgeTools(request.tools);
@@ -224,16 +258,26 @@ export class DeepSeekClient {
 
     const acceptedParent = state.parentMessageId;
     let attemptParent = acceptedParent;
+    let attemptParentState: ParentState = acceptedParent === null ? "none" : "accepted";
+    let completionAttempt = 1;
     const upstreamPrompt = this.buildPrompt(request, toolPrompt);
-    let output = await this.runCompletion(
+    let output = await this.runObservedCompletion(
       upstreamPrompt,
       state.chatSessionId,
       attemptParent,
       authGeneration,
       modelSelection,
+      {
+        logger,
+        completionAttempt,
+        guardAttempt: 0,
+        parentState: attemptParentState,
+        historyEntries: state.history.length,
+      },
     );
     if (output.candidateMessageId !== null && output.candidateMessageId !== undefined) {
       attemptParent = output.candidateMessageId;
+      attemptParentState = "repair_candidate";
     }
 
     const inspection = inspectToolCallFromOutput(output, allowedNames);
@@ -249,6 +293,7 @@ export class DeepSeekClient {
     let retries = 0;
     while (shouldRetry(hasTools, toolCall, output.content, output.reasoning, allowedNames, guardEvidence, malformedToolIntent) && retries < COMPLETION_GUARD_MAX_ATTEMPTS - 1) {
       retries++;
+      completionAttempt++;
       const repeatedFailedToolName = isRepeatedFailedToolCall(toolCall, guardEvidence)
         ? toolCall?.name
         : undefined;
@@ -264,15 +309,36 @@ export class DeepSeekClient {
         repeatedFailedToolName,
         malformedToolIntent,
       });
-      output = await this.runCompletion(
+      logger.warn("completion_guard_retry", {
+        stage: "guard",
+        outcome: "retry",
+        completion_attempt: completionAttempt,
+        guard_attempt: retries,
+        failure_class: "TOOL_CALL_REQUIRED",
+        cause_code: malformedToolIntent
+          ? "malformed_tool_intent"
+          : repeatedFailedToolName
+            ? "repeated_failed_tool_call"
+            : "missing_tool_evidence",
+        retryable: true,
+      });
+      output = await this.runObservedCompletion(
         retryPrompt,
         state.chatSessionId,
         attemptParent,
         authGeneration,
         modelSelection,
+        {
+          logger,
+          completionAttempt,
+          guardAttempt: retries,
+          parentState: attemptParentState,
+          historyEntries: state.history.length,
+        },
       );
       if (output.candidateMessageId !== null && output.candidateMessageId !== undefined) {
         attemptParent = output.candidateMessageId;
+        attemptParentState = "repair_candidate";
       }
       const retryInspection = inspectToolCallFromOutput(output, allowedNames);
       toolCall = retryInspection.toolCall;
@@ -286,8 +352,19 @@ export class DeepSeekClient {
     }
 
     if (shouldRetry(hasTools, toolCall, output.content, output.reasoning, allowedNames, guardEvidence, malformedToolIntent)) {
-      this.options.logger.warn("completion_guard_rejected", {
-        attempts: retries + 1,
+      logger.warn("completion_guard_rejected", {
+        stage: "guard",
+        outcome: "failure",
+        completion_attempt: completionAttempt,
+        guard_attempt: retries,
+        latency_ms: Date.now() - startedAt,
+        failure_class: "TOOL_CALL_REQUIRED",
+        cause_code: sawMalformedToolIntent
+          ? "malformed_tool_intent"
+          : sawRepeatedFailedToolCall
+            ? "repeated_failed_tool_call"
+            : "missing_tool_evidence",
+        retryable: true,
         requires_environment_tool_result: guardEvidence.requiresEnvironmentToolResult,
         requires_action_tool_result: guardEvidence.requiresActionToolResult,
         has_current_tool_result: guardEvidence.hasCurrentToolResult,
@@ -326,7 +403,59 @@ export class DeepSeekClient {
     if (acceptedCandidateMessageId !== null && acceptedCandidateMessageId !== undefined) {
       state.parentMessageId = acceptedCandidateMessageId;
     }
+    logger.info("completion_accepted", {
+      stage: "guard",
+      outcome: "success",
+      completion_attempt: completionAttempt,
+      guard_attempt: retries,
+      latency_ms: Date.now() - startedAt,
+      history_entries: state.history.length,
+      parent_state: acceptedCandidateMessageId == null ? (acceptedParent === null ? "none" : "accepted") : "accepted",
+      tool_name: toolCall?.name,
+    });
     return result;
+  }
+
+  private async runObservedCompletion(
+    prompt: string,
+    chatSessionId: string | null,
+    requestParentMessageId: number | null,
+    authGeneration: number,
+    model: ModelSelection,
+    telemetry: CompletionTelemetry,
+  ): Promise<CompletionAttemptResult> {
+    const attemptLogger = childLogger(telemetry.logger, {
+      completion_attempt: telemetry.completionAttempt,
+      guard_attempt: telemetry.guardAttempt,
+      history_entries: telemetry.historyEntries,
+      parent_state: telemetry.parentState,
+    });
+    const startedAt = Date.now();
+    attemptLogger.info("completion_attempt_start", { stage: "challenge", outcome: "start" });
+    try {
+      const result = await this.runCompletion(
+        prompt,
+        chatSessionId,
+        requestParentMessageId,
+        authGeneration,
+        model,
+        attemptLogger,
+      );
+      attemptLogger.info("completion_attempt_done", {
+        stage: "completion_body",
+        outcome: "success",
+        latency_ms: Date.now() - startedAt,
+      });
+      return result;
+    } catch (error) {
+      attemptLogger.warn("completion_attempt_failed", {
+        stage: error instanceof BridgeError ? error.upstreamStage ?? "completion" : "completion",
+        outcome: "failure",
+        latency_ms: Date.now() - startedAt,
+        ...failureFields(error),
+      });
+      throw error;
+    }
   }
 
   private async runCompletion(
@@ -335,6 +464,7 @@ export class DeepSeekClient {
     requestParentMessageId: number | null,
     authGeneration: number,
     model: ModelSelection,
+    logger: Logger,
   ): Promise<CompletionAttemptResult> {
     const payload = {
       chat_session_id: chatSessionId,
@@ -347,8 +477,8 @@ export class DeepSeekClient {
       action: null,
       preempt: false,
     };
-    const challenge = await this.fetchChallenge(authGeneration);
-    const solution = await this.options.solver.solve(challenge);
+    const challenge = await this.fetchChallenge(authGeneration, logger);
+    const solution = await this.options.solver.solve(challenge, logger);
     const controller = new AbortController();
     let stage: CompletionStage = "completion_headers";
     const deadline = createRequestDeadline(this.options.timeoutMs, controller, () => stage);
@@ -363,6 +493,11 @@ export class DeepSeekClient {
 
     try {
       this.assertAuthGeneration(authGeneration);
+      logger.info("completion_transport_start", {
+        stage: "completion_headers",
+        outcome: "start",
+        transport_attempt: 1,
+      });
       const res = await deadline.race(fetch(`${this.options.baseUrl}${COMPLETION_PATH}`, {
         method: "POST",
         headers: this.buildHeaders(solution, authGeneration),
@@ -393,7 +528,12 @@ export class DeepSeekClient {
         });
       }
       if (!res.ok) {
-        this.options.logger.warn("upstream_error_response", {
+        logger.warn("upstream_error_response", {
+          stage: "completion_headers",
+          outcome: "failure",
+          failure_class: "UPSTREAM_ERROR",
+          cause_code: `http_${res.status}`,
+          retryable: res.status >= 500,
           status: res.status,
           prompt_bytes: Buffer.byteLength(payload.prompt, "utf8"),
         });
@@ -592,7 +732,10 @@ export class DeepSeekClient {
     });
   }
 
-  private async fetchChallenge(authGeneration: number): Promise<ReturnType<typeof parseChallengePayload> & { expireAt: number }> {
+  private async fetchChallenge(
+    authGeneration: number,
+    logger: Logger,
+  ): Promise<ReturnType<typeof parseChallengePayload> & { expireAt: number }> {
     const body = JSON.stringify({ target_path: COMPLETION_PATH });
     let lastError: unknown;
 
@@ -713,10 +856,12 @@ export class DeepSeekClient {
         && attemptError.retryable
         && attemptError.code !== "SESSION_CONFLICT"
         && attempt < this.options.maxRetries;
-      this.options.logger.warn("upstream_fetch_retry", {
-        path: this.options.redactor.redactText(CHALLENGE_PATH),
-        attempt: attempt + 1,
-        retryable: canRetry,
+      logger.warn("upstream_fetch_retry", {
+        stage,
+        outcome: canRetry ? "retry" : "failure",
+        transport_attempt: attempt + 1,
+        ...failureFields(attemptError),
+        will_retry: canRetry,
       });
       if (!canRetry) throw attemptError;
     }
@@ -780,9 +925,11 @@ export class DeepSeekClient {
     init: { method: string; body?: string },
     solution: { answer: number; signature: string; algorithm: string; salt: string; challenge: string } | null,
     authGeneration = this.authGeneration,
+    logger = this.options.logger,
+    stage = "upstream_fetch",
   ): Promise<Response> {
     this.assertAuthGeneration(authGeneration);
-    const { baseUrl, timeoutMs, maxRetries, logger, redactor } = this.options;
+    const { baseUrl, timeoutMs, maxRetries } = this.options;
     const headers = this.buildHeaders(solution, authGeneration);
     let lastError: unknown;
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -804,9 +951,12 @@ export class DeepSeekClient {
       } catch (error) {
         lastError = error;
         const retryable = !(error instanceof BridgeError);
-        logger?.warn("upstream_fetch_retry", {
-          path: redactor.redactText(path),
-          attempt: attempt + 1,
+        logger.warn("upstream_fetch_retry", {
+          stage,
+          outcome: retryable && attempt < maxRetries ? "retry" : "failure",
+          transport_attempt: attempt + 1,
+          failure_class: error instanceof BridgeError ? error.code : "UPSTREAM_ERROR",
+          cause_code: error instanceof Error && error.name === "AbortError" ? "deadline_exceeded" : "transport_error",
           retryable,
         });
         if (!retryable) throw error;

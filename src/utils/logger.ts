@@ -1,8 +1,10 @@
 import { Redactor } from "./redaction.js";
+import { hmacFingerprint, randomToken } from "./crypto.js";
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
 const LEVEL_ORDER: Record<LogLevel, number> = { debug: 10, info: 20, warn: 30, error: 40 };
+const PROCESS_CORRELATION_SALT = randomToken(32);
 
 export interface LogFields {
   [key: string]: unknown;
@@ -15,6 +17,8 @@ export interface LoggerOptions {
   sinks?: Array<(entry: LogEntry) => void>;
 }
 
+export type OpaqueRefDomain = "client" | "upstream" | "chat" | "call";
+
 export interface LogEntry {
   ts: string;
   level: LogLevel;
@@ -24,13 +28,15 @@ export interface LogEntry {
 }
 
 export class Logger {
+  private readonly level: LogLevel;
   private readonly minLevel: number;
   readonly redactor: Redactor;
   private readonly requestRef?: string;
   private readonly sinks: Array<(entry: LogEntry) => void>;
 
   constructor(options: LoggerOptions = {}) {
-    this.minLevel = LEVEL_ORDER[options.level ?? "info"];
+    this.level = options.level ?? "info";
+    this.minLevel = LEVEL_ORDER[this.level];
     this.redactor = options.redactor ?? new Redactor();
     this.requestRef = options.requestRef;
     this.sinks = options.sinks ?? [];
@@ -38,7 +44,7 @@ export class Logger {
 
   withRequestRef(requestRef: string): Logger {
     return new Logger({
-      level: this.minLevel as unknown as LogLevel,
+      level: this.level,
       redactor: this.redactor,
       requestRef,
       sinks: this.sinks,
@@ -50,13 +56,18 @@ export class Logger {
     return new Logger({
       redactor: this.redactor,
       requestRef: this.requestRef,
-      level: this.minLevel as unknown as LogLevel,
+      level: this.level,
       sinks: [
         entry => {
           base.emit(entry.level, entry.msg, { ...entry.fields, ...fields });
         },
       ],
     });
+  }
+
+  opaqueRef(domain: OpaqueRefDomain, value: string | null | undefined): string | undefined {
+    if (!value) return undefined;
+    return `${domain}_${hmacFingerprint(`${domain}:${value}`, PROCESS_CORRELATION_SALT)}`;
   }
 
   debug(msg: string, fields: LogFields = {}): void {

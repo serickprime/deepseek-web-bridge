@@ -2,6 +2,7 @@ import http from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { REQUEST_REF_LENGTH } from "../config/constants.js";
 import { randomToken } from "../utils/crypto.js";
+import { BridgeError } from "../utils/errors.js";
 import type { Logger } from "../utils/logger.js";
 import { routes, middlewareWrapper, type RouteContext } from "./routes.js";
 
@@ -55,10 +56,15 @@ export class BridgeServer {
         if (!res.writableEnded) res.end();
       })
       .catch(error => {
+        const bridgeError = error instanceof BridgeError ? error : undefined;
         logger.error("request_failed", {
           method,
-          path: pathname,
-          message: error instanceof Error ? error.message : String(error),
+          route: pathname,
+          stage: bridgeError?.upstreamStage ?? "server_route",
+          outcome: "failure",
+          failure_class: bridgeError?.code ?? "UNHANDLED_ERROR",
+          cause_code: bridgeError?.causeCode ?? "unhandled_error",
+          retryable: bridgeError?.retryable ?? false,
         });
         if (!res.headersSent && !res.writableEnded) {
           res.writeHead(500, { "content-type": "application/json" });

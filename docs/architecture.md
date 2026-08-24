@@ -33,7 +33,16 @@ chat.deepseek.com (ваша авторизованная сессия)
 `src/server/` строит один `http.createServer` без внешних фреймворков.
 `src/server/routes.ts` — таблица маршрутов. `src/security/middleware.ts` —
 проверка API key, CORS, лимит тела, таймауты. `src/utils/logger.ts` — безопасные
-логи с `request_ref` и redaction.
+логи с `request_ref` и redaction. Request-scoped logger передаётся явно через
+handler в DeepSeek client и PoW без global/AsyncLocalStorage context.
+
+Correlation identifiers не содержат raw client/upstream/chat/call IDs:
+`client_ref`, `upstream_ref`, `chat_ref` и `call_ref` вычисляются HMAC с одним
+случайным process-local salt и domain separation. Они стабильны только внутри
+одного процесса. Lifecycle telemetry использует отдельные completion/guard/
+transport attempts, `stage`, `latency_ms`, typed failure metadata,
+`history_entries` и `parent_state: none|accepted|repair_candidate`; содержимое
+prompt/messages/tool arguments/results и per-SSE-chunk события не логируются.
 
 ### Протокольный слой
 

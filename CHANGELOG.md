@@ -3,6 +3,25 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-24 — Add safe request correlation telemetry
+
+- D8 PASS B явно передаёт request-scoped `Logger` по цепочке route → handler →
+  DeepSeek client → PoW. L1–L4 события теперь коррелируются через один
+  `request_ref`, а client/upstream/chat/call IDs представлены только
+  process-local domain-separated HMAC refs.
+- Добавлены безопасные поля lifecycle: `completion_attempt`, `guard_attempt`,
+  `transport_attempt`, `stage`, `latency_ms`, typed outcome/failure metadata,
+  `history_entries` и `parent_state`. Guard policy, retries, session/lineage и
+  SSE semantics не менялись; per-SSE-chunk logging не добавлялся.
+- Удалены raw client identity и raw upstream key из telemetry; server/route
+  больше не пишут произвольный `Error.message`. `withRequestRef()` и `child()`
+  сохраняют настроенный LogLevel. Focused D8 suite покрывает normal/tool/linked,
+  guard retry/exhaustion, timeout/rate-limit/incomplete/conflict, concurrency,
+  opaque-ref contract и отсутствие synthetic secrets/raw payloads в логах.
+- D8 переведён в `IMPLEMENTED / VERIFYING`; PB20/PB24/PB28/PB34 telemetry
+  evidence покрыто offline, но independent review/live verification ещё нужны.
+  Открытых P1 остаётся 2; production-ready не заявляется.
+
 ## 2026-08-24 — Close D7 after live verification
 
 - D7 закрыт после implementation `b09067eda568624f5dcd8373dee87b53a1f3c05f`

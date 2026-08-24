@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { readFile, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { BridgeError, httpStatusForCode, safeErrorMessage } from "../utils/errors.js";
+import { BridgeError, httpStatusForCode } from "../utils/errors.js";
 import type { Logger } from "../utils/logger.js";
 import type { SecurityOptions } from "./middleware.js";
 import { checkApiKey, corsAllowed, corsHeaders, isPublicPath, readBody } from "./middleware.js";
@@ -48,23 +48,31 @@ function makeId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function logRouteError(error: unknown, ctx: RouteContext, requestRef: string): void {
-  const logger = ctx.logger.withRequestRef(requestRef);
+function logRouteError(error: unknown, logger: Logger, latencyMs?: number): void {
   if (error instanceof BridgeError) {
     logger.warn("route_error", {
       code: error.code,
       status: error.status,
       retryable: error.retryable,
+      stage: error.upstreamStage ?? "route",
       ...(error.upstreamStage ? { upstream_stage: error.upstreamStage } : {}),
+      outcome: "failure",
+      failure_class: error.code,
       ...(error.causeCode ? { cause_code: error.causeCode } : {}),
+      ...(latencyMs === undefined ? {} : { latency_ms: latencyMs }),
     });
   } else {
-    logger.error("route_error_unhandled", { message: safeErrorMessage(error) });
+    logger.error("route_error_unhandled", {
+      stage: "route",
+      outcome: "failure",
+      failure_class: "UNHANDLED_ERROR",
+      ...(latencyMs === undefined ? {} : { latency_ms: latencyMs }),
+    });
   }
 }
 
 function routeError(res: ServerResponse, error: unknown, ctx: RouteContext, requestRef: string): void {
-  logRouteError(error, ctx, requestRef);
+  logRouteError(error, ctx.logger.withRequestRef(requestRef));
   if (res.headersSent) {
     if (!res.writableEnded) res.end();
     return;
@@ -101,6 +109,7 @@ function buildProtocolStream(
 function handleCompletion(ctx: RouteContext, protocol: Protocol, modelFallback: string) {
   return async (req: IncomingMessage, res: ServerResponse, requestRef: string): Promise<void> => {
     const logger = ctx.logger.withRequestRef(requestRef);
+    const startedAt = Date.now();
     let stream: ProtocolStream | undefined;
     let anthropicStreaming = false;
     try {
@@ -113,6 +122,8 @@ function handleCompletion(ctx: RouteContext, protocol: Protocol, modelFallback: 
         model: normalized.model,
         stream: normalized.stream,
         tools: normalized.tools.length,
+        stage: "request_normalized",
+        outcome: "start",
       });
       anthropicStreaming = protocol === "anthropic" && normalized.stream;
       stream = buildProtocolStream(protocol, normalized.model, res, normalized.stream);
@@ -122,6 +133,7 @@ function handleCompletion(ctx: RouteContext, protocol: Protocol, modelFallback: 
         headers: req.headers as Record<string, string | undefined>,
         body: body as Record<string, unknown>,
         stream,
+        logger,
       });
       if (!normalized.stream) {
         let payload: unknown;
@@ -132,12 +144,17 @@ function handleCompletion(ctx: RouteContext, protocol: Protocol, modelFallback: 
       } else {
         res.end();
       }
-      logger.info("completion_done", { upstream: runResult.upstreamKey });
+      logger.info("completion_done", {
+        upstream_ref: logger.opaqueRef("upstream", runResult.upstreamKey),
+        stage: "downstream_complete",
+        outcome: "success",
+        latency_ms: Date.now() - startedAt,
+      });
     } catch (error) {
       if (res.writableEnded) return;
       if (protocol === "anthropic") {
         const publicError = toAnthropicPublicError(error);
-        logRouteError(error, ctx, requestRef);
+        logRouteError(error, logger, Date.now() - startedAt);
         if (anthropicStreaming && stream?.fail(publicError)) {
           if (!res.writableEnded) res.end();
           return;

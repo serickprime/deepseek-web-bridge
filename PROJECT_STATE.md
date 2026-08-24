@@ -30,7 +30,8 @@ independent review, deterministic PB31/PB32 и ограниченной Windows 
 verification. Открытых P0 больше нет; G6 — PASS. D7 tool catalog consistency
 закрыт после independent review, deterministic coverage и Windows live
 verification 33+ production path; открытых P1 — 2. Остальные приоритеты и gates
-— в `PRODUCTION_READINESS.md`. D8 telemetry и D11 schema fidelity не менялись.
+— в `PRODUCTION_READINESS.md`. D8 safe request correlation реализован и остаётся
+`IMPLEMENTED / VERIFYING`; D11 schema fidelity не менялась.
 D1 остаётся неподтверждённой/deferred P3.
 
 Проект использует **неофициальные** внутренние маршруты веб-сайта DeepSeek
@@ -97,14 +98,14 @@ D1 остаётся неподтверждённой/deferred P3.
 | 7. DeepSeek | pow (WASM), sseParser, updateParser, client | ✅ готово |
 | 8. Server | middleware, output-адаптеры, protocolStream, routes, server | ✅ готово |
 | 9. Entrypoint | app.ts, index.ts, start.ts | ✅ готово |
-| 10. Тесты | 33 файла, 689 тестов | ✅ готово |
+| 10. Тесты | 34 файла, 701 тест | ✅ готово |
 | 11. Скрипты | desktopStart, cdp, auth, doctor, launcher, live, real-OS platform smoke | ✅ live-часть работает |
 | 12. Веб-интерфейс | Bridge Console на `GET /` (Mileo dark theme, two-panel, diagnostics, model picker) | ✅ готово |
 
 **Проверки сейчас:**
 - `npm run typecheck` — ✅ без ошибок.
 - `npm run build` — ✅ собирается.
-- `npm test` — ✅ 689/689 (Windows process-lifecycle case требует разрешённый
+- `npm test` — ✅ 701/701 (Windows process-lifecycle case требует разрешённый
   `taskkill`; sandbox-only запуск отдельно воспроизводит известный D10 finding).
 - `npm run test:platform` — ✅ локально на Windows: real process/platform,
   `buildConfig`, Bridge HTTP, Unicode cwd и env propagation без DeepSeek auth.
@@ -161,8 +162,23 @@ D1 остаётся неподтверждённой/deferred P3.
   `Fetch(https://example.com)` получил 559 bytes (HTTP 200), завершился
   `Example Domain`, а `tool_result` continuation использовал
   `upstream_linked:true` и дошёл до `completion_done`. PB14 catalog identity,
-  PB18 34th+/unknown и PB20 catalog stability — PASS; D11 schema fidelity и D8
-  telemetry остаются открытыми. D7 — `CLOSED`; открытых P1 — 2.
+  PB18 34th+/unknown и PB20 catalog stability — PASS; D11 schema fidelity
+  остаётся открытой, D8 теперь `IMPLEMENTED / VERIFYING`. D7 — `CLOSED`;
+  открытых P1 — 2.
+- D8 PASS B передаёт уже существующий request-scoped logger явно по всей цепочке
+  route → handler → DeepSeek client → PoW. Один случайный process-local salt и
+  domain separation создают необратимые `client_ref`, `upstream_ref`,
+  `chat_ref`, `call_ref`; refs стабильны только внутри процесса. Raw identity,
+  upstream/chat/call IDs, prompts, tool args/results, auth data и arbitrary
+  exception messages не входят в telemetry.
+- Lifecycle events содержат отдельные `completion_attempt` и `guard_attempt`,
+  transport attempt где применимо, `stage`, `latency_ms`, typed outcome/failure,
+  `history_entries` и `parent_state: none|accepted|repair_candidate`. Tool flow
+  логирует только безопасное имя tool и opaque call ref; per-SSE-chunk events
+  отсутствуют. Logger derivatives теперь сохраняют configured LogLevel.
+  Focused offline suite покрывает PB20/PB24/PB28/PB34 correlation scope,
+  concurrency isolation и redaction. D8 — `IMPLEMENTED / VERIFYING`; до
+  independent/live verification не закрывается, открытых P1 остаётся 2.
 - Отдельный D7 live collateral finding не относится к catalog consistency:
   первая streaming-попытка дала `completion_guard_rejected` с
   `malformed_tool_intent=true` и `TOOL_CALL_REQUIRED`/502; retry затем успешно

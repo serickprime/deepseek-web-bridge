@@ -75,26 +75,44 @@ export class PowSolver {
     return this.wasmBytes;
   }
 
-  async solve(challenge: PowChallenge): Promise<PowSolution> {
-    this.logger?.info("pow_solve_start");
-    const wasm = await this.ensureWasm();
-    let answer: number;
-    if (challenge.difficulty > 0) {
-      answer = await this.runWasmSolve(wasm, challenge);
-    } else if (challenge.complexity > 0) {
-      throw new BridgeError("Legacy complexity challenges are no longer supported.", { code: "POW_CHALLENGE_FAILED" });
-    } else {
-      throw new BridgeError("No solvable challenge format.", { code: "POW_CHALLENGE_FAILED" });
+  async solve(challenge: PowChallenge, logger = this.logger): Promise<PowSolution> {
+    const startedAt = Date.now();
+    logger?.info("pow_solve_start", { stage: "pow_solve", outcome: "start" });
+    try {
+      const wasm = await this.ensureWasm();
+      let answer: number;
+      if (challenge.difficulty > 0) {
+        answer = await this.runWasmSolve(wasm, challenge);
+      } else if (challenge.complexity > 0) {
+        throw new BridgeError("Legacy complexity challenges are no longer supported.", { code: "POW_CHALLENGE_FAILED" });
+      } else {
+        throw new BridgeError("No solvable challenge format.", { code: "POW_CHALLENGE_FAILED" });
+      }
+      logger?.info("pow_solved", {
+        stage: "pow_solve",
+        outcome: "success",
+        latency_ms: Date.now() - startedAt,
+      });
+      return {
+        answer,
+        algorithm: challenge.algorithm,
+        signature: challenge.signature,
+        salt: challenge.salt,
+        challenge: challenge.challenge,
+        targetPath: challenge.targetPath,
+      };
+    } catch (error) {
+      const bridgeError = error instanceof BridgeError ? error : undefined;
+      logger?.warn("pow_solve_failed", {
+        stage: "pow_solve",
+        outcome: "failure",
+        latency_ms: Date.now() - startedAt,
+        failure_class: bridgeError?.code ?? "UNHANDLED_ERROR",
+        cause_code: bridgeError?.causeCode ?? "solver_error",
+        retryable: bridgeError?.retryable ?? false,
+      });
+      throw error;
     }
-    this.logger?.info("pow_solved");
-    return {
-      answer,
-      algorithm: challenge.algorithm,
-      signature: challenge.signature,
-      salt: challenge.salt,
-      challenge: challenge.challenge,
-      targetPath: challenge.targetPath,
-    };
   }
 
   private async runWasmSolve(
