@@ -3,6 +3,24 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-24 — Fix nested array tool arguments
+
+- D12 PASS B исправляет подтверждённую validation ordering ошибку в
+  `inspectNestedValues()`: existing `Array.isArray()` branch теперь выполняется
+  до plain-object gate и рекурсивно проверяет каждый array element. Root
+  `arguments` по-прежнему обязан быть plain object.
+- Dangerous `__proto__`/`constructor`/`prototype` keys внутри array objects,
+  nesting limit 32, 48 KiB tool-call limit, unknown-tool allowlist и malformed
+  JSON controls сохранены. JSON Schema validation/coercion/defaults,
+  DeepSeek guard/retry, handler/session/lineage и D11 schema transport не
+  менялись.
+- Добавлены 18 focused D12 regressions для primitive/empty/object/nested arrays,
+  exact CanonicalToolCall preservation, no-retry DeepSeekClient acceptance,
+  exact Anthropic handler `tool_use`, root-array rejection и safety negatives.
+  D11 array-schema transport control обновлён только на исправленное parser
+  expectation. D12 переведён в `IMPLEMENTED / VERIFYING`; открытых P2 остаётся
+  5 до independent review и Windows live verification.
+
 ## 2026-08-24 — Close D11 after live verification
 
 - D11 закрыт после implementation

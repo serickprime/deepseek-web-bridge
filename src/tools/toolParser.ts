@@ -41,7 +41,6 @@ function makeId(): string {
 function inspectNestedValues(value: unknown, depth = 0): string | null {
   if (depth > MAX_TOOL_CALL_DEPTH) return "excessive_nesting";
   if (!value || typeof value !== "object") return null;
-  if (!isPlainObject(value)) return "unsafe_arguments";
   if (Array.isArray(value)) {
     for (const item of value) {
       const r = inspectNestedValues(item, depth + 1);
@@ -49,6 +48,7 @@ function inspectNestedValues(value: unknown, depth = 0): string | null {
     }
     return null;
   }
+  if (!isPlainObject(value)) return "unsafe_arguments";
   for (const key of Object.keys(value)) {
     if (DANGEROUS_KEYS.has(key)) return "unsafe_arguments";
   }

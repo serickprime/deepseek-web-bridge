@@ -36,8 +36,9 @@ live verification RU typo / EN concrete listing / informational control. Отк�
 P1 — 0. Остальные
 приоритеты и gates — в
 `PRODUCTION_READINESS.md`. D11 full schema transport закрыт после deterministic
-offline coverage, independent review и Windows Claude Code live WebFetch.
-D12 nested-array parser ordering остаётся отдельным pending defect.
+offline coverage, independent review и Windows Claude Code live WebFetch. D12
+nested-array parser ordering исправлен offline и имеет статус
+`IMPLEMENTED / VERIFYING`; independent review и Windows live ещё нужны.
 D1 остаётся неподтверждённой/deferred P3.
 
 Проект использует **неофициальные** внутренние маршруты веб-сайта DeepSeek
@@ -104,14 +105,14 @@ D1 остаётся неподтверждённой/deferred P3.
 | 7. DeepSeek | pow (WASM), sseParser, updateParser, client | ✅ готово |
 | 8. Server | middleware, output-адаптеры, protocolStream, routes, server | ✅ готово |
 | 9. Entrypoint | app.ts, index.ts, start.ts | ✅ готово |
-| 10. Тесты | 35 файлов, 799 тестов | ✅ готово |
+| 10. Тесты | 35 файлов, 817 тестов | ✅ готово |
 | 11. Скрипты | desktopStart, cdp, auth, doctor, launcher, live, real-OS platform smoke | ✅ live-часть работает |
 | 12. Веб-интерфейс | Bridge Console на `GET /` (Mileo dark theme, two-panel, diagnostics, model picker) | ✅ готово |
 
 **Проверки сейчас:**
 - `npm run typecheck` — ✅ без ошибок.
 - `npm run build` — ✅ собирается.
-- `npm test` — ✅ 799/799 (Windows process-lifecycle case требует разрешённый
+- `npm test` — ✅ 817/817 (Windows process-lifecycle case требует разрешённый
   `taskkill`; sandbox-only запуск отдельно воспроизводит известный D10 finding).
 - `npm run test:platform` — ✅ локально на Windows: real process/platform,
   `buildConfig`, Bridge HTTP, Unicode cwd и env propagation без DeepSeek auth.
@@ -178,7 +179,7 @@ D1 остаётся неподтверждённой/deferred P3.
   потерь, а schema не обрезается. Tool order, duplicates и 1000-char tool
   description cap сохранены. Initial prompt и guard-repair без гарантированного
   repair-candidate parent получают один и тот же catalog; parser validation и
-  отдельный D12 nested-array defect не менялись.
+  отдельный, на тот момент pending D12 nested-array defect не менялись самим D11.
 - Dynamic catalog имеет preflight budget 128 KiB / 131072 UTF-8 bytes до
   session creation, upstream и downstream `stream.start()`. Превышение даёт
   typed `REQUEST_TOO_LARGE`/413. Measurements: 25 tools — 37802 bytes, 30 —
@@ -191,8 +192,17 @@ D1 остаётся неподтверждённой/deferred P3.
   `WebFetch(https://example.com)`: `tool_result` получил 559 bytes (HTTP 200),
   final — `Example Domain`, без `TOOL_PARSE_FAILED`, schema rejection,
   unexpected 502 или hang. D11 — `CLOSED`; malformed/no-parent repair path
-  остаётся подтверждён только deterministic offline evidence, а D12 — отдельный
-  pending defect.
+  остаётся подтверждён только deterministic offline evidence. D12 реализуется
+  отдельно и не переоткрывает D11 transport contract.
+- D12 PASS B устраняет только недостижимый array traversal в
+  `inspectNestedValues()`: `Array.isArray()` теперь предшествует plain-object
+  rejection, после чего каждый element проходит прежнюю recursive safety
+  inspection. Root `arguments` остаётся plain object; dangerous keys, depth 32,
+  48 KiB, unknown-tool и malformed JSON проверки не ослаблены. 18 focused tests
+  покрывают nested-array matrix, exact CanonicalToolCall/Anthropic `tool_use`,
+  no-retry DeepSeekClient path и security controls; D11 array-schema transport
+  остаётся green. D12 — `IMPLEMENTED / VERIFYING`, independent review и Windows
+  live ещё обязательны; open P2 остаётся 5.
 - D8 PASS B передаёт уже существующий request-scoped logger явно по всей цепочке
   route → handler → DeepSeek client → PoW. Один случайный process-local salt и
   domain separation создают необратимые `client_ref`, `upstream_ref`,

@@ -339,7 +339,7 @@ describe("D11 full tool-schema transport", () => {
     expect(embeddedSchemas(prompts[0]!)).toEqual([schema]);
   });
 
-  it("transports array schemas while leaving the separate D12 parser limitation pending", () => {
+  it("transports array schemas while preserving D12 parser acceptance", () => {
     const schema = {
       type: "object",
       properties: { values: { type: "array", items: { type: "string" } } },
@@ -351,8 +351,8 @@ describe("D11 full tool-schema transport", () => {
       content: JSON.stringify({ tool_call: { name: "ArrayTool", arguments: { values: ["one", "two"] } } }),
       reasoning: "",
     }, ["ArrayTool"]);
-    expect(inspection.toolCall).toBeNull();
-    expect(inspection.reason).toBe("unsafe_arguments");
+    expect(inspection.toolCall?.arguments).toEqual({ values: ["one", "two"] });
+    expect(inspection.reason).toBe("accepted");
   });
 
   it("does not emit schema contents into completion telemetry", async () => {

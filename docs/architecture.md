@@ -170,7 +170,10 @@ guard-repair без гарантированного repair-candidate parent con
 Превышение fail-closed возвращает typed `REQUEST_TOO_LARGE`/413; частичный или
 обрезанный каталог не отправляется. Catalog/schema content не логируется.
 Этот transport contract не валидирует arguments по JSON Schema и не меняет
-известную D12 nested-array parser ordering — D12 остаётся отдельным defect.
+schema values через coercion/defaults. D12 отдельно разрешает nested arrays в
+tool arguments: array branch выполняется до plain-object rejection и рекурсивно
+проверяет каждый element. Root `arguments` остаётся plain object; dangerous
+keys, nesting limit и 48 KiB tool-call limit сохраняются.
 
 `src/tools/toolRetry.ts` — максимум одна корректирующая попытка. Бесконечных
 retry нет. Bridge не выполняет инструменты — он только сообщает клиенту, какой

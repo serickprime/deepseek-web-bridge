@@ -4,6 +4,8 @@ import type { ToolObligation } from "../../src/tools/toolParser.js";
 import { buildToolPrompt, selectBridgeTools } from "../../src/tools/toolPrompt.js";
 import { ToolRetryTracker } from "../../src/tools/toolRetry.js";
 import { DeepSeekClient, shouldRetry, buildToolUseIdMap } from "../../src/deepseek/client.js";
+import { CompletionHandler } from "../../src/api/handler.js";
+import { SessionStore } from "../../src/sessions/sessionStore.js";
 import type { CanonicalMessage, CanonicalRequest } from "../../src/api/canonical.js";
 import type { UpstreamSessionState } from "../../src/sessions/sessionStore.js";
 
@@ -129,6 +131,223 @@ describe("toolParser", () => {
       source: "content",
       malformedToolIntent: true,
     });
+  });
+});
+
+describe("D12 nested array tool arguments", () => {
+  const allowedNames = ["ArrayTool"];
+
+  function inspectArguments(args: Record<string, unknown>, name = "ArrayTool") {
+    return inspectToolCallFromOutput({
+      content: JSON.stringify({ tool_call: { name, arguments: args } }),
+      reasoning: "",
+    }, allowedNames);
+  }
+
+  function request(): CanonicalRequest {
+    return {
+      model: "deepseek-v4-flash",
+      stream: true,
+      system: "",
+      messages: [{ role: "user", parts: [{ type: "text", text: "Process these values with ArrayTool." }] }],
+      tools: [{
+        name: "ArrayTool",
+        description: "Process nested values",
+        inputSchema: {
+          type: "object",
+          properties: { values: { type: "array", items: {} } },
+          required: ["values"],
+        },
+      }],
+    };
+  }
+
+  function clientWithOutputs(outputs: string[]) {
+    const logger = {
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+      child: vi.fn(),
+    };
+    logger.child.mockReturnValue(logger);
+    const client = new DeepSeekClient({
+      baseUrl: "https://example.invalid",
+      auth: { token: "test-token", cookie: "test-cookie" },
+      sessionManager: {} as never,
+      solver: {} as never,
+      logger: logger as never,
+      redactor: { addSecret: () => {}, redactText: (text: string) => text } as never,
+      timeoutMs: 1_000,
+      maxRetries: 0,
+    });
+    const queue = [...outputs];
+    const runCompletion = vi.fn(async () => ({
+      content: queue.shift() ?? "",
+      reasoning: "",
+      candidateMessageId: null,
+    }));
+    Object.defineProperty(client, "runCompletion", { value: runCompletion });
+    return { client, runCompletion, logger };
+  }
+
+  function state(): UpstreamSessionState {
+    return { chatSessionId: "d12-session", parentMessageId: null, history: [], updatedAt: 0 };
+  }
+
+  it("accepts primitive arrays", () => {
+    const args = { values: ["one", 2, true, null] };
+    expect(inspectArguments(args).toolCall?.arguments).toEqual(args);
+  });
+
+  it("accepts empty arrays", () => {
+    const args = { values: [] };
+    expect(inspectArguments(args).toolCall?.arguments).toEqual(args);
+  });
+
+  it("accepts arrays of objects", () => {
+    const args = { values: [{ id: 1 }, { id: 2 }] };
+    expect(inspectArguments(args).toolCall?.arguments).toEqual(args);
+  });
+
+  it("accepts nested arrays", () => {
+    const args = { values: [[1, 2], [3, 4]] };
+    expect(inspectArguments(args).toolCall?.arguments).toEqual(args);
+  });
+
+  it("accepts objects containing arrays", () => {
+    const args = { config: { modes: ["safe", "fast"] } };
+    expect(inspectArguments(args).toolCall?.arguments).toEqual(args);
+  });
+
+  it("accepts arrays containing nested objects and arrays", () => {
+    const args = { values: [{ steps: [[{ id: 1, labels: ["a", "b"] }]] }] };
+    expect(inspectArguments(args).toolCall?.arguments).toEqual(args);
+  });
+
+  it("preserves exact mixed array arguments in CanonicalToolCall", () => {
+    const args = {
+      values: [
+        { title: "UTF-8 — ёжик", options: [1, false, null] },
+        ["nested", { enabled: true }],
+      ],
+    };
+    const inspection = inspectArguments(args);
+
+    expect(inspection).toMatchObject({ reason: "accepted", malformedToolIntent: false });
+    expect(inspection.toolCall?.arguments).toEqual(args);
+  });
+
+  it("DeepSeekClient accepts an array-valued call without guard retry", async () => {
+    const args = { values: [{ id: 1 }, { id: 2, tags: ["x", "y"] }] };
+    const raw = JSON.stringify({ tool_call: { name: "ArrayTool", arguments: args } });
+    const { client, runCompletion } = clientWithOutputs([raw]);
+
+    const result = await client.complete(request(), state());
+
+    expect(result.toolCall).toEqual({ name: "ArrayTool", args });
+    expect(runCompletion).toHaveBeenCalledTimes(1);
+  });
+
+  it("CompletionHandler exposes exact arrays as Anthropic tool_use", async () => {
+    const args = { values: [["one"], [{ id: 2, flags: [true, false] }]] };
+    const raw = JSON.stringify({ tool_call: { name: "ArrayTool", arguments: args } });
+    const { client, runCompletion } = clientWithOutputs([raw]);
+    Object.defineProperty(client, "ensureSession", {
+      value: vi.fn(async (session: UpstreamSessionState) => {
+        session.chatSessionId = "d12-handler-session";
+      }),
+    });
+    const lineage = {
+      getUpstreamKey: vi.fn(),
+      record: vi.fn(async () => {}),
+    };
+    const stream = {
+      start: vi.fn(),
+      push: vi.fn(),
+      finish: vi.fn(),
+      fail: vi.fn(),
+    };
+    const handler = new CompletionHandler({
+      deepseek: client,
+      sessionStore: new SessionStore(),
+      lineage: lineage as never,
+      logger: {
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+        child: vi.fn().mockReturnThis(),
+      } as never,
+    });
+
+    const result = await handler.run({
+      protocol: "anthropic",
+      request: request(),
+      headers: {},
+      body: {},
+      stream: stream as never,
+    });
+
+    expect(result.result.toolCalls).toHaveLength(1);
+    expect(result.result.toolCalls[0]?.arguments).toEqual(args);
+    expect(stream.push).toHaveBeenCalledWith(expect.objectContaining({
+      type: "tool_use",
+      toolCall: expect.objectContaining({ name: "ArrayTool", arguments: args }),
+    }));
+    expect(runCompletion).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps root arguments arrays rejected", () => {
+    const inspection = inspectToolCallFromOutput({
+      content: '{"tool_call":{"name":"ArrayTool","arguments":[]}}',
+      reasoning: "",
+    }, allowedNames);
+
+    expect(inspection.toolCall).toBeNull();
+    expect(inspection.reason).toBe("arguments_not_object");
+  });
+
+  it.each(["__proto__", "constructor", "prototype"])(
+    "rejects dangerous %s keys inside array objects",
+    key => {
+      const raw = `{"tool_call":{"name":"ArrayTool","arguments":{"values":[{"${key}":{"polluted":true}}]}}}`;
+      const inspection = inspectToolCallFromOutput({ content: raw, reasoning: "" }, allowedNames);
+
+      expect(inspection.toolCall).toBeNull();
+      expect(inspection.reason).toBe("unsafe_arguments");
+    },
+  );
+
+  it("rejects excessive mixed object and array nesting", () => {
+    let nested: unknown = "leaf";
+    for (let depth = 0; depth < 33; depth++) {
+      nested = depth % 2 === 0 ? [nested] : { next: nested };
+    }
+    const inspection = inspectArguments({ value: nested });
+
+    expect(inspection.toolCall).toBeNull();
+    expect(inspection.reason).toBe("excessive_nesting");
+  });
+
+  it("keeps unknown tools rejected", () => {
+    const inspection = inspectArguments({ values: [1, 2] }, "UnknownTool");
+
+    expect(inspection.toolCall).toBeNull();
+    expect(inspection.reason).toBe("tool_not_allowed");
+  });
+
+  it("keeps ordinary objects and primitives accepted", () => {
+    const args = { path: "file.txt", count: 2, enabled: true, empty: null, nested: { mode: "safe" } };
+    expect(inspectArguments(args).toolCall?.arguments).toEqual(args);
+  });
+
+  it.each([
+    '{"tool_call":{"name":"ArrayTool","arguments":{"value":NaN}}}',
+    '{"tool_call":{"name":"ArrayTool","arguments":{"fn":function(){}}}}',
+  ])("keeps malformed special-value JSON rejected", raw => {
+    const inspection = inspectToolCallFromOutput({ content: raw, reasoning: "" }, allowedNames);
+
+    expect(inspection.toolCall).toBeNull();
+    expect(inspection.reason).toBe("extracted_json_invalid");
   });
 });
 
