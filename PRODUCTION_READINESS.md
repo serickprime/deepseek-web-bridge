@@ -4,7 +4,7 @@
 >
 > **Baseline:** `bedddc006e484de57bf9cd344d421a990e94ff39` — master before D3 PASS B
 >
-> **Offline baseline:** 30 test files, 627 tests (D4 PASS B branch)
+> **Offline baseline:** 31 test files, 646 tests (D2 PASS B branch)
 >
 > **Открыто:** P0 — 1, P1 — 4, P2 — 6; deferred P3 — 1
 > **Production scope:** Claude Code → Anthropic-compatible Bridge → DeepSeek Web → Bridge → Claude Code
@@ -60,7 +60,7 @@ transport, policy и persistence defects не объединяются в оди
 | Fabricated text никогда не считается `tool_result`. | Частично | Механизм `bbd13b2` закрыт, но D9 показывает classifier false-negative. |
 | Historical `tool_result` не подтверждает новое действие. | Да в L2; L3 требует hardening | Current-cycle guard защищён tests; stale lineage остаётся D5. |
 | Mutation нельзя считать успешной без подходящего evidence. | Частично | Multi-step/fresh-state guards закрыты для поддержанного scope; D13 остаётся. |
-| Rejected generation не изменяет accepted session/parent state. | **Нет** | D2: `runCompletion()` мутирует `state.parentMessageId` до решения guard. |
+| Rejected generation не изменяет accepted session/parent state. | Да, offline; live verification pending | D2 PASS B: candidate parent живёт только внутри `complete()`, PB29/PB30 покрывают accepted progression, repair/exhaustion и transport failures. |
 | Transport error не превращается в fake successful completion. | Да | D3 CLOSED: body/transport failures нормализованы, empty/INCOMPLETE/non-terminal stream отклоняются; deterministic offline и Windows live verification PASS. |
 | HTTP 200 сам по себе не означает successful DeepSeek completion. | Да | D3 CLOSED: требуется authoritative FINISHED/old done terminal; PB22–PB27 deterministic и релевантная live verification green. |
 | Explicit DeepSeek rate limit не вызывает completion-guard retry storm. | Да | `bedcab2`, `tests/unit/deepseekRateLimit.test.ts`: один completion attempt, 429. |
@@ -75,7 +75,7 @@ transport, policy и persistence defects не объединяются в оди
 | ID | Priority | Primary / affected | Status | Problem | Evidence | Dependencies | Fix commit |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | **D1** | P3 | L3 / L2,L4 | `UNCONFIRMED / DEFERRED` | Full Claude transcript вместе с continuing DeepSeek parent chain может дублировать context и ухудшать long-depth flow. | `HANDOFF`: A и B имели clean full runs; поздние failures коррелировали с quota/rate limit. Controlled A/B/C не дал устойчивого подтверждения. | Все P0/P1, long-run benchmark | — |
-| **D2** | P0 | L3 / L2,L4 | `CONFIRMED` | Guard repair generations продвигают production parent; rejected generation может стать parent следующей попытки. | `HANDOFF`: 77→1001→1002→1003. `REPO`: `runCompletion()` пишет `state.parentMessageId` при каждом `chunk.messageId`, а `complete()` повторно вызывает его с тем же state. | D3 terminal semantics | — |
+| **D2** | P0 | L3 / L2,L4 | `IMPLEMENTED / VERIFYING` | Shared `state.parentMessageId` означает только accepted parent; rejected repair candidates образуют локальную цепочку и публикуются ровно один раз после полного acceptance boundary. | `TEST`: PB29/PB30, 19 focused cases — normal/repair/exhaustion progression, incomplete/timeout/body/rate/parse failures, callback/auth boundary, next request и handler history. Live verification pending. | D3 terminal semantics | pending branch commit |
 | **D3** | P0 | L4 | `CLOSED` | Completion имеет единый headers+body deadline и explicit terminal contract; empty/partial/INCOMPLETE не являются success, terminal завершает reader без EOF, completion POST не auto-retry. | `REPO`/`TEST`: T1–T21, T16b, PB22–PB27 и rate-limit invariant green. `LIVE` Windows, Claude Code 2.1.241, `deepseek-v4-flash`, `DS_TIMEOUT_MS=120000`: short direct completion PASS; long direct completion 6600 chars / 21853 ms; real Bash tool-cycle PASS; `completion_done` observed, без unexpected timeout/incomplete/parse/transport failures. PB22–PB27 relevant live verification PASS. | D6 закрыт; формирует error contract для D4 | `3a5aacc`, `4843cfb` |
 | **D4** | P0 | L1 / L4 | `CLOSED` | Anthropic HTTP 200 commit отложен до первого SSE byte; pre-start errors возвращают real HTTP JSON, late failures — one safe `event:error`; success/error mutually exclusive. Tool lineage persist-ится до exposure. | `TEST`: T1–T26/PB28 route-level timeout/rate-limit/incomplete/partial/persistence/unknown/pre-start cases и protocol regressions green. `LIVE` Windows, Claude Code 2.1.241, `deepseek-v4-flash`: real Bash cycle PASS; controlled stalled challenge дал visible typed 504 без fake success; raw midstream PB28 дал `message_start` + one `event:error` и no success terminal. | D3 failure taxonomy | `b16307b0c59586709475aaeac312172e53771573` |
 | **D5** | P1 | L3 | `CONFIRMED` | Stale lineage может жить дольше policy; выбирается не обязательно latest relevant result. | `HANDOFF`: ~48h link использовался. `REPO`: 10m `SESSION_LINK_TTL_MS` не применяется; store hardcodes 24h only at init/size>10000; `extractToolUseIdFromMessages()` возвращает первый result. | D6 | — |
@@ -192,7 +192,7 @@ versioned addendum; новые regressions добавляются новыми I
 | Gate | Pass condition | Baseline status |
 | --- | --- | --- |
 | G1 | `npm run typecheck` green | PASS (recheck each branch) |
-| G2 | `npm test` 100% green | PASS: 627/627 on D4 PASS B branch (recheck release commit) |
+| G2 | `npm test` 100% green | PASS: 646/646 on D2 PASS B branch (recheck release commit) |
 | G3 | `npm run build` green | PASS (recheck each branch) |
 | G4 | `npm run test:platform` green | PASS on current Windows baseline |
 | G5 | CI Windows/Linux/macOS green for release commit | NEEDS RELEASE-COMMIT VERIFICATION |

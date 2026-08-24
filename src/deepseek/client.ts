@@ -66,6 +66,13 @@ export interface CompletionResult {
   usage?: { promptTokens?: number; completionTokens?: number; totalTokens?: number };
 }
 
+interface CompletionAttemptResult {
+  content: string;
+  reasoning: string;
+  candidateMessageId: number | null;
+  usage?: CompletionResult["usage"];
+}
+
 const MAX_COMPLETIONS = 2;
 
 type CompletionStage = "completion_headers" | "completion_body";
@@ -215,8 +222,19 @@ export class DeepSeekClient {
       .filter(obligation => fulfilledObligationIds.has(obligation.id))
       .map(obligation => obligation.description);
 
+    const acceptedParent = state.parentMessageId;
+    let attemptParent = acceptedParent;
     const upstreamPrompt = this.buildPrompt(request, toolPrompt);
-    let output = await this.runCompletion(upstreamPrompt, state, authGeneration, modelSelection);
+    let output = await this.runCompletion(
+      upstreamPrompt,
+      state.chatSessionId,
+      attemptParent,
+      authGeneration,
+      modelSelection,
+    );
+    if (output.candidateMessageId !== null && output.candidateMessageId !== undefined) {
+      attemptParent = output.candidateMessageId;
+    }
 
     const inspection = inspectToolCallFromOutput(output, allowedNames);
     let toolCall = inspection.toolCall;
@@ -246,7 +264,16 @@ export class DeepSeekClient {
         repeatedFailedToolName,
         malformedToolIntent,
       });
-      output = await this.runCompletion(retryPrompt, state, authGeneration, modelSelection);
+      output = await this.runCompletion(
+        retryPrompt,
+        state.chatSessionId,
+        attemptParent,
+        authGeneration,
+        modelSelection,
+      );
+      if (output.candidateMessageId !== null && output.candidateMessageId !== undefined) {
+        attemptParent = output.candidateMessageId;
+      }
       const retryInspection = inspectToolCallFromOutput(output, allowedNames);
       toolCall = retryInspection.toolCall;
       if (guardEvidence.isInformationalRequest) toolCall = null;
@@ -289,23 +316,29 @@ export class DeepSeekClient {
     }
 
     this.assertAuthGeneration(authGeneration);
-    return {
-      parentMessageId: state.parentMessageId,
+    const acceptedCandidateMessageId = output.candidateMessageId;
+    const result: CompletionResult = {
+      parentMessageId: acceptedCandidateMessageId ?? acceptedParent,
       content: toolCall ? "" : output.content,
       toolCall: toolCall ? { name: toolCall.name, args: toolCall.arguments as Record<string, unknown> } : undefined,
       usage: output.usage,
     };
+    if (acceptedCandidateMessageId !== null && acceptedCandidateMessageId !== undefined) {
+      state.parentMessageId = acceptedCandidateMessageId;
+    }
+    return result;
   }
 
   private async runCompletion(
     prompt: string,
-    state: UpstreamSessionState,
+    chatSessionId: string | null,
+    requestParentMessageId: number | null,
     authGeneration: number,
     model: ModelSelection,
-  ): Promise<{ content: string; reasoning: string; parentMessageId: number | null; usage?: CompletionResult["usage"] }> {
+  ): Promise<CompletionAttemptResult> {
     const payload = {
-      chat_session_id: state.chatSessionId,
-      parent_message_id: state.parentMessageId,
+      chat_session_id: chatSessionId,
+      parent_message_id: requestParentMessageId,
       prompt,
       ref_file_ids: [],
       model_type: model.upstreamModelType,
@@ -320,9 +353,9 @@ export class DeepSeekClient {
     let stage: CompletionStage = "completion_headers";
     const deadline = createRequestDeadline(this.options.timeoutMs, controller, () => stage);
     let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
-    let result: { content: string; reasoning: string; parentMessageId: number | null; usage?: CompletionResult["usage"] } | null = null;
+    let result: CompletionAttemptResult | null = null;
     let primaryError: unknown;
-    let parentMessageId: number | null = null;
+    let candidateMessageId: number | null = null;
     let content = "";
     let reasoning = "";
     let usage: CompletionResult["usage"];
@@ -411,8 +444,7 @@ export class DeepSeekClient {
           if (event.type !== "update") continue;
           const chunk = parser.apply(event.data);
           if (!chunk) continue;
-          if (chunk.messageId) state.parentMessageId = chunk.messageId;
-          if (chunk.parentMessageId) parentMessageId = chunk.parentMessageId;
+          if (chunk.messageId !== undefined) candidateMessageId = chunk.messageId;
           if (chunk.reasoningDelta) reasoning += chunk.reasoningDelta;
           if (chunk.delta) content += chunk.delta;
           if (chunk.usage) usage = chunk.usage;
@@ -471,7 +503,7 @@ export class DeepSeekClient {
         terminal = processEvents(accumulator.push(raw));
       }
 
-      result = { content, reasoning, parentMessageId, usage };
+      result = { content, reasoning, candidateMessageId, usage };
     } catch (error) {
       primaryError = this.normalizeCompletionError(error, stage);
       controller.abort();

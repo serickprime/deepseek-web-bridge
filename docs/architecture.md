@@ -106,6 +106,13 @@ challenge_start → challenge_received → wasm_download_start → wasm_download
   upstream-сессия (не общая и не «последняя активная»);
 - tool result возвращается в исходную upstream-сессию по call-id;
 - разные клиенты не смешиваются.
+- `state.parentMessageId` хранит только accepted parent. `runCompletion()`
+  получает request parent явно и возвращает `message_id` как локальный candidate,
+  не изменяя shared state;
+- bounded guard/repair attempts могут продолжать локальную candidate-chain, но
+  rejected/failed candidate не публикуется. `complete()` один раз сохраняет ID
+  только окончательно принятой generation после terminal, parsing, guard,
+  callback и auth-generation проверки; success без ID сохраняет прежний parent.
 
 ## Tool calling
 

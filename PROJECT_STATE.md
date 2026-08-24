@@ -23,8 +23,9 @@ D6 persistence collision закрыт после independent review, determinist
 coverage и реальной Windows Claude Code restart/resume проверки. D3 upstream
 stream lifecycle закрыт после independent review и Windows live verification;
 D4 downstream Anthropic lifecycle также закрыт после independent review,
-deterministic PB28 coverage и Windows live verification. D2 остаётся
-единственным открытым P0. Остальные приоритеты и gates — в
+deterministic PB28 coverage и Windows live verification. D2 rejected-parent
+isolation реализован и находится в `IMPLEMENTED / VERIFYING`; до live verification
+он остаётся единственным открытым P0. Остальные приоритеты и gates — в
 `PRODUCTION_READINESS.md`; D1 остаётся
 неподтверждённой/deferred P3.
 
@@ -92,14 +93,14 @@ deterministic PB28 coverage и Windows live verification. D2 остаётся
 | 7. DeepSeek | pow (WASM), sseParser, updateParser, client | ✅ готово |
 | 8. Server | middleware, output-адаптеры, protocolStream, routes, server | ✅ готово |
 | 9. Entrypoint | app.ts, index.ts, start.ts | ✅ готово |
-| 10. Тесты | 30 файлов, 627 тестов | ✅ готово |
+| 10. Тесты | 31 файл, 646 тестов | ✅ готово |
 | 11. Скрипты | desktopStart, cdp, auth, doctor, launcher, live, real-OS platform smoke | ✅ live-часть работает |
 | 12. Веб-интерфейс | Bridge Console на `GET /` (Mileo dark theme, two-panel, diagnostics, model picker) | ✅ готово |
 
 **Проверки сейчас:**
 - `npm run typecheck` — ✅ без ошибок.
 - `npm run build` — ✅ собирается.
-- `npm test` — ✅ 627/627 (Windows process-lifecycle case требует разрешённый
+- `npm test` — ✅ 646/646 (Windows process-lifecycle case требует разрешённый
   `taskkill`; sandbox-only запуск отдельно воспроизводит известный D10 finding).
 - `npm run test:platform` — ✅ локально на Windows: real process/platform,
   `buildConfig`, Bridge HTTP, Unicode cwd и env propagation без DeepSeek auth.
@@ -192,6 +193,14 @@ deterministic PB28 coverage и Windows live verification. D2 остаётся
   остаётся safe HTTP 500 вместо 400, а downstream disconnect не отменяет
   upstream operation. Последнее сохраняется как отдельный cancellation/resource
   lifecycle finding; defensive closed-writer regression добавлен без redesign.
+- D2 PASS B изолировал rejected DeepSeek parent candidates: `runCompletion()`
+  принимает явный request parent и возвращает candidate ID, не меняя shared
+  session state. `complete()` локально ведёт repair-chain и публикует только ID
+  окончательно принятой generation — после terminal, parsing, guard, callback и
+  финальной auth-generation проверки. Failure/exhaustion сохраняют прежний
+  accepted parent; successful no-ID result его не меняет. PB29/PB30 защищены 19
+  focused tests, включая transport failures, next-request parent и handler
+  history. D2 — `IMPLEMENTED / VERIFYING`, live verification ещё требуется.
 
 - Нормализация всех трёх протоколов в единый `CanonicalRequest`; tool calls,
   tool results, system prompt, reasoning/search флаги, max_tokens.

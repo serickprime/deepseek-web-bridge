@@ -3,6 +3,21 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-24 — Isolate rejected DeepSeek parent candidates
+
+- D2 PASS B убрал преждевременную запись `chunk.messageId` в shared session
+  state. `runCompletion()` теперь получает parent явно и возвращает candidate ID,
+  а `complete()` ведёт repair-chain локально и публикует только окончательно
+  принятого parent после guard/callback/auth acceptance boundary.
+- Rejected guard attempts и incomplete/timeout/body/rate-limit/parse failures не
+  меняют accepted parent; следующий independent request использует последний
+  принятый ID. Successful result без candidate ID сохраняет прежний parent.
+- Добавлены 19 deterministic PB29/PB30 regressions для accepted progression,
+  one/two-repair chains, exhaustion, transport failures, accepted tool call,
+  malformed repair, callback/auth rejection, next-request behavior и handler
+  history. Итого: 31 test file, 646 offline tests. D2 переведён в
+  `IMPLEMENTED / VERIFYING`; live verification ещё требуется.
+
 ## 2026-08-24 — Close D4 after live verification
 
 - Independent review и Windows live verification D4 завершены успешно для
