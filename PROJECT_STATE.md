@@ -27,10 +27,11 @@ deterministic PB28 coverage и Windows live verification. D2 rejected-parent
 isolation закрыт после PB29/PB30, independent review и Windows Claude Code
 live verification. D5 lineage freshness/current-cycle selection закрыт после
 independent review, deterministic PB31/PB32 и ограниченной Windows restart/live
-verification. Открытых P0 больше нет; G6 — PASS; открытых P1 — 3. Остальные
-приоритеты и gates — в `PRODUCTION_READINESS.md`. D7 tool catalog consistency
-реализован offline и остаётся `IMPLEMENTED / VERIFYING`; D11 schema fidelity
-не менялся. D1 остаётся неподтверждённой/deferred P3.
+verification. Открытых P0 больше нет; G6 — PASS. D7 tool catalog consistency
+закрыт после independent review, deterministic coverage и Windows live
+verification 33+ production path; открытых P1 — 2. Остальные приоритеты и gates
+— в `PRODUCTION_READINESS.md`. D8 telemetry и D11 schema fidelity не менялись.
+D1 остаётся неподтверждённой/deferred P3.
 
 Проект использует **неофициальные** внутренние маршруты веб-сайта DeepSeek
 (`/api/v0/chat/completion`), требует PoW (sha3 через WASM) и живую авторизованную
@@ -153,8 +154,19 @@ verification. Открытых P0 больше нет; G6 — PASS; открыт
   handler `tool_use`, continuation и unknown rejection. PB14 подтверждает
   только catalog identity, PB18 — 34th+/unknown, PB20 — catalog stability;
   D8 telemetry и D11 full nested schema fidelity намеренно не менялись.
-  D7 — `IMPLEMENTED / VERIFYING`; открытых P1 остаётся 3 до independent/live
-  verification.
+  Independent review — PASS; implementation `b09067e`. Windows live с Claude
+  Code 2.1.241 и `deepseek-v4-flash` получил 39 tools: `Artifact` received #2
+  был unavailable, поэтому available catalog содержал 38; `WebFetch` received
+  #34 / available #33 стал первым tool за прежним cap. Реальный
+  `Fetch(https://example.com)` получил 559 bytes (HTTP 200), завершился
+  `Example Domain`, а `tool_result` continuation использовал
+  `upstream_linked:true` и дошёл до `completion_done`. PB14 catalog identity,
+  PB18 34th+/unknown и PB20 catalog stability — PASS; D11 schema fidelity и D8
+  telemetry остаются открытыми. D7 — `CLOSED`; открытых P1 — 2.
+- Отдельный D7 live collateral finding не относится к catalog consistency:
+  первая streaming-попытка дала `completion_guard_rejected` с
+  `malformed_tool_intent=true` и `TOOL_CALL_REQUIRED`/502; retry затем успешно
+  выполнил `WebFetch`. Guard/repair в этой docs-only closure не менялся.
 - D3 PASS B ввёл explicit upstream terminal classification: new `FINISHED` и
   old `response_message_done` — единственные success terminals, `INCOMPLETE` —
   failure. Empty HTTP 200 и EOF до terminal дают `STREAM_INCOMPLETE`/502;

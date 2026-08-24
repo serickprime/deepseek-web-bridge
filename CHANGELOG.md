@@ -3,6 +3,30 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-24 — Close D7 after live verification
+
+- D7 закрыт после implementation `b09067eda568624f5dcd8373dee87b53a1f3c05f`
+  и успешного independent review. Подтверждённый baseline: 33 test files / 689
+  tests; typecheck, build, Windows `test:platform` и `git diff --check` — PASS.
+- Windows live verification с Claude Code 2.1.241 и
+  `deepseek-v4-flash` получила реальный каталог из 39 tools. `Artifact` был
+  received #2 и отфильтрован как unavailable, поэтому available catalog
+  содержал 38 tools. `WebFetch` был received #34 / available #33 — первым
+  инструментом за прежним 32-tool prompt cap.
+- В реальном запросе Claude Code выполнил `Fetch(https://example.com)`, получил
+  559 bytes с HTTP 200 и завершил ответом `Example Domain`. Bridge принял
+  `tools=39`; настоящий `WebFetch` `tool_use` был выполнен, continuation с
+  `tool_result` использовал `upstream_linked:true` и дошёл до
+  `completion_done`. D7 33+ production path — LIVE PASS.
+- PB14 catalog identity — PASS, при этом D11 full nested schema fidelity
+  остаётся открытым. PB18 34th+/unknown — PASS. PB20 catalog stability — PASS,
+  а telemetry остаётся D8. D7 переведён в `CLOSED`; открытых P1 теперь 2.
+  Проект не объявлен production-ready.
+- Отдельный collateral guard/repair finding не относится к D7 catalog work:
+  первая streaming-попытка дала `completion_guard_rejected` с
+  `malformed_tool_intent=true` и `TOOL_CALL_REQUIRED`/502; retry Claude Code
+  затем успешно выполнил `WebFetch`. В D7 это поведение не исправлялось.
+
 ## 2026-08-24 — Align allowed and described tool catalogs
 
 - D7 PASS B удалил отдельный 32-tool cap из `buildToolPrompt()`: после
