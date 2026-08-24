@@ -95,14 +95,14 @@ live verification. D5 lineage freshness/current-cycle selection реализов
 | 7. DeepSeek | pow (WASM), sseParser, updateParser, client | ✅ готово |
 | 8. Server | middleware, output-адаптеры, protocolStream, routes, server | ✅ готово |
 | 9. Entrypoint | app.ts, index.ts, start.ts | ✅ готово |
-| 10. Тесты | 32 файла, 669 тестов | ✅ готово |
+| 10. Тесты | 32 файла, 672 теста | ✅ готово |
 | 11. Скрипты | desktopStart, cdp, auth, doctor, launcher, live, real-OS platform smoke | ✅ live-часть работает |
 | 12. Веб-интерфейс | Bridge Console на `GET /` (Mileo dark theme, two-panel, diagnostics, model picker) | ✅ готово |
 
 **Проверки сейчас:**
 - `npm run typecheck` — ✅ без ошибок.
 - `npm run build` — ✅ собирается.
-- `npm test` — ✅ 669/669 (Windows process-lifecycle case требует разрешённый
+- `npm test` — ✅ 672/672 (Windows process-lifecycle case требует разрешённый
   `taskkill`; sandbox-only запуск отдельно воспроизводит известный D10 finding).
 - `npm run test:platform` — ✅ локально на Windows: real process/platform,
   `buildConfig`, Bridge HTTP, Unicode cwd и env propagation без DeepSeek auth.
@@ -220,13 +220,14 @@ live verification. D5 lineage freshness/current-cycle selection реализов
   awaited mutation. Lookup удаляет expired mapping только из памяти; следующий
   awaited mutation либо restart делает cleanup durable, без fire-and-forget
   write. Commit failure остаётся fail-closed и откатывает локальное состояние.
-  Handler ищет newest `tool_result` только после последней независимой
-  user-инструкции, поэтому historical/orphan results не связывают новый action
-  cycle. Fresh header/result mappings разрешаются независимо: одинаковые
+  Handler собирает current-cycle `tool_use` IDs после последней независимой
+  user-инструкции и reverse-scan выбирает только newest matching `tool_result`,
+  поэтому historical/orphan results не связывают новый action cycle. Fresh
+  header/correlated-result mappings разрешаются независимо: одинаковые
   продолжают session, разные дают `SESSION_CONFLICT`/409, unknown/expired header
   fallback-ится к fresh result; explicit body identity сохраняет precedence.
-  PB31/PB32 и protocol regressions покрыты 23 новыми deterministic tests;
-  baseline — 32 files / 669 tests. D5 — `IMPLEMENTED / VERIFYING`, не `CLOSED`;
+  PB31/PB32 и protocol regressions покрыты 26 новыми deterministic tests;
+  baseline — 32 files / 672 tests. D5 — `IMPLEMENTED / VERIFYING`, не `CLOSED`;
   live verification ещё требуется, открытых P1 остаётся 4.
 
 - Нормализация всех трёх протоколов в единый `CanonicalRequest`; tool calls,

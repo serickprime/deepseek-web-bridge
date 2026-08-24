@@ -214,6 +214,18 @@ describe("extractToolUseIdFromMessages", () => {
       messages: [
         { role: "user", parts: [{ type: "text", text: "read the file" }] },
         {
+          role: "assistant",
+          parts: [{
+            type: "tool_use",
+            toolCall: {
+              id: "call_ABC",
+              type: "function",
+              name: "Read",
+              arguments: { file_path: "README.md" },
+            },
+          }],
+        },
+        {
           role: "user",
           parts: [{
             type: "tool_result",

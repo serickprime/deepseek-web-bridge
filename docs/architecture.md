@@ -109,9 +109,9 @@ challenge_start → challenge_received → wasm_download_start → wasm_download
   upstream-сессия (не общая и не «последняя активная»);
 - tool result возвращается в исходную upstream-сессию по newest fresh call-id
   только внутри текущего action cycle после последней независимой
-  user-инструкции; historical/orphan result не восстанавливает lineage нового
-  хода;
-- без explicit upstream fresh `x-call-id` и current-cycle tool result
+  user-инструкции и только если ID соответствует current-cycle `tool_use`;
+  historical/orphan result не восстанавливает lineage нового хода;
+- без explicit upstream fresh `x-call-id` и correlated current-cycle tool result
   разрешаются независимо: один/совпадающие mappings продолжают session,
   различающиеся дают `SESSION_CONFLICT`, unknown/expired header не подавляет
   valid result fallback;

@@ -3,6 +3,21 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-24 — Correlate current-cycle lineage results
+
+- D5 independent review выявил blocking gap: newest result после user boundary
+  мог быть orphan ID без соответствующего current-cycle `tool_use`, но handler
+  всё равно использовал его lineage mapping и мог создать ложный
+  `SESSION_CONFLICT`.
+- Extractor теперь, как `inspectCurrentToolCycle()`, собирает IDs только
+  current-cycle `tool_use` и reverse-scan выбирает newest matching
+  `tool_result`. Historical и orphan results не участвуют в lineage resolution;
+  TTL, header conflict и explicit body precedence не менялись.
+- Anthropic, OpenAI и Responses fixtures проверяют реальные
+  `tool_use → tool_result` пары. Добавлены regressions для orphan mapping и
+  false-conflict prevention. D5 coverage теперь включает 26 новых tests; итого
+  32 test files / 672 tests. D5 остаётся `IMPLEMENTED / VERIFYING` до live.
+
 ## 2026-08-24 — Harden lineage freshness and selection
 
 - D5 PASS B перевёл `LineageStore` на единый `SESSION_LINK_TTL_MS`: возраст

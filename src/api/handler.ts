@@ -31,11 +31,20 @@ export function extractToolUseIdFromMessages(request: CanonicalRequest): string 
   }
   if (currentUserIndex < 0) return undefined;
 
+  const currentToolUseIds = new Set<string>();
+  for (let messageIndex = currentUserIndex + 1; messageIndex < request.messages.length; messageIndex++) {
+    const message = request.messages[messageIndex]!;
+    for (const part of message.parts) {
+      if (part.type === "tool_use" && part.toolCall?.id) currentToolUseIds.add(part.toolCall.id);
+    }
+  }
+
   for (let messageIndex = request.messages.length - 1; messageIndex > currentUserIndex; messageIndex--) {
     const message = request.messages[messageIndex]!;
     for (let partIndex = message.parts.length - 1; partIndex >= 0; partIndex--) {
       const part = message.parts[partIndex]!;
-      if (part.type === "tool_result" && part.toolResult?.toolUseId) return part.toolResult.toolUseId;
+      if (part.type !== "tool_result" || !part.toolResult?.toolUseId) continue;
+      if (currentToolUseIds.has(part.toolResult.toolUseId)) return part.toolResult.toolUseId;
     }
   }
   return undefined;

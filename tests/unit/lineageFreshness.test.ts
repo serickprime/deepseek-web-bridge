@@ -56,6 +56,16 @@ function result(id: string): CanonicalMessage {
   };
 }
 
+function toolUse(id: string): CanonicalMessage {
+  return {
+    role: "assistant",
+    parts: [{
+      type: "tool_use",
+      toolCall: { id, type: "function", name: "Bash", arguments: { command: "pwd" } },
+    }],
+  };
+}
+
 function streamStub(): ProtocolStream {
   return {
     start: vi.fn(),
@@ -261,29 +271,32 @@ describe("D5 lineage TTL and durable pruning", () => {
 });
 
 describe("D5 latest current-cycle tool-result selection", () => {
-  it("PB32 selects new from current results ordered old,new", () => {
-    expect(extractToolUseIdFromMessages(request([instruction(), result("old"), result("new")]))).toBe("new");
+  it("PB32 selects the newest of two correlated current results", () => {
+    expect(extractToolUseIdFromMessages(request([
+      instruction(),
+      toolUse("old"),
+      result("old"),
+      toolUse("new"),
+      result("new"),
+    ]))).toBe("new");
   });
 
-  it("ignores a historical result before a newer independent user instruction", () => {
+  it("ignores a historical tool_use and result before a newer independent user instruction", () => {
     expect(extractToolUseIdFromMessages(request([
       instruction("old task"),
+      toolUse("historical"),
       result("historical"),
       instruction("new independent task"),
     ]))).toBeUndefined();
   });
 
-  it("selects the latest part among multiple results in the current cycle", () => {
-    expect(extractToolUseIdFromMessages(request([
-      instruction(),
-      {
-        role: "user",
-        parts: [
-          { type: "tool_result", toolResult: { toolUseId: "old", content: "old" } },
-          { type: "tool_result", toolResult: { toolUseId: "new", content: "new" } },
-        ],
-      },
-    ]))).toBe("new");
+  it("selects a result matching a current-cycle tool_use", () => {
+    expect(extractToolUseIdFromMessages(request([instruction(), toolUse("matching"), result("matching")])))
+      .toBe("matching");
+  });
+
+  it("ignores an orphan result inside the current action cycle", () => {
+    expect(extractToolUseIdFromMessages(request([instruction(), result("orphan")]))).toBeUndefined();
   });
 
   it("preserves latest-result selection after Anthropic normalization", () => {
@@ -292,6 +305,10 @@ describe("D5 latest current-cycle tool-result selection", () => {
       max_tokens: 64,
       messages: [
         { role: "user", content: "do the task" },
+        { role: "assistant", content: [
+          { type: "tool_use", id: "old", name: "Bash", input: { command: "pwd" } },
+          { type: "tool_use", id: "new", name: "Bash", input: { command: "pwd" } },
+        ] },
         { role: "user", content: [
           { type: "tool_result", tool_use_id: "old", content: "old" },
           { type: "tool_result", tool_use_id: "new", content: "new" },
@@ -306,6 +323,10 @@ describe("D5 latest current-cycle tool-result selection", () => {
       model: "deepseek-v4-flash",
       messages: [
         { role: "user", content: "do the task" },
+        { role: "assistant", tool_calls: [
+          { id: "old", type: "function", function: { name: "Bash", arguments: "{\"command\":\"pwd\"}" } },
+          { id: "new", type: "function", function: { name: "Bash", arguments: "{\"command\":\"pwd\"}" } },
+        ] },
         { role: "tool", tool_call_id: "old", content: "old" },
         { role: "tool", tool_call_id: "new", content: "new" },
       ],
@@ -318,6 +339,10 @@ describe("D5 latest current-cycle tool-result selection", () => {
       model: "deepseek-v4-flash",
       input: [
         { role: "user", content: [{ type: "input_text", text: "do the task" }] },
+        { role: "user", content: [
+          { type: "function_call", call_id: "old", name: "Bash", arguments: { command: "pwd" } },
+          { type: "function_call", call_id: "new", name: "Bash", arguments: { command: "pwd" } },
+        ] },
         { role: "user", content: [
           { type: "function_call_output", call_id: "old", output: "old" },
           { type: "function_call_output", call_id: "new", output: "new" },
@@ -339,8 +364,15 @@ describe("D5 handler lineage resolution", () => {
   it("uses a fresh current-cycle result mapping when it is the only resolved lineage", async () => {
     const { lineage } = await memoryLineage();
     await lineage.record("result", "upstream-result");
-    await expect(runHandler(lineage, request([instruction(), result("result")])))
+    await expect(runHandler(lineage, request([instruction(), toolUse("result"), result("result")])))
       .resolves.toMatchObject({ upstreamKey: "upstream-result" });
+  });
+
+  it("ignores an orphan result even when its lineage mapping is fresh", async () => {
+    const { lineage } = await memoryLineage();
+    await lineage.record("orphan", "upstream-orphan");
+    await expect(runHandler(lineage, request([instruction(), result("orphan")])))
+      .resolves.not.toMatchObject({ upstreamKey: "upstream-orphan" });
   });
 
   it("accepts header and current result when both resolve to the same upstream", async () => {
@@ -349,7 +381,7 @@ describe("D5 handler lineage resolution", () => {
     await lineage.record("result", "upstream-shared");
     await expect(runHandler(
       lineage,
-      request([instruction(), result("result")]),
+      request([instruction(), toolUse("result"), result("result")]),
       { "x-call-id": "header" },
     )).resolves.toMatchObject({ upstreamKey: "upstream-shared" });
   });
@@ -360,9 +392,20 @@ describe("D5 handler lineage resolution", () => {
     await lineage.record("result", "upstream-result");
     await expect(runHandler(
       lineage,
-      request([instruction(), result("result")]),
+      request([instruction(), toolUse("result"), result("result")]),
       { "x-call-id": "header" },
     )).rejects.toMatchObject({ code: "SESSION_CONFLICT", status: 409 });
+  });
+
+  it("does not create a false conflict between a valid header and an orphan result", async () => {
+    const { lineage } = await memoryLineage();
+    await lineage.record("header", "upstream-header");
+    await lineage.record("orphan", "upstream-orphan");
+    await expect(runHandler(
+      lineage,
+      request([instruction(), result("orphan")]),
+      { "x-call-id": "header" },
+    )).resolves.toMatchObject({ upstreamKey: "upstream-header" });
   });
 
   it("falls back from an unknown header to the current result", async () => {
@@ -370,7 +413,7 @@ describe("D5 handler lineage resolution", () => {
     await lineage.record("result", "upstream-result");
     await expect(runHandler(
       lineage,
-      request([instruction(), result("result")]),
+      request([instruction(), toolUse("result"), result("result")]),
       { "x-call-id": "unknown" },
     )).resolves.toMatchObject({ upstreamKey: "upstream-result" });
   });
@@ -382,7 +425,7 @@ describe("D5 handler lineage resolution", () => {
     await lineage.record("result", "upstream-result");
     await expect(runHandler(
       lineage,
-      request([instruction(), result("result")]),
+      request([instruction(), toolUse("result"), result("result")]),
       { "x-call-id": "header" },
     )).resolves.toMatchObject({ upstreamKey: "upstream-result" });
   });
@@ -393,7 +436,7 @@ describe("D5 handler lineage resolution", () => {
     await lineage.record("result", "upstream-result");
     await expect(runHandler(
       lineage,
-      request([instruction(), result("result")]),
+      request([instruction(), toolUse("result"), result("result")]),
       { "x-call-id": "header" },
       { user: "explicit-upstream" },
     )).resolves.toMatchObject({ upstreamKey: "explicit-upstream" });
