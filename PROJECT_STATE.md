@@ -31,8 +31,9 @@ verification. Открытых P0 больше нет; G6 — PASS. D7 tool cata
 закрыт после independent review, deterministic coverage и Windows live
 verification 33+ production path. D8 safe request correlation закрыт после
 independent review, deterministic coverage и Windows Claude Code live tool-cycle;
-единственный открытый P1 D9 реализован offline и остаётся `IMPLEMENTED / VERIFYING`
-до independent review и live verification. Открытых P1 — 1. Остальные
+D9 natural directory listing classifier закрыт после deterministic coverage и
+live verification RU typo / EN concrete listing / informational control. Открытых
+P1 — 0. Остальные
 приоритеты и gates — в
 `PRODUCTION_READINESS.md`. D11 schema fidelity не менялась.
 D1 остаётся неподтверждённой/deferred P3.
@@ -196,8 +197,16 @@ D1 остаётся неподтверждённой/deferred P3.
   direct A–L, PB05 informational/unrelated negatives, full completion guard,
   реальные Bash/Glob/ListDirectory calls, fresh/historical current-cycle
   evidence и отсутствие impossible requirement без listing-capable tool.
-  PB02/PB05 deterministic scope — PASS; D9 — `IMPLEMENTED / VERIFYING`,
-  independent review и live verification ещё нужны. Открытых P1 остаётся 1.
+  PB02/PB05 deterministic scope — PASS. Live verification на implementation
+  `5a5b755e96b6dc965d6013c53a163259473c510d` получила от Claude Code 39 tools:
+  exact RU typo request вызвал real Bash `tool_use`, lineage связала `tool_result`
+  с тем же upstream, и final completion был принят после fresh result. EN
+  `what is inside the current folder?` также вызвал real tools, а informational
+  directory control завершился обычным text final без listing evidence. D9 —
+  `CLOSED`; открытых P1 — 0. Во второй части live run наблюдались upstream
+  `DEEPSEEK_RATE_LIMIT`, один `STREAM_INCOMPLETE` и дополнительные guard retries;
+  они зафиксированы как collateral/upstream noise, не как D9 regression, и в этой
+  docs-only closure не исправлялись.
 - Отдельный D7 live collateral finding не относится к catalog consistency:
   первая streaming-попытка дала `completion_guard_rejected` с
   `malformed_tool_intent=true` и `TOOL_CALL_REQUIRED`/502; retry затем успешно

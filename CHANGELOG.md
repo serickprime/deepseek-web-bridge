@@ -3,6 +3,25 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-24 — Close D9 after live verification
+
+- D9 закрыт после implementation `5a5b755e96b6dc965d6013c53a163259473c510d`
+  и live verification с реальным Claude Code catalog из 39 tools. Exact RU typo
+  request `что находится в данной дериктории?` вызвал настоящий Bash `tool_use`;
+  `tool_result` был связан lineage с тем же upstream, и final completion был
+  принят только после fresh result.
+- EN control `what is inside the current folder?` также был классифицирован как
+  tool-required и вызвал реальные tools. Informational directory control получил
+  обычный text final без listing evidence. PB02/PB05 live scope — PASS.
+- Offline baseline: 34 test files / 776 tests; typecheck, full offline suite,
+  build, Windows `test:platform` и `git diff --check` — PASS.
+- Во второй части live run наблюдались upstream `DEEPSEEK_RATE_LIMIT`, один
+  `STREAM_INCOMPLETE` и дополнительные guard retries. Это зафиксировано как
+  collateral/upstream noise, а не D9 regression; в этой docs-only closure ничего
+  в guard/transport не исправлялось.
+- D9 переведён в `CLOSED`; открытых P1 теперь 0. Проект не объявлен
+  production-ready: P2 defects и остальные release gates остаются открытыми.
+
 ## 2026-08-24 — Cover natural directory listing requests
 
 - D9 PASS B расширяет существующий environment classifier узким reusable
