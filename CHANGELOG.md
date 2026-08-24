@@ -3,6 +3,26 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-24 — Close D17 after live verification
+
+- D17 закрыт после implementation
+  `d3d57de901ba3b07afeb27aa634054b8c1092f2f`, successful independent review и
+  Windows live verification с Claude Code 2.1.241, `deepseek-v4-flash` и
+  реальным 39-tool catalog.
+- Live chain выполнила три requested `Write`, затем три requested `Read`; все
+  шесть `tool_result` получены. Каждый requested cycle завершился с
+  `completion_attempt=1` / `guard_attempt=0`, а final `D17-LIVE-PASS` был принят
+  сразу после последнего `Read`, без Bash, missing `command_execution` или
+  `TOOL_CALL_REQUIRED`/502. External PowerShell подтвердил exact A/B/C markers.
+- Отдельный Bash request после final имел `lineage_source=new`,
+  `history_entries=0` и другой `upstream_ref`; он зафиксирован как unrelated
+  post-final request, а не как failure D17 chain.
+- D17 переведён в `CLOSED`; открытых P1 теперь 0, G7 и G16 — PASS. Открытыми
+  остаются три P2 и один deferred P3, остальные release gates не пройдены,
+  поэтому проект всё ещё не объявлен production-ready. Следующий correctness P2
+  — D14. Production code и tests в docs-only closure не менялись; baseline —
+  35 files / 874 tests.
+
 ## 2026-08-24 — Narrow command execution classification
 
 - D17 PASS B заменяет два broad `Выполни ...` regex в

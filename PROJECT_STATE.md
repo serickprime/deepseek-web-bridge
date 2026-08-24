@@ -32,10 +32,10 @@ verification. Открытых P0 больше нет; G6 — PASS. D7 tool cata
 verification 33+ production path. D8 safe request correlation закрыт после
 independent review, deterministic coverage и Windows Claude Code live tool-cycle;
 D9 natural directory listing classifier закрыт после deterministic coverage и
-live verification RU typo / EN concrete listing / informational control. Открытых
-P1 — 1: D17 false `command_execution` obligation имеет статус
-`IMPLEMENTED / VERIFYING`; independent review и Windows live verification ещё
-требуются. Остальные
+live verification RU typo / EN concrete listing / informational control. D17
+false `command_execution` obligation закрыт после deterministic coverage,
+independent review и Windows live 3 Write + 3 Read chain. Открытых P1 — 0; G7 и
+G16 — PASS. Остальные
 приоритеты и gates — в
 `PRODUCTION_READINESS.md`. D11 full schema transport закрыт после deterministic
 offline coverage, independent review и Windows Claude Code live WebFetch. D12
@@ -229,14 +229,16 @@ D1 остаётся неподтверждённой/deferred P3.
   `d13-a.txt = D13-MARKER-A`, `d13-b.txt = D13-MARKER-B`,
   `d13-c.txt = D13-MARKER-C`. D13 — `CLOSED`; verdict — `PASS WITH COLLATERAL
   FINDING`, open P2 = 3.
-- D17 / P1 — `IMPLEMENTED / VERIFYING`: один shared narrow predicate теперь
-  используется и environment detector, и obligation inference. Explicit
-  command wording, conservative recognizable CLI literals и явный
-  Bash/shell/PowerShell/terminal context сохраняют `command_execution`, а generic
-  `Выполни ...` action/file wording — нет. 23 новых regressions включают exact
-  D13 3 Write + 3 Read cycle, который теперь принимает final без guard retry или
-  Bash; focused suite — 436/436. Independent review и Windows live ещё нужны.
-  Open P1 = 1; G7 и G16 — FAIL; production-ready = NO.
+- D17 / P1 — `CLOSED`: implementation
+  `d3d57de901ba3b07afeb27aa634054b8c1092f2f` прошла independent review. Windows
+  live с Claude Code 2.1.241, `deepseek-v4-flash` и real 39-tool catalog получила
+  3 Write + 3 Read results; каждый requested cycle имел
+  `completion_attempt=1` / `guard_attempt=0`, final `D17-LIVE-PASS` пришёл сразу
+  после последнего Read, без Bash, missing command obligation или 502. PowerShell
+  подтвердил exact A/B/C markers. Отдельный post-final Bash имел новую lineage,
+  пустую history и другой upstream ref, поэтому не относится к D17 chain. Open
+  P1 = 0; G7 и G16 — PASS. Три P2 и release gates остаются открытыми;
+  production-ready = NO, следующий correctness P2 — D14.
 - D8 PASS B передаёт уже существующий request-scoped logger явно по всей цепочке
   route → handler → DeepSeek client → PoW. Один случайный process-local salt и
   domain separation создают необратимые `client_ref`, `upstream_ref`,
@@ -884,12 +886,12 @@ OpenCode config не изменялся.
 Отсортировано по приоритету.
 
 ### Приоритет 1 (блокирует «из коробки»)
-- [~] **D17: false `command_execution` obligation** — PASS B использует один
+- [x] **D17: false `command_execution` obligation** — один
       narrow explicit-command predicate в обоих classifier call sites. Generic
       `Выполни ...` больше не создаёт shell requirement; explicit RU/EN command,
       recognizable CLI literal и shell/terminal context остаются tool-required.
-      Exact completed D13 cycle принимается без retry/Bash. Independent review и
-      Windows live verification ещё требуются до закрытия P1.
+      Independent review и Windows 39-tool live 3 Write + 3 Read chain — PASS:
+      final принят сразу, без Bash/missing command/502; D17 — `CLOSED`.
 - [x] **Реальный вход через `npm run auth`** — ✅ работает.
 - [x] **`npm run doctor` с реальным аккаунтом** — ✅ все 6/6 проверок проходят.
 - [x] **`npm run test:live`** — ✅ все проверки проходят (health, models,
