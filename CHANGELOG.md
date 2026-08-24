@@ -3,6 +3,22 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-24 — Close D2 after live verification
+
+- D2 implementation `bc6d0aec8da2579c463d84c3e44cdcc61e175407`
+  прошла independent review; deterministic PB29/PB30 подтвердили exact
+  rejected-candidate isolation и accepted parent progression.
+- Windows live verification на Claude Code 2.1.241 и `deepseek-v4-flash`:
+  normal turn вернул `D2-TURN-1`; настоящий Bash `pwd` выполнился один раз и
+  вернул `/d/Проекты/test`; tool-result continuation сохранил тот же upstream
+  key и показал `upstream_linked:true`. Normal requests завершались
+  `completion_done`; `SESSION_CONFLICT`, `STREAM_INCOMPLETE`, unexpected 502 и
+  hang не наблюдались. Exact parent IDs в live logs не заявляются.
+- Baseline PASS: 31 test files / 646 tests, typecheck, build, Windows
+  `test:platform` и `git diff --check`. D2 переведён в `CLOSED`; открытых P0 —
+  0, G6 — PASS. Проект не объявлен production-ready: P1/P2 и остальные release
+  gates остаются открытыми.
+
 ## 2026-08-24 — Isolate rejected DeepSeek parent candidates
 
 - D2 PASS B убрал преждевременную запись `chunk.messageId` в shared session

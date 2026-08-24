@@ -24,8 +24,8 @@ coverage и реальной Windows Claude Code restart/resume проверки
 stream lifecycle закрыт после independent review и Windows live verification;
 D4 downstream Anthropic lifecycle также закрыт после independent review,
 deterministic PB28 coverage и Windows live verification. D2 rejected-parent
-isolation реализован и находится в `IMPLEMENTED / VERIFYING`; до live verification
-он остаётся единственным открытым P0. Остальные приоритеты и gates — в
+isolation закрыт после PB29/PB30, independent review и Windows Claude Code
+live verification. Открытых P0 больше нет; G6 — PASS. Остальные приоритеты и gates — в
 `PRODUCTION_READINESS.md`; D1 остаётся
 неподтверждённой/deferred P3.
 
@@ -200,7 +200,16 @@ isolation реализован и находится в `IMPLEMENTED / VERIFYING
   финальной auth-generation проверки. Failure/exhaustion сохраняют прежний
   accepted parent; successful no-ID result его не меняет. PB29/PB30 защищены 19
   focused tests, включая transport failures, next-request parent и handler
-  history. D2 — `IMPLEMENTED / VERIFYING`, live verification ещё требуется.
+  history. Implementation commit — `bc6d0aec8da2579c463d84c3e44cdcc61e175407`;
+  independent review PASS. Baseline: 31 test files / 646 tests, typecheck, build,
+  Windows `test:platform` и `git diff --check` PASS. Windows live с Claude Code
+  2.1.241 и `deepseek-v4-flash` подтвердил normal turn `D2-TURN-1` и real Bash
+  `pwd` → `/d/Проекты/test`; tool-result continuation сохранил upstream key и
+  показал `upstream_linked:true`, без `SESSION_CONFLICT`, `STREAM_INCOMPLETE`,
+  unexpected 502 или hang. Exact rejected-parent isolation подтверждается
+  deterministic PB29/PB30; live logs exact parent IDs не экспонировали. D2 —
+  `CLOSED`; open P0 = 0, G6 — PASS. Проект не объявляется production-ready:
+  P1/P2 и остальные release gates остаются открытыми.
 
 - Нормализация всех трёх протоколов в единый `CanonicalRequest`; tool calls,
   tool results, system prompt, reasoning/search флаги, max_tokens.

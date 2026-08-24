@@ -6,7 +6,7 @@
 >
 > **Offline baseline:** 31 test files, 646 tests (D2 PASS B branch)
 >
-> **Открыто:** P0 — 1, P1 — 4, P2 — 6; deferred P3 — 1
+> **Открыто:** P0 — 0, P1 — 4, P2 — 6; deferred P3 — 1
 > **Production scope:** Claude Code → Anthropic-compatible Bridge → DeepSeek Web → Bridge → Claude Code
 
 Этот файл — главный источник production-hardening backlog, frozen benchmark и
@@ -60,7 +60,7 @@ transport, policy и persistence defects не объединяются в оди
 | Fabricated text никогда не считается `tool_result`. | Частично | Механизм `bbd13b2` закрыт, но D9 показывает classifier false-negative. |
 | Historical `tool_result` не подтверждает новое действие. | Да в L2; L3 требует hardening | Current-cycle guard защищён tests; stale lineage остаётся D5. |
 | Mutation нельзя считать успешной без подходящего evidence. | Частично | Multi-step/fresh-state guards закрыты для поддержанного scope; D13 остаётся. |
-| Rejected generation не изменяет accepted session/parent state. | Да, offline; live verification pending | D2 PASS B: candidate parent живёт только внутри `complete()`, PB29/PB30 покрывают accepted progression, repair/exhaustion и transport failures. |
+| Rejected generation не изменяет accepted session/parent state. | Да | D2 CLOSED: candidate parent живёт только внутри `complete()`; PB29/PB30 deterministic PASS, Windows Claude Code normal turn и real Bash/tool-result continuity PASS. Exact parent IDs в live logs не наблюдались. |
 | Transport error не превращается в fake successful completion. | Да | D3 CLOSED: body/transport failures нормализованы, empty/INCOMPLETE/non-terminal stream отклоняются; deterministic offline и Windows live verification PASS. |
 | HTTP 200 сам по себе не означает successful DeepSeek completion. | Да | D3 CLOSED: требуется authoritative FINISHED/old done terminal; PB22–PB27 deterministic и релевантная live verification green. |
 | Explicit DeepSeek rate limit не вызывает completion-guard retry storm. | Да | `bedcab2`, `tests/unit/deepseekRateLimit.test.ts`: один completion attempt, 429. |
@@ -75,7 +75,7 @@ transport, policy и persistence defects не объединяются в оди
 | ID | Priority | Primary / affected | Status | Problem | Evidence | Dependencies | Fix commit |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | **D1** | P3 | L3 / L2,L4 | `UNCONFIRMED / DEFERRED` | Full Claude transcript вместе с continuing DeepSeek parent chain может дублировать context и ухудшать long-depth flow. | `HANDOFF`: A и B имели clean full runs; поздние failures коррелировали с quota/rate limit. Controlled A/B/C не дал устойчивого подтверждения. | Все P0/P1, long-run benchmark | — |
-| **D2** | P0 | L3 / L2,L4 | `IMPLEMENTED / VERIFYING` | Shared `state.parentMessageId` означает только accepted parent; rejected repair candidates образуют локальную цепочку и публикуются ровно один раз после полного acceptance boundary. | `TEST`: PB29/PB30, 19 focused cases — normal/repair/exhaustion progression, incomplete/timeout/body/rate/parse failures, callback/auth boundary, next request и handler history. Live verification pending. | D3 terminal semantics | pending branch commit |
+| **D2** | P0 | L3 / L2,L4 | `CLOSED` | Shared `state.parentMessageId` означает только accepted parent; rejected repair candidates образуют локальную цепочку и публикуются ровно один раз после полного acceptance boundary. | `TEST`: PB29/PB30 deterministic PASS, 19 focused cases; 31 files / 646 tests, typecheck/build/Windows test:platform/diff-check PASS. `LIVE`: independent review PASS; Windows, Claude Code 2.1.241, `deepseek-v4-flash`: `D2-TURN-1` normal turn PASS, real Bash `pwd` → `/d/Проекты/test`, linked tool-result continuation сохранил upstream key и показал `upstream_linked:true`; без conflict/incomplete/unexpected 502/hang. Live logs не доказывают exact parent ID. | D3 terminal semantics | `bc6d0aec8da2579c463d84c3e44cdcc61e175407` |
 | **D3** | P0 | L4 | `CLOSED` | Completion имеет единый headers+body deadline и explicit terminal contract; empty/partial/INCOMPLETE не являются success, terminal завершает reader без EOF, completion POST не auto-retry. | `REPO`/`TEST`: T1–T21, T16b, PB22–PB27 и rate-limit invariant green. `LIVE` Windows, Claude Code 2.1.241, `deepseek-v4-flash`, `DS_TIMEOUT_MS=120000`: short direct completion PASS; long direct completion 6600 chars / 21853 ms; real Bash tool-cycle PASS; `completion_done` observed, без unexpected timeout/incomplete/parse/transport failures. PB22–PB27 relevant live verification PASS. | D6 закрыт; формирует error contract для D4 | `3a5aacc`, `4843cfb` |
 | **D4** | P0 | L1 / L4 | `CLOSED` | Anthropic HTTP 200 commit отложен до первого SSE byte; pre-start errors возвращают real HTTP JSON, late failures — one safe `event:error`; success/error mutually exclusive. Tool lineage persist-ится до exposure. | `TEST`: T1–T26/PB28 route-level timeout/rate-limit/incomplete/partial/persistence/unknown/pre-start cases и protocol regressions green. `LIVE` Windows, Claude Code 2.1.241, `deepseek-v4-flash`: real Bash cycle PASS; controlled stalled challenge дал visible typed 504 без fake success; raw midstream PB28 дал `message_start` + one `event:error` и no success terminal. | D3 failure taxonomy | `b16307b0c59586709475aaeac312172e53771573` |
 | **D5** | P1 | L3 | `CONFIRMED` | Stale lineage может жить дольше policy; выбирается не обязательно latest relevant result. | `HANDOFF`: ~48h link использовался. `REPO`: 10m `SESSION_LINK_TTL_MS` не применяется; store hardcodes 24h only at init/size>10000; `extractToolUseIdFromMessages()` возвращает первый result. | D6 | — |
@@ -131,6 +131,7 @@ Closed означает «не переисследовать без новой 
 | D6 unified session/lineage persistence | `7573fcd` | `persistentSessionDocument.test.ts`, `persistenceStartup.test.ts`, `atomicFile.test.ts`; Windows Claude Code restart/resume live | Session/lineage writer снова удаляет sibling state, restart не восстанавливает оба типа либо durable/atomic failure возвращается как success/corrupt target. |
 | D3 upstream stream lifecycle | `3a5aacc`, `4843cfb` | `deepseekStreamLifecycle.test.ts`; Windows direct short/long completion and Claude Code Bash live | Authoritative terminal снова заменяется cleanup error, empty/partial stream проходит success, completion POST auto-retry-ится или valid generation неожиданно timeout/incomplete/parse/transport fails. |
 | D4 downstream Anthropic SSE lifecycle | `b16307b` | T1–T26/PB28 route/protocol regressions; Windows Claude Code Bash and controlled pre-/midstream failure live | Lazy commit, safe single error terminal, persistence-before-exposure либо lineage ordering снова нарушаются; downstream видит hang, truncated stream, double terminal или fake success. |
+| D2 accepted parent isolation | `bc6d0ae` | `deepseekParentIsolation.test.ts`, PB29/PB30; Windows Claude Code normal turn and Bash/tool-result continuity live | Rejected/failed candidate снова меняет shared accepted parent, exhaustion загрязняет следующий request или accepted progression ломается. |
 | Normal Anthropic tool streaming | `bd6208e`, `61c44c8` | normal lifecycle sections in `tests/unit/sse.test.ts` | Normal message/tool block ordering ломается. |
 
 **Reopening rule:** нужен reproducible regression, failing existing regression
@@ -196,7 +197,7 @@ versioned addendum; новые regressions добавляются новыми I
 | G3 | `npm run build` green | PASS (recheck each branch) |
 | G4 | `npm run test:platform` green | PASS on current Windows baseline |
 | G5 | CI Windows/Linux/macOS green for release commit | NEEDS RELEASE-COMMIT VERIFICATION |
-| G6 | Все P0 закрыты | FAIL: 1 open (D2) |
+| G6 | Все P0 закрыты | PASS: D2/D3/D4/D6 CLOSED; open P0 = 0 |
 | G7 | Все P1 закрыты либо formally waived с owner/reason/expiry | FAIL: 4 open |
 | G8 | 100% deterministic offline PB cases automated and green | FAIL: PB-v1 пока specification |
 | G9 | 3 последовательных clean live benchmark runs | FAIL |
@@ -256,8 +257,8 @@ green, создавать новый mechanism при подходящем су�
 3. **D4 — downstream Anthropic SSE lifecycle.** CLOSED после independent review,
    deterministic PB28 и Windows Claude Code/controlled failure live verification;
    сохранять regressions.
-4. **D2 — rejected parent isolation.** После D3 можно атомарно commit-ить только
-   terminal accepted generation.
+4. **D2 — rejected parent isolation.** CLOSED после PB29/PB30, independent
+   review и Windows Claude Code normal/tool-cycle live verification.
 5. **D5 — lineage freshness/TTL.** После единого durable schema D6.
 6. **D7 — tool catalog consistency.** Убирает silent 33+ tool mismatch.
 7. **D8/D16 — observability/correlation.** Инструментирует уже стабилизированные
@@ -280,8 +281,6 @@ green, создавать новый mechanism при подходящем су�
 
 ## 12. Current decision
 
-Проект **не является Production Ready**. D6, D3 и D4 закрыты после independent
-review, deterministic coverage и Windows live verification. D4 подтвердил lazy
-HTTP commit, bounded pre-stream 504, один безопасный midstream `event:error`,
-terminal exclusivity и lineage ordering. D2 остаётся единственным открытым P0;
-остальные release gates также остаются открытыми.
+Проект **не является Production Ready**. D6, D3, D4 и D2 закрыты после
+independent review, deterministic coverage и Windows live verification. Открытых
+P0 нет, G6 пройден. P1/P2 defects и остальные release gates остаются открытыми.
