@@ -10,6 +10,41 @@ import type { CanonicalMessage, CanonicalRequest } from "../../src/api/canonical
 import type { UpstreamSessionState } from "../../src/sessions/sessionStore.js";
 
 const TOOLS = new Set(["Read", "Search", "get_weather", "calculate"]);
+const D17_FILES = [
+  { path: "d13-a.txt", marker: "D13-MARKER-A" },
+  { path: "d13-b.txt", marker: "D13-MARKER-B" },
+  { path: "d13-c.txt", marker: "D13-MARKER-C" },
+];
+const D17_LIVE_PROMPT = [
+  "Выполни все действия последовательно и не пропускай ни одного.",
+  `Создай ${D17_FILES[0]!.path} с содержимым "${D17_FILES[0]!.marker}".`,
+  `Затем создай ${D17_FILES[1]!.path} с содержимым "${D17_FILES[1]!.marker}".`,
+  `Затем создай ${D17_FILES[2]!.path} с содержимым "${D17_FILES[2]!.marker}".`,
+  `Затем прочитай ${D17_FILES[0]!.path}.`,
+  `Затем прочитай ${D17_FILES[1]!.path}.`,
+  `Затем прочитай ${D17_FILES[2]!.path}.`,
+].join("\n");
+
+function d17FileCycleMessages(completedWrites = 3, completedReads = 3): CanonicalMessage[] {
+  const messages: CanonicalMessage[] = [{ role: "user", parts: [{ type: "text", text: D17_LIVE_PROMPT }] }];
+  for (const [index, file] of D17_FILES.slice(0, completedWrites).entries()) {
+    const id = `d17-write-${index + 1}`;
+    messages.push({
+      role: "assistant",
+      parts: [{ type: "tool_use", toolCall: { id, type: "function", name: "Write", arguments: { file_path: file.path, content: file.marker } } }],
+    });
+    messages.push({ role: "user", parts: [{ type: "tool_result", toolResult: { toolUseId: id, content: "ok", isError: false } }] });
+  }
+  for (const [index, file] of D17_FILES.slice(0, completedReads).entries()) {
+    const id = `d17-read-${index + 1}`;
+    messages.push({
+      role: "assistant",
+      parts: [{ type: "tool_use", toolCall: { id, type: "function", name: "Read", arguments: { file_path: file.path } } }],
+    });
+    messages.push({ role: "user", parts: [{ type: "tool_result", toolResult: { toolUseId: id, content: file.marker, isError: false } }] });
+  }
+  return messages;
+}
 
 describe("toolParser", () => {
   it("parses strict tool_call JSON", () => {
@@ -1218,6 +1253,103 @@ describe("fabricated environment execution guard", () => {
     ], tools);
     expect(evidence.hasCurrentToolResult).toBe(false);
     expect(evidence.requiresEnvironmentToolResult).toBe(true);
+  });
+});
+
+describe("D17 explicit command execution classification", () => {
+  const tools = ["Bash", "Write", "Read"];
+  const obligationKinds = (prompt: string) => inferToolObligations(prompt, tools).map(obligation => obligation.kind);
+
+  it.each([
+    ["explicit RU execute", "Выполни команду npm test"],
+    ["explicit RU launch", "Запусти команду git status"],
+    ["explicit EN execute", "Execute the command npm test"],
+    ["explicit EN run", "Run the command git status"],
+    ["direct recognizable CLI", "Выполни git status"],
+    ["backticked CLI", "Выполни `git status`"],
+    ["RU command label", "Команда: git status"],
+    ["EN command label", "Command: npm test"],
+    ["explicit Bash context", "Выполни через Bash git status"],
+    ["explicit PowerShell context", "Execute in PowerShell Get-ChildItem"],
+    ["explicit terminal context", "Run with the terminal git status"],
+  ])("requires command evidence for %s", (_name, prompt) => {
+    expect(looksLikeEnvironmentDataRequest(prompt, tools)).toBe(true);
+    expect(obligationKinds(prompt)).toContain("command_execution");
+  });
+
+  it.each([
+    ["Выполни все действия последовательно", false, []],
+    ["Выполни задачу", false, []],
+    ["Выполни изменения в трёх файлах", false, ["file_mutation"]],
+    ["Выполни чтение этих файлов", false, []],
+    ["Выполни следующие шаги: создай A.txt, прочитай B.txt", true, ["file_mutation", "file_verification"]],
+    ["Выполни изменения в `file.txt`", false, ["file_mutation"]],
+  ] as const)("does not infer a shell command from generic action wording: %s", (prompt, environmentExpected, expectedKinds) => {
+    const kinds = obligationKinds(prompt);
+    expect(kinds).not.toContain("command_execution");
+    expect(kinds.filter(kind => kind === "file_mutation" || kind === "file_verification"))
+      .toEqual([...expectedKinds]);
+    expect(looksLikeEnvironmentDataRequest(prompt, tools)).toBe(environmentExpected);
+  });
+
+  it("keeps exactly the six requested D13 live obligations without command execution", () => {
+    expect(inferToolObligations(D17_LIVE_PROMPT, tools).map(obligation => obligation.id)).toEqual([
+      "file_mutation#1",
+      "file_mutation#2",
+      "file_mutation#3",
+      "file_verification#1",
+      "file_verification#2",
+      "file_verification#3",
+    ]);
+  });
+
+  it("accepts final text after all three Write and three Read results", () => {
+    const evidence = inspectCurrentToolCycle(d17FileCycleMessages(), tools);
+    expect(evidence.missingObligations).toEqual([]);
+    expect(evidence.requiresActionToolResult).toBe(false);
+    expect(shouldRetry(true, null, "Все три файла созданы и проверены.", "", tools, evidence)).toBe(false);
+  });
+
+  it("still blocks final text when file evidence is partial", () => {
+    const evidence = inspectCurrentToolCycle(d17FileCycleMessages(2, 2), tools);
+    expect(evidence.missingObligations.map(obligation => obligation.id)).toEqual([
+      "file_mutation#3",
+      "file_verification#3",
+    ]);
+    expect(shouldRetry(true, null, "Все действия выполнены.", "", tools, evidence)).toBe(true);
+  });
+
+  it("requires and accepts successful current-cycle evidence for an explicit command", () => {
+    const missing = inspectCurrentToolCycle([{
+      role: "user",
+      parts: [{ type: "text", text: "Выполни git status" }],
+    }], tools);
+    expect(missing.missingActionKinds).toEqual(["command_execution"]);
+
+    const completed = inspectCurrentToolCycle([
+      { role: "user", parts: [{ type: "text", text: "Выполни git status" }] },
+      { role: "assistant", parts: [{ type: "tool_use", toolCall: { id: "cmd", type: "function", name: "Bash", arguments: { command: "git status" } } }] },
+      { role: "user", parts: [{ type: "tool_result", toolResult: { toolUseId: "cmd", content: "clean", isError: false } }] },
+    ], tools);
+    expect(completed.missingActionKinds).toEqual([]);
+  });
+
+  it("does not accept failed or historical Bash evidence for an explicit command", () => {
+    const failed = inspectCurrentToolCycle([
+      { role: "user", parts: [{ type: "text", text: "Выполни git status" }] },
+      { role: "assistant", parts: [{ type: "tool_use", toolCall: { id: "failed", type: "function", name: "Bash", arguments: { command: "git status" } } }] },
+      { role: "user", parts: [{ type: "tool_result", toolResult: { toolUseId: "failed", content: "failed", isError: true } }] },
+    ], tools);
+    expect(failed.missingActionKinds).toEqual(["command_execution"]);
+
+    const historical = inspectCurrentToolCycle([
+      { role: "user", parts: [{ type: "text", text: "Выполни старую команду git status" }] },
+      { role: "assistant", parts: [{ type: "tool_use", toolCall: { id: "old", type: "function", name: "Bash", arguments: { command: "git status" } } }] },
+      { role: "user", parts: [{ type: "tool_result", toolResult: { toolUseId: "old", content: "clean", isError: false } }] },
+      { role: "assistant", parts: [{ type: "text", text: "Старый ответ" }] },
+      { role: "user", parts: [{ type: "text", text: "Выполни git status" }] },
+    ], tools);
+    expect(historical.missingActionKinds).toEqual(["command_execution"]);
   });
 });
 
@@ -3204,6 +3336,21 @@ describe("DeepSeekClient action completion guard", () => {
     const { client, runCompletion } = actionClient(["All three files are ready."]);
     const result = await client.complete(actionRequest(d13Messages(3)), actionState());
     expect(result.content).toBe("All three files are ready.");
+    expect(runCompletion).toHaveBeenCalledTimes(1);
+  });
+
+  it("D17 root guard accepts the completed three-Write three-Read cycle without retry or Bash", async () => {
+    const { client, runCompletion } = actionClient(["Все три файла созданы и проверены."]);
+    const request = actionRequest(d17FileCycleMessages());
+    request.tools = [
+      ...actionTools,
+      { name: "Read", description: "Read a file", inputSchema: { type: "object", properties: { file_path: { type: "string" } } } },
+    ];
+
+    const result = await client.complete(request, actionState());
+
+    expect(result.content).toBe("Все три файла созданы и проверены.");
+    expect(result.toolCall).toBeUndefined();
     expect(runCompletion).toHaveBeenCalledTimes(1);
   });
 

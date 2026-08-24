@@ -2,9 +2,9 @@
 
 > **Статус:** `HARDENING IN PROGRESS`
 >
-> **Baseline:** `fix/d13-obligation-fidelity` — D13 closure branch
+> **Baseline:** `fix/d17-command-execution-classifier` — D17 PASS B branch
 >
-> **Offline baseline:** 35 test files, 851 tests (D13 closure branch)
+> **Offline baseline:** 35 test files, 874 tests (D17 PASS B branch)
 >
 > **Открыто:** P0 — 0, P1 — 1, P2 — 3; deferred P3 — 1
 > **Production scope:** Claude Code → Anthropic-compatible Bridge → DeepSeek Web → Bridge → Claude Code
@@ -90,7 +90,7 @@ transport, policy и persistence defects не объединяются в оди
 | **D13** | P2 | L2 | `CLOSED` | Independent create/edit/read action-target groups получают stable per-kind instances для 1–5 targets; explicit grouped operation остаётся одной obligation, ambiguous fallback сохраняет все targets. | `TEST`: 34 D13 cases; create/edit/read 1–5, partial/failure, mixed, grouped, same-file three-step/twice, Unicode/NFC, historical/stale/informational и root client guard; 35 files / 851 tests. `LIVE`: independent review PASS; Windows получил 3 separate Write + 3 separate Read results, PowerShell подтвердил exact A/B/C markers. Verdict: PASS WITH COLLATERAL FINDING — D17 вмешался только в final path. | Existing one-to-one matcher; D9/D12 controls | `0293f4a5a128766a535d3bf285252abe65e56fd8` |
 | **D14** | P2 | L1 | `NEEDS VERIFICATION` | Anthropic `system` content-block arrays могут теряться при normalization. | `REPO`: `normalizeAnthropic()` читает system через string-only `stringField`; tests покрывают только string. Нужен diagnostic protocol case до объявления runtime defect. | Нет | — |
 | **D15** | P2 | L1 / L4 | `CONFIRMED STATIC GAP` | `max_tokens` нормализуется, но не передаётся DeepSeek; Anthropic streaming usage всегда 0, new-format usage coverage отсутствует. | `REPO`: `CanonicalRequest.maxTokens` не используется в payload; Anthropic SSE start/done hardcode zero; usage parser есть только в legacy data path. | D3 terminal/usage semantics | — |
-| **D17** | P1 | L2 | `OPEN / DIAGNOSED` | Generic `Выполни ...` ошибочно создаёт `command_execution` при доступном Bash, даже когда shell command не запрошена. | `REPO`/`TEST`: classifier region идентичен на pre-D13 `cff9070a` и D13 `0293f4a`; deterministic six-result cycle оставляет только false command obligation и исчерпывает guard до 502. `LIVE`: после 3 Write + 3 Read наблюдались missing command, retries, 502, непрошенный Bash и rate-limit amplification. | D13 CLOSED; fix before remaining P2 | — |
+| **D17** | P1 | L2 | `IMPLEMENTED / VERIFYING` | Один shared narrow predicate требует explicit command wording, conservative recognizable CLI literal либо явный Bash/shell/PowerShell/terminal context; generic `Выполни ...` action/file wording не создаёт `command_execution`. | `TEST`: 23 D17 regressions; RU/EN positives/negatives, exact D13 six-result cycle, partial evidence, successful/failed/historical Bash и root client no-retry control; focused 436/436, full 35 files / 874 tests. Independent review и Windows live ещё нужны. | D13 CLOSED; verify before remaining P2 | PASS B branch |
 
 ### 5.2 Acceptance and required evidence
 
@@ -200,12 +200,12 @@ versioned addendum; новые regressions добавляются новыми I
 | Gate | Pass condition | Baseline status |
 | --- | --- | --- |
 | G1 | `npm run typecheck` green | PASS (recheck each branch) |
-| G2 | `npm test` 100% green | PASS: 851/851 on D13 closure branch; full-control Windows run (recheck release commit) |
+| G2 | `npm test` 100% green | PASS: 874/874 on D17 PASS B branch; full-control Windows run (recheck release commit) |
 | G3 | `npm run build` green | PASS (recheck each branch) |
 | G4 | `npm run test:platform` green | PASS on current Windows baseline |
 | G5 | CI Windows/Linux/macOS green for release commit | NEEDS RELEASE-COMMIT VERIFICATION |
 | G6 | Все P0 закрыты | PASS: D2/D3/D4/D6 CLOSED; open P0 = 0 |
-| G7 | Все P1 закрыты либо formally waived с owner/reason/expiry | FAIL: D17 OPEN / DIAGNOSED; open P1 = 1 |
+| G7 | Все P1 закрыты либо formally waived с owner/reason/expiry | FAIL: D17 IMPLEMENTED / VERIFYING; open P1 = 1 |
 | G8 | 100% deterministic offline PB cases automated and green | FAIL: PB-v1 пока specification |
 | G9 | 3 последовательных clean live benchmark runs | FAIL |
 | G10 | 3 × 30–50 tool autonomous runs без fabrication/replay/duplicate/malformed leak/unexpected 502/hang | FAIL |
@@ -214,7 +214,7 @@ versioned addendum; новые regressions добавляются новыми I
 | G13 | Restart сохраняет консистентные persistent session/lineage | PASS: deterministic PB31/PB33 green; Windows Claude Code restart сохранил session и использовал persisted lineage |
 | G14 | `/compact` после long chain проходит PB35 | NEEDS FROZEN LIVE RUNS |
 | G15 | Shutdown не оставляет orphan/stale PID и не убивает чужие процессы | NEEDS VERIFICATION: D10 |
-| G16 | Нет известных открытых P0/P1 production defects | FAIL: D17 OPEN / DIAGNOSED; open P0 = 0, open P1 = 1 |
+| G16 | Нет известных открытых P0/P1 production defects | FAIL: D17 IMPLEMENTED / VERIFYING; open P0 = 0, open P1 = 1 |
 
 ## 9. Mandatory development workflow
 
@@ -279,8 +279,8 @@ green, создавать новый mechanism при подходящем су�
    Windows `AskUserQuestion` live. **D13** — CLOSED после deterministic coverage,
    independent review и Windows 3 Write + 3 Read live; collateral D17 не
    переоткрывает D13.
-9. **D17 — false command_execution obligation.** Следующий P1: исправить узкий
-   classifier contract и закрыть independent review/live до продолжения P2.
+9. **D17 — false command_execution obligation.** PASS B реализован; завершить
+   independent review и Windows live verification до закрытия P1 и продолжения P2.
 10. **D14** и **D15** — по одному correctness P2 defect за branch.
 11. **D10**, затем полный PB-v1, 30–50-tool stress, `/compact`, restart/resume.
 12. **D1** — повторный controlled A/B/C только после стабилизации остальных причин.
@@ -324,12 +324,13 @@ live реально выполнил три отдельных `Write`, зате
 `d13-c.txt = D13-MARKER-C`. Verdict — `PASS WITH COLLATERAL FINDING`: target
 behavior D13 прошёл, но весь request не был clean.
 
-D17 / P1 — `OPEN / DIAGNOSED` и должен идти следующим. Pre-existing generic
-`Выполни ...` classifier добавил ложный `command_execution`; после уже
-выполненных 3 Write + 3 Read это вызвало missing obligation, guard retries,
-`TOOL_CALL_REQUIRED`/502, поздний непрошенный Bash и retry/rate-limit
-amplification. D17 независим от D13 action-group inference и не переоткрывает
-D13.
+D17 / P1 — `IMPLEMENTED / VERIFYING`: shared narrow classifier сохраняет
+`command_execution` только для explicit command/shell/terminal intent или
+conservative recognizable command literal. Exact completed D13 3 Write + 3 Read
+cycle deterministic принимает final без дополнительного guard retry/Bash;
+partial file evidence и explicit command без successful current-cycle Bash всё
+ещё блокируют final. Independent review и Windows live verification pending;
+D17 независим от D13 action-group inference и не переоткрывает D13.
 
 D9 live verification выполнялась с реальным 39-tool Claude catalog и подтвердила
 PB02/PB05 scope. Во второй части наблюдались upstream `DEEPSEEK_RATE_LIMIT`, один

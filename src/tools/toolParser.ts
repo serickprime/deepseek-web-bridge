@@ -429,6 +429,28 @@ function hasToolMatching(allowedToolNames: string[], pattern: RegExp): boolean {
   return allowedToolNames.some(name => pattern.test(name.toLowerCase()));
 }
 
+const COMMAND_EXECUTABLE_SOURCE = String.raw`(?:git|npm|npx|pnpm|yarn|bun|node|deno|python(?:3)?|py|pytest|vitest|jest|tsc|cargo|go|dotnet|java|javac|mvn|gradle|docker|kubectl|curl|wget|pwd|ls|bash|sh|zsh|pwsh|powershell|cmd|get-childitem|write-output|test-path)`;
+const DIRECT_COMMAND_REQUEST = new RegExp(
+  String.raw`(?:выполн\S*|\b(?:run|execute))\s+${COMMAND_EXECUTABLE_SOURCE}(?:\s|$)`,
+  "i",
+);
+const COMMAND_LITERAL_START = new RegExp(String.raw`^\s*${COMMAND_EXECUTABLE_SOURCE}(?:\s|$)`, "i");
+
+function looksLikeExplicitCommandExecutionRequest(content: string): boolean {
+  if (/(?:выполн\S*|запуст\S*)\s+(?:(?:эту|следующ\S*)\s+)?команд\S*|\b(?:run|execute)\s+(?:(?:the|this|following)\s+)?command\b/i.test(content)) {
+    return true;
+  }
+  if (/(?:^|\n)\s*(?:команд\S*|command|bash|shell|powershell|pwsh|terminal|терминал\S*)\s*:\s*(?:`[^`\r\n]+`|\S[^\r\n]*)/im.test(content)) {
+    return true;
+  }
+  if (DIRECT_COMMAND_REQUEST.test(content)) return true;
+
+  const backticked = /(?:выполн\S*|\b(?:run|execute))[^`\r\n]{0,48}`([^`\r\n]{1,256})`/i.exec(content);
+  if (backticked?.[1] && COMMAND_LITERAL_START.test(backticked[1])) return true;
+
+  return /(?:выполн\S*|запуст\S*)\s+(?:(?:в|через|с\s+помощью)\s+)(?:bash|shell|powershell|pwsh|терминал\S*)\s+\S|\b(?:run|execute)\s+(?:(?:in|with|via|through)\s+)(?:bash|shell|powershell|pwsh|(?:the\s+)?terminal)\s+\S/i.test(content);
+}
+
 export function looksLikeEnvironmentDataRequest(content: string, allowedToolNames: string[]): boolean {
   if (allowedToolNames.length === 0) return false;
   const trimmed = content.trim();
@@ -453,8 +475,7 @@ export function looksLikeEnvironmentDataRequest(content: string, allowedToolName
   const fileExistence = /существу\S*\s+(?:ли\s+)?файл|наличи\S*\s+файл|does (?:the )?file\b.*\bexist|check (?:whether )?.*file exists|file existence/i.test(trimmed);
   if ((hasReader || hasLister || hasShell) && (fileExistence || (action && fileContent))) return true;
 
-  const commandExecution = /выполни\S*(?:\s+команд\S*)?|запусти\S*(?:\s+команд\S*)?|run (?:the )?command|execute (?:the )?command/i.test(trimmed);
-  return hasShell && commandExecution;
+  return hasShell && looksLikeExplicitCommandExecutionRequest(trimmed);
 }
 
 function inferExternalActionKinds(content: string, allowedToolNames: string[]): ExternalActionKind[] {
@@ -476,7 +497,7 @@ function inferExternalActionKinds(content: string, allowedToolNames: string[]): 
   const install = /установ\S*|добав\S*\s+(?:зависимост|пакет)|install|add (?:the )?(?:dependency|package)/i.test(trimmed);
   if (hasShell && install) kinds.add("dependency_install");
 
-  const commandExecution = /выполн\S*(?:\s+команд\S*)?|запуст\S*\s+команд\S*|run (?:the )?command|execute (?:the )?command/i.test(trimmed);
+  const commandExecution = looksLikeExplicitCommandExecutionRequest(trimmed);
   const launch = !commandExecution
     && /(?:запуст\S*|открой\S*|подними\S*)[\s\S]{0,60}(?:сайт|сервер|приложен|лендинг|страниц|его|её|их)|(?:launch|start|open|serve)[\s\S]{0,60}(?:app|server|site|website|page|\b(?:it|them)\b)/i.test(trimmed);
   if (hasLauncher && launch) kinds.add("launch");

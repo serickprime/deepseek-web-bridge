@@ -3,6 +3,25 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-24 — Narrow command execution classification
+
+- D17 PASS B заменяет два broad `Выполни ...` regex в
+  `src/tools/toolParser.ts` одним shared narrow predicate. `command_execution`
+  теперь создаётся только для explicit command wording, labelled/backticked
+  recognizable command literals, conservative direct CLI forms и явного
+  Bash/shell/PowerShell/terminal context.
+- Generic action wording (`Выполни задачу`, `Выполни все действия
+  последовательно`, file edit/read steps) больше не создаёт shell obligation;
+  существующие file/launch obligations, evidence freshness, matcher и guard
+  retry policy не менялись.
+- В `tests/unit/tools.test.ts` добавлены 23 D17 regressions: RU/EN positive и
+  negative controls, exact D13 three-Write/three-Read prompt, complete/partial
+  evidence, successful/failed/historical Bash и root `DeepSeekClient` control,
+  доказывающий принятие final без лишнего retry/Bash. Focused suite — 436/436.
+- D17 переведён в `IMPLEMENTED / VERIFYING`. Independent review и Windows live
+  verification ещё требуются; P1 остаётся 1, G7/G16 остаются FAIL, production
+  readiness не заявляется.
+
 ## 2026-08-24 — Close D13 and record D17
 
 - D13 закрыт после implementation

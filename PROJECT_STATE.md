@@ -34,7 +34,8 @@ independent review, deterministic coverage и Windows Claude Code live tool-cycl
 D9 natural directory listing classifier закрыт после deterministic coverage и
 live verification RU typo / EN concrete listing / informational control. Открытых
 P1 — 1: D17 false `command_execution` obligation имеет статус
-`OPEN / DIAGNOSED` и должен быть исправлен следующим. Остальные
+`IMPLEMENTED / VERIFYING`; independent review и Windows live verification ещё
+требуются. Остальные
 приоритеты и gates — в
 `PRODUCTION_READINESS.md`. D11 full schema transport закрыт после deterministic
 offline coverage, independent review и Windows Claude Code live WebFetch. D12
@@ -110,14 +111,14 @@ D1 остаётся неподтверждённой/deferred P3.
 | 7. DeepSeek | pow (WASM), sseParser, updateParser, client | ✅ готово |
 | 8. Server | middleware, output-адаптеры, protocolStream, routes, server | ✅ готово |
 | 9. Entrypoint | app.ts, index.ts, start.ts | ✅ готово |
-| 10. Тесты | 35 файлов, 851 тест | ✅ готово |
+| 10. Тесты | 35 файлов, 874 теста | ✅ готово |
 | 11. Скрипты | desktopStart, cdp, auth, doctor, launcher, live, real-OS platform smoke | ✅ live-часть работает |
 | 12. Веб-интерфейс | Bridge Console на `GET /` (Mileo dark theme, two-panel, diagnostics, model picker) | ✅ готово |
 
 **Проверки сейчас:**
 - `npm run typecheck` — ✅ без ошибок.
 - `npm run build` — ✅ собирается.
-- `npm test` — ✅ 851/851 (Windows process-lifecycle case требует разрешённый
+- `npm test` — ✅ 874/874 (Windows process-lifecycle case требует разрешённый
   `taskkill`; sandbox-only запуск отдельно воспроизводит известный D10 finding).
 - `npm run test:platform` — ✅ локально на Windows: real process/platform,
   `buildConfig`, Bridge HTTP, Unicode cwd и env propagation без DeepSeek auth.
@@ -228,14 +229,14 @@ D1 остаётся неподтверждённой/deferred P3.
   `d13-a.txt = D13-MARKER-A`, `d13-b.txt = D13-MARKER-B`,
   `d13-c.txt = D13-MARKER-C`. D13 — `CLOSED`; verdict — `PASS WITH COLLATERAL
   FINDING`, open P2 = 3.
-- D17 / P1 — `OPEN / DIAGNOSED`: generic `Выполни ...` pre-existing classifier
-  ошибочно создаёт `command_execution` при доступном Bash. В D13 live это после
-  уже успешных 3 Write + 3 Read вызвало missing `command_execution`, bounded
-  guard retries, `TOOL_CALL_REQUIRED`/502, поздний непрошенный Bash и
-  retry/rate-limit amplification. Relevant classifier region побайтно одинаков
-  на master baseline `cff9070a` и D13 implementation `0293f4a`; defect независим
-  от D13 action groups. D17 должен идти следующим перед оставшимися P2. Open
-  P1 = 1; G7 и G16 — FAIL; production-ready = NO.
+- D17 / P1 — `IMPLEMENTED / VERIFYING`: один shared narrow predicate теперь
+  используется и environment detector, и obligation inference. Explicit
+  command wording, conservative recognizable CLI literals и явный
+  Bash/shell/PowerShell/terminal context сохраняют `command_execution`, а generic
+  `Выполни ...` action/file wording — нет. 23 новых regressions включают exact
+  D13 3 Write + 3 Read cycle, который теперь принимает final без guard retry или
+  Bash; focused suite — 436/436. Independent review и Windows live ещё нужны.
+  Open P1 = 1; G7 и G16 — FAIL; production-ready = NO.
 - D8 PASS B передаёт уже существующий request-scoped logger явно по всей цепочке
   route → handler → DeepSeek client → PoW. Один случайный process-local salt и
   domain separation создают необратимые `client_ref`, `upstream_ref`,
@@ -883,12 +884,12 @@ OpenCode config не изменялся.
 Отсортировано по приоритету.
 
 ### Приоритет 1 (блокирует «из коробки»)
-- [ ] **D17: false `command_execution` obligation** — generic `Выполни ...`
-      ошибочно считается shell request при доступном Bash. Детерминированно и в
-      D13 Windows live подтверждены missing obligation, guard retries,
-      `TOOL_CALL_REQUIRED`/502 и непрошенный Bash после уже завершённых requested
-      Write/Read actions. Defect pre-existing, не относится к D13 matcher; нужен
-      узкий shared explicit-command classifier до продолжения P2 backlog.
+- [~] **D17: false `command_execution` obligation** — PASS B использует один
+      narrow explicit-command predicate в обоих classifier call sites. Generic
+      `Выполни ...` больше не создаёт shell requirement; explicit RU/EN command,
+      recognizable CLI literal и shell/terminal context остаются tool-required.
+      Exact completed D13 cycle принимается без retry/Bash. Independent review и
+      Windows live verification ещё требуются до закрытия P1.
 - [x] **Реальный вход через `npm run auth`** — ✅ работает.
 - [x] **`npm run doctor` с реальным аккаунтом** — ✅ все 6/6 проверок проходят.
 - [x] **`npm run test:live`** — ✅ все проверки проходят (health, models,
