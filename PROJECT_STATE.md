@@ -25,9 +25,10 @@ stream lifecycle закрыт после independent review и Windows live veri
 D4 downstream Anthropic lifecycle также закрыт после independent review,
 deterministic PB28 coverage и Windows live verification. D2 rejected-parent
 isolation закрыт после PB29/PB30, independent review и Windows Claude Code
-live verification. D5 lineage freshness/current-cycle selection реализован и
-находится в `IMPLEMENTED / VERIFYING`; до live verification он остаётся
-открытым P1. Открытых P0 больше нет; G6 — PASS. Остальные приоритеты и gates —
+live verification. D5 lineage freshness/current-cycle selection закрыт после
+independent review, deterministic PB31/PB32 и ограниченной Windows restart/live
+verification. Открытых P0 больше нет; G6 — PASS; открытых P1 — 3. Остальные
+приоритеты и gates —
 в `PRODUCTION_READINESS.md`; D1 остаётся
 неподтверждённой/deferred P3.
 
@@ -227,8 +228,20 @@ live verification. D5 lineage freshness/current-cycle selection реализов
   продолжают session, разные дают `SESSION_CONFLICT`/409, unknown/expired header
   fallback-ится к fresh result; explicit body identity сохраняет precedence.
   PB31/PB32 и protocol regressions покрыты 26 новыми deterministic tests;
-  baseline — 32 files / 672 tests. D5 — `IMPLEMENTED / VERIFYING`, не `CLOSED`;
-  live verification ещё требуется, открытых P1 остаётся 4.
+  baseline — 32 files / 672 tests, typecheck/build/Windows test:platform/
+  diff-check PASS; implementation commits — `3614d4b` и `051e3ec`, independent
+  review PASS. Windows live на Claude Code 2.1.241 и `deepseek-v4-flash`
+  подтвердил clean stop/restart Bridge: первая post-restart continuation
+  восстановила тот же persisted upstream key, показала `upstream_linked:true` и
+  дошла до `completion_done`. Исходный Bash `tool_result` уже создавал linked
+  request до restart, поэтому не заявляется, что его первое поступление было
+  только после restart. D5 — `CLOSED`; открытых P1 остаётся 3.
+
+- Отдельный collateral live finding не относится к D5/lineage: prompt с
+  `Write-Output D5-LIVE` был отклонён completion guard с
+  `missing_obligation_kinds=["file_mutation"]` и `TOOL_CALL_REQUIRED`/502.
+  Это classifier/obligation false-positive; в D5 он не исправлялся и lineage
+  work не переоткрывает.
 
 - Нормализация всех трёх протоколов в единый `CanonicalRequest`; tool calls,
   tool results, system prompt, reasoning/search флаги, max_tokens.

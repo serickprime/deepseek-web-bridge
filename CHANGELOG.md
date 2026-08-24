@@ -3,6 +3,26 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-24 — Close D5 after live verification
+
+- D5 implementation commits `3614d4b` и `051e3ec` прошли independent review;
+  deterministic PB31/PB32 остаются authoritative evidence точной TTL boundary,
+  expired lookup, durable init pruning, newest correlated current-cycle result,
+  orphan/historical rejection и header/result fallback/conflict. Baseline PASS:
+  32 files / 672 tests, typecheck, build, Windows `test:platform` и
+  `git diff --check`.
+- Windows live verification на Claude Code 2.1.241 и
+  `deepseek-v4-flash`: Bridge cleanly остановился и успешно запустился снова;
+  первая post-restart continuation показала `upstream_linked:true`, восстановила
+  тот же persisted upstream key и дошла до `completion_done`. Исходный Bash
+  `tool_result` уже создавал linked request до restart, поэтому live evidence не
+  заявляет, что его первое поступление произошло только после restart.
+- D5 переведён в `CLOSED`; открытых P1 теперь 3. Проект не объявлен
+  production-ready. Отдельный collateral finding не относится к lineage:
+  `Write-Output D5-LIVE` дал `completion_guard_rejected` с
+  `missing_obligation_kinds=["file_mutation"]` и `TOOL_CALL_REQUIRED`/502. Это
+  classifier/obligation false-positive; в D5 он не исправлялся.
+
 ## 2026-08-24 — Correlate current-cycle lineage results
 
 - D5 independent review выявил blocking gap: newest result после user boundary
