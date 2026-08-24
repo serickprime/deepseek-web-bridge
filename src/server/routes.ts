@@ -9,7 +9,7 @@ import type { CompletionHandler } from "../api/handler.js";
 import type { Protocol } from "../api/normalizeByProtocol.js";
 import { normalizeByProtocol } from "../api/normalizeByProtocol.js";
 import { toOpenAIChat } from "./outputOpenAI.js";
-import { toAnthropicMessage } from "./outputAnthropic.js";
+import { anthropicErrorResponse, toAnthropicMessage, toAnthropicPublicError } from "./outputAnthropic.js";
 import { toResponses } from "./outputResponses.js";
 import { ProtocolStream } from "./protocolStream.js";
 import type { SessionManager } from "../auth/sessionManager.js";
@@ -48,13 +48,23 @@ function makeId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function routeError(res: ServerResponse, error: unknown, ctx: RouteContext, requestRef: string): void {
+function logRouteError(error: unknown, ctx: RouteContext, requestRef: string): void {
   const logger = ctx.logger.withRequestRef(requestRef);
   if (error instanceof BridgeError) {
-    logger.warn("route_error", { code: error.code, status: error.status, retryable: error.retryable });
+    logger.warn("route_error", {
+      code: error.code,
+      status: error.status,
+      retryable: error.retryable,
+      ...(error.upstreamStage ? { upstream_stage: error.upstreamStage } : {}),
+      ...(error.causeCode ? { cause_code: error.causeCode } : {}),
+    });
   } else {
     logger.error("route_error_unhandled", { message: safeErrorMessage(error) });
   }
+}
+
+function routeError(res: ServerResponse, error: unknown, ctx: RouteContext, requestRef: string): void {
+  logRouteError(error, ctx, requestRef);
   if (res.headersSent) {
     if (!res.writableEnded) res.end();
     return;
@@ -72,12 +82,17 @@ function buildProtocolStream(
   streaming: boolean,
 ): ProtocolStream {
   if (streaming) {
-    res.writeHead(200, {
+    const headers = {
       "content-type": "text/event-stream",
       "cache-control": "no-cache",
       connection: "keep-alive",
+    };
+    if (protocol !== "anthropic") res.writeHead(200, headers);
+    return new ProtocolStream(protocol, model, chunk => {
+      if (res.writableEnded || res.destroyed) return;
+      if (!res.headersSent) res.writeHead(200, headers);
+      res.write(chunk);
     });
-    return new ProtocolStream(protocol, model, chunk => res.write(chunk));
   }
   // Non-streaming: collect-only dummy that discards writes
   return new ProtocolStream(protocol, model, () => {});
@@ -86,6 +101,8 @@ function buildProtocolStream(
 function handleCompletion(ctx: RouteContext, protocol: Protocol, modelFallback: string) {
   return async (req: IncomingMessage, res: ServerResponse, requestRef: string): Promise<void> => {
     const logger = ctx.logger.withRequestRef(requestRef);
+    let stream: ProtocolStream | undefined;
+    let anthropicStreaming = false;
     try {
       const raw = await readBody({ raw: req }, ctx.security.maxBytes);
       const body = JSON.parse(raw.toString("utf8"));
@@ -97,7 +114,8 @@ function handleCompletion(ctx: RouteContext, protocol: Protocol, modelFallback: 
         stream: normalized.stream,
         tools: normalized.tools.length,
       });
-      const stream = buildProtocolStream(protocol, normalized.model, res, normalized.stream);
+      anthropicStreaming = protocol === "anthropic" && normalized.stream;
+      stream = buildProtocolStream(protocol, normalized.model, res, normalized.stream);
       const runResult = await ctx.handler.run({
         protocol,
         request: normalized,
@@ -117,6 +135,21 @@ function handleCompletion(ctx: RouteContext, protocol: Protocol, modelFallback: 
       logger.info("completion_done", { upstream: runResult.upstreamKey });
     } catch (error) {
       if (res.writableEnded) return;
+      if (protocol === "anthropic") {
+        const publicError = toAnthropicPublicError(error);
+        logRouteError(error, ctx, requestRef);
+        if (anthropicStreaming && stream?.fail(publicError)) {
+          if (!res.writableEnded) res.end();
+          return;
+        }
+        if (!res.headersSent) {
+          const status = error instanceof BridgeError ? error.status : 500;
+          sendJson(res, status, anthropicErrorResponse(publicError));
+          return;
+        }
+        if (!res.writableEnded) res.end();
+        return;
+      }
       routeError(res, error, ctx, requestRef);
     }
   };

@@ -155,6 +155,26 @@ retry нет. Bridge не выполняет инструменты — он т�
 - Связь downstream disconnect с upstream abort относится к отдельной границе D4;
   D3 гарантирует cancellation-safe внутренний upstream lifecycle.
 
+## Downstream Anthropic SSE lifecycle
+
+Для streaming `/v1/messages` HTTP 200 фиксируется лениво первым SSE write —
+`message_start`, а не при создании `ProtocolStream`. Поэтому ошибка до первого
+event возвращается как обычный non-200 `application/json` с Anthropic envelope.
+
+После `message_start` route преобразует failure в один terminal `event:error`.
+Тип выбирается из безопасной Anthropic taxonomy (`authentication_error`,
+`permission_error`, `rate_limit_error`, `timeout_error`, `conflict_error`,
+`request_too_large`, `invalid_request_error`, `api_error`); arbitrary exception
+message клиенту не передаётся. Error terminal не закрывает открытый content block
+искусственно и не сопровождается `message_delta`/`message_stop`.
+
+`ProtocolStream` хранит минимальный terminal state `open | success | error`:
+`finish()` и `fail()` idempotent и взаимоисключаемы, `push()` после terminal —
+no-op. Для tool-use все обязательные lineage mappings сохраняются до публикации
+tool block. Ошибка persistence поэтому даёт failure lifecycle без executable
+`tool_use` у клиента. Связь downstream disconnect с upstream cancellation в эту
+реализацию не входит и остаётся отдельным resource-lifecycle finding.
+
 ## Безопасность
 
 Подробнее — в `docs/threat-model.md`. Ключевое:

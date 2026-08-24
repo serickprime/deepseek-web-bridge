@@ -94,11 +94,11 @@ export class CompletionHandler {
             name: result.toolCall.name,
             arguments: result.toolCall.args,
           };
-          stream.push({ type: "tool_use", toolCall: call });
           await lineage.record(id, upstreamKey);
           if (callId && callId !== id) {
             await lineage.record(callId, upstreamKey);
           }
+          stream.push({ type: "tool_use", toolCall: call });
           stream.finish();
           return {
             result: {

@@ -1,6 +1,12 @@
 import type { CanonicalChunk, CanonicalToolCall } from "../api/canonical.js";
 import type { Protocol } from "../api/normalizeByProtocol.js";
-import { anthropicSseMessageDone, anthropicSseMessageStart, anthropicSseStop } from "./outputAnthropic.js";
+import {
+  anthropicSseError,
+  anthropicSseMessageDone,
+  anthropicSseMessageStart,
+  anthropicSseStop,
+  type AnthropicPublicError,
+} from "./outputAnthropic.js";
 import { openaiSseChunk, openaiSseDone } from "./outputOpenAI.js";
 import { responsesSseDone, responsesSseOutputText } from "./outputResponses.js";
 
@@ -10,6 +16,7 @@ export class ProtocolStream {
   private hadToolUse = false;
   private started = false;
   private textBlockOpen = false;
+  private terminal: "open" | "success" | "error" = "open";
 
   constructor(
     private readonly protocol: Protocol,
@@ -20,7 +27,7 @@ export class ProtocolStream {
   }
 
   start(): void {
-    if (this.started) return;
+    if (this.started || this.terminal !== "open") return;
     this.started = true;
     if (this.protocol === "anthropic") {
       this.write(anthropicSseMessageStart(this.model, 0));
@@ -38,6 +45,7 @@ export class ProtocolStream {
   }
 
   push(chunk: CanonicalChunk): void {
+    if (this.terminal !== "open") return;
     if (chunk.type === "content") {
       if (!chunk.text) return;
       if (this.protocol === "openai") {
@@ -119,6 +127,8 @@ export class ProtocolStream {
   }
 
   finish(): void {
+    if (this.terminal !== "open") return;
+    this.terminal = "success";
     if (this.protocol === "anthropic") {
       this.closeTextBlock();
     }
@@ -128,5 +138,12 @@ export class ProtocolStream {
       this.write(anthropicSseStop());
     }
     if (this.protocol === "responses") this.write(responsesSseDone());
+  }
+
+  fail(error: AnthropicPublicError): boolean {
+    if (this.protocol !== "anthropic" || !this.started || this.terminal !== "open") return false;
+    this.terminal = "error";
+    this.write(anthropicSseError(error));
+    return true;
   }
 }

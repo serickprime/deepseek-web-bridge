@@ -22,7 +22,8 @@ OpenCode, новые providers и новые UI-функции deferred до п�
 D6 persistence collision закрыт после independent review, deterministic offline
 coverage и реальной Windows Claude Code restart/resume проверки. D3 upstream
 stream lifecycle закрыт после independent review и Windows live verification;
-следующий шаг — D4 PASS A, только diagnosis. Остальные
+D4 downstream Anthropic lifecycle реализован с deterministic PB28 coverage и
+ожидает independent review/live verification. Остальные
 приоритеты и gates — в `PRODUCTION_READINESS.md`; D1 остаётся
 неподтверждённой/deferred P3.
 
@@ -90,14 +91,15 @@ stream lifecycle закрыт после independent review и Windows live veri
 | 7. DeepSeek | pow (WASM), sseParser, updateParser, client | ✅ готово |
 | 8. Server | middleware, output-адаптеры, protocolStream, routes, server | ✅ готово |
 | 9. Entrypoint | app.ts, index.ts, start.ts | ✅ готово |
-| 10. Тесты | 29 файлов, 601 тест | ✅ готово |
+| 10. Тесты | 30 файлов, 627 тестов | ✅ готово |
 | 11. Скрипты | desktopStart, cdp, auth, doctor, launcher, live, real-OS platform smoke | ✅ live-часть работает |
 | 12. Веб-интерфейс | Bridge Console на `GET /` (Mileo dark theme, two-panel, diagnostics, model picker) | ✅ готово |
 
 **Проверки сейчас:**
 - `npm run typecheck` — ✅ без ошибок.
 - `npm run build` — ✅ собирается.
-- `npm test` — ✅ 601/601.
+- `npm test` — ✅ 627/627 (Windows process-lifecycle case требует разрешённый
+  `taskkill`; sandbox-only запуск отдельно воспроизводит известный D10 finding).
 - `npm run test:platform` — ✅ локально на Windows: real process/platform,
   `buildConfig`, Bridge HTTP, Unicode cwd и env propagation без DeepSeek auth.
 - `npm run auth` / Web UI AUTH — ✅ Bearer захватывается из сети, HIF читается из
@@ -162,6 +164,22 @@ stream lifecycle закрыт после independent review и Windows live veri
   Unexpected `UPSTREAM_TIMEOUT`, `STREAM_INCOMPLETE`, `STREAM_PARSE_FAILED` и
   `UPSTREAM_ERROR` не наблюдались; релевантная PB22–PB27 live verification PASS.
   D3 — `CLOSED`; D2/D4 не закрыты.
+- D4 PASS B реализовал Anthropic-only lazy HTTP commit: pre-`message_start`
+  failure возвращает настоящий HTTP error в Anthropic JSON envelope, а
+  post-start failure — ровно один `event:error` с безопасной официальной
+  taxonomy. `ProtocolStream` теперь имеет mutually-exclusive success/error
+  terminal, не пишет после terminal и не превращает partial content в fake
+  completed Message. Все обязательные lineage records выполняются до
+  публикации `tool_use`, поэтому persistence failure не экспонирует executable
+  block. T1–T26 дают deterministic route/protocol coverage PB28, включая
+  timeout/rate-limit/incomplete/partial/persistence/unknown/pre-start cases,
+  normal Anthropic text/tool и OpenAI/Responses controls. Suite — 30 files /
+  627 tests; D4 — `IMPLEMENTED / VERIFYING`, не `CLOSED` до independent review
+  и live verification. D3 остаётся `CLOSED`; D2/D5/D7/D8 не менялись.
+- D4 collateral findings не расширялись: malformed `/v1/messages` JSON пока
+  остаётся safe HTTP 500 вместо 400, а downstream disconnect не отменяет
+  upstream operation. Последнее сохраняется как отдельный cancellation/resource
+  lifecycle finding; defensive closed-writer regression добавлен без redesign.
 
 - Нормализация всех трёх протоколов в единый `CanonicalRequest`; tool calls,
   tool results, system prompt, reasoning/search флаги, max_tokens.
@@ -212,8 +230,10 @@ stream lifecycle закрыт после independent review и Windows live veri
   отменяется внутренним AbortController, чтобы graceful stop не ожидал открытый SSE бесконечно.
   `RouteContext.gracefulStop` прокидывается из `AppHandle.stop`.
   **ProtocolStream.start()** — вызывается из CompletionHandler перед
-  `stream.push()`, отправляет `message_start` для Anthropic streaming;
-  dedup guard предотвращает повторные вызовы.
+  `stream.push()`, отправляет `message_start` для Anthropic streaming и первым
+  SSE write фиксирует lazy HTTP 200. До него route сохраняет возможность вернуть
+  настоящий HTTP error. `finish()` и `fail()` являются idempotent mutually-
+  exclusive terminals; после terminal новые writes игнорируются.
   **Anthropic content_block lifecycle** — текст отправляется как
   `content_block_start(text) → content_block_delta(text_delta) → content_block_stop`.
   Tool use включает `input: {}`. `textBlockOpen` флаг предотвращает

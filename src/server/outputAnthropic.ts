@@ -1,4 +1,25 @@
 import type { CanonicalResult, CanonicalToolCall } from "../api/canonical.js";
+import { BridgeError } from "../utils/errors.js";
+
+export type AnthropicErrorType =
+  | "authentication_error"
+  | "permission_error"
+  | "rate_limit_error"
+  | "timeout_error"
+  | "conflict_error"
+  | "request_too_large"
+  | "invalid_request_error"
+  | "api_error";
+
+export interface AnthropicPublicError {
+  type: AnthropicErrorType;
+  message: string;
+}
+
+export interface AnthropicErrorResponse {
+  type: "error";
+  error: AnthropicPublicError;
+}
 
 export interface AnthropicContentBlock {
   type: "text" | "tool_use";
@@ -79,4 +100,73 @@ export function anthropicSseMessageDone(stopReason: "end_turn" | "tool_use" = "e
 
 export function anthropicSseStop(): string {
   return `event: message_stop\ndata: ${JSON.stringify({ type: "message_stop" })}\n\n`;
+}
+
+function publicMessage(error: BridgeError): string {
+  switch (error.code) {
+    case "INVALID_REQUEST":
+    case "MODEL_UNAVAILABLE":
+    case "REQUEST_TOO_LARGE":
+      return error.message;
+    case "AUTH_MISSING":
+    case "AUTH_EXPIRED":
+    case "DEEPSEEK_HTTP_401":
+      return "Authentication failed";
+    case "DEEPSEEK_HTTP_403":
+      return "Permission denied";
+    case "DEEPSEEK_RATE_LIMIT":
+      return "Upstream rate limit exceeded";
+    case "UPSTREAM_TIMEOUT":
+      return "Upstream request timed out";
+    case "SESSION_CONFLICT":
+      return "Session conflict";
+    case "PERSISTENCE_ERROR":
+      return "Internal server error";
+    default:
+      return "Upstream request failed";
+  }
+}
+
+export function toAnthropicPublicError(error: unknown): AnthropicPublicError {
+  if (!(error instanceof BridgeError)) {
+    return { type: "api_error", message: "Internal server error" };
+  }
+  let type: AnthropicErrorType;
+  switch (error.code) {
+    case "AUTH_MISSING":
+    case "AUTH_EXPIRED":
+    case "DEEPSEEK_HTTP_401":
+      type = "authentication_error";
+      break;
+    case "DEEPSEEK_HTTP_403":
+      type = "permission_error";
+      break;
+    case "DEEPSEEK_RATE_LIMIT":
+      type = "rate_limit_error";
+      break;
+    case "UPSTREAM_TIMEOUT":
+      type = "timeout_error";
+      break;
+    case "SESSION_CONFLICT":
+      type = "conflict_error";
+      break;
+    case "REQUEST_TOO_LARGE":
+      type = "request_too_large";
+      break;
+    case "INVALID_REQUEST":
+    case "MODEL_UNAVAILABLE":
+      type = "invalid_request_error";
+      break;
+    default:
+      type = "api_error";
+  }
+  return { type, message: publicMessage(error) };
+}
+
+export function anthropicErrorResponse(error: AnthropicPublicError): AnthropicErrorResponse {
+  return { type: "error", error };
+}
+
+export function anthropicSseError(error: AnthropicPublicError): string {
+  return `event: error\ndata: ${JSON.stringify(anthropicErrorResponse(error))}\n\n`;
 }

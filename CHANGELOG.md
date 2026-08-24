@@ -3,6 +3,26 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-24 — Harden Anthropic streaming error lifecycle
+
+- D4 PASS B откладывает фиксацию Anthropic HTTP 200 до первого SSE byte:
+  ошибки до `message_start` теперь возвращают реальный HTTP status и
+  Anthropic-compatible JSON error, а late failures завершаются одним
+  документированным `event:error`, а не немым EOF.
+- `ProtocolStream` получил минимальный mutually-exclusive terminal state:
+  `finish()`/`fail()` idempotent, success и error взаимоисключаемы, writes после
+  terminal игнорируются. Partial content failure не синтезирует
+  `content_block_stop`, `message_delta` или `message_stop`.
+- BridgeError преобразуется в безопасную Anthropic taxonomy; unknown exception
+  возвращает только `api_error` / `Internal server error`. Исходные code/status/
+  retryable/stage/cause сохраняются в redacted route log.
+- Все обязательные lineage mappings теперь persist-ятся до публикации
+  `tool_use`; persistence failure не отдаёт Claude Code executable tool block.
+- Добавлены 26 deterministic route/protocol tests T1–T26 для PB28, normal
+  Anthropic/OpenAI/Responses regressions и defensive disconnect case. Итого:
+  30 test files, 627 offline tests. D4 — `IMPLEMENTED / VERIFYING`, не `CLOSED`;
+  downstream-to-upstream disconnect cancellation остаётся отдельным finding.
+
 ## 2026-08-24 — Close D3 after live verification
 
 - Independent review и Windows live verification D3 завершены успешно на
