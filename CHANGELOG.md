@@ -3,6 +3,21 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-24 — Close D12 after live verification
+
+- D12 закрыт после implementation
+  `e237562bfb43d782b64eeb9673e0d5eba6abdbe8`, successful independent review и
+  Windows live verification с Claude Code 2.1.241 / `deepseek-v4-flash`.
+- Реальный `AskUserQuestion` получил `questions` array с одним object и nested
+  `options` array `Alpha`/`Beta`; пользователь выбрал `Alpha`, настоящий
+  `tool_result` вернулся в continuation, final — `Alpha`. `unsafe_arguments`,
+  `TOOL_CALL_REQUIRED` exhaustion, unexpected 502 и hang не наблюдались.
+- Exact raw argument preservation остаётся подтверждённым deterministic offline
+  evidence и не заявляется как live-проверенное. D11 не менялся; D13 остаётся
+  следующим correctness P2.
+- D12 переведён в `CLOSED`; открытых P2 теперь 4. Production code и tests в
+  docs-only closure не менялись; baseline остаётся 35 files / 817 tests.
+
 ## 2026-08-24 — Fix nested array tool arguments
 
 - D12 PASS B исправляет подтверждённую validation ordering ошибку в

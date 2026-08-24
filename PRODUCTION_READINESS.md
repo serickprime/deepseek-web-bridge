@@ -2,11 +2,11 @@
 
 > **Статус:** `HARDENING IN PROGRESS`
 >
-> **Baseline:** `fix/d12-nested-array-validation` — D12 PASS B implementation branch
+> **Baseline:** `fix/d12-nested-array-validation` — D12 closure branch
 >
 > **Offline baseline:** 35 test files, 817 tests (D12 PASS B branch)
 >
-> **Открыто:** P0 — 0, P1 — 0, P2 — 5; deferred P3 — 1
+> **Открыто:** P0 — 0, P1 — 0, P2 — 4; deferred P3 — 1
 > **Production scope:** Claude Code → Anthropic-compatible Bridge → DeepSeek Web → Bridge → Claude Code
 
 Этот файл — главный источник production-hardening backlog, frozen benchmark и
@@ -86,7 +86,7 @@ transport, policy и persistence defects не объединяются в оди
 | **D9** | P1 | L2 | `CLOSED` | Existing classifier использует narrow concrete-directory-listing matcher для natural RU/EN variants и explicit `дериктор...`; concrete listing переопределяет generic informational `what is` без broad/fuzzy matching. | `TEST`: 75 focused regressions; direct A–L, PB05 negatives, fabricated final rejection, Bash/Glob/ListDirectory acceptance, fresh/historical evidence и no-listing-tool fallback; 34 files / 776 tests, typecheck/build/Windows test:platform/diff-check PASS. `LIVE`: Claude Code прислал 39 tools; exact RU typo request вызвал real Bash `tool_use`, correlated lineage сохранила тот же upstream, fresh `tool_result` разрешил final; EN `what is inside the current folder?` вызвал real tools, informational directory control остался text-only. | После P0 и D7 | `5a5b755e96b6dc965d6013c53a163259473c510d`; base mechanism `bbd13b2` |
 | **D10** | P2 | L1 / platform | `NEEDS REPRODUCTION` | Graceful shutdown/PID timing может видеть tracked child живым спустя ~1s. | `HANDOFF`: test иногда падал, orphan позже не оставался. Current sandbox также блокировал `taskkill`, вне sandbox test прошёл; platform cause не изолирован. | D8 telemetry | — |
 | **D11** | P2 | L2 | `CLOSED` | Каждый available occurrence описан полным compact lossless `JSON.stringify(inputSchema)`; initial/no-parent repair используют один catalog. 128 KiB UTF-8 preflight fail-closed выполняется до session/upstream/stream exposure, без truncation или content logging. | `TEST`: independent review PASS; 23 focused cases; PB14/PB17/PB18 root/nested/array/enum/`oneOf`/`$defs`, Unicode, round-trip, exact 131072/+1, dynamic 25/30/34/38/40, Artifact/Tool33+, D7 compatibility и D12 boundary control; 35 files / 799 tests. Measurements: max observed catalog 51183, entry 4073; projected 71548 leaves 59524 bytes. `LIVE`: Windows, Claude Code 2.1.241, `deepseek-v4-flash`; real `WebFetch(https://example.com)` получил 559 bytes/200 и final `Example Domain`, без parse/schema/unexpected-502/hang failures. Malformed/no-parent repair live не заявляется. | D7 single catalog; D12 отдельно | `cd0b3357eff07dc6cb171228853fac622fac8f51` |
-| **D12** | P2 | L2 | `IMPLEMENTED / VERIFYING` | Nested arrays проходят existing recursive safety inspection до plain-object rejection; root arguments остаётся plain object, а dangerous keys/depth/size/allowlist/malformed controls сохранены. | `TEST`: 18 focused D12 regressions в `tools.test.ts` для primitive/empty/object/nested arrays, exact CanonicalToolCall, no-retry client, Anthropic handler exposure, root-array/depth/pollution/unknown/malformed controls; D11 array-schema transport green. 35 files / 817 tests. Independent review и Windows live pending. | D11 schema contract | `fix/d12-nested-array-validation` |
+| **D12** | P2 | L2 | `CLOSED` | Nested arrays проходят existing recursive safety inspection до plain-object rejection; root arguments остаётся plain object, а dangerous keys/depth/size/allowlist/malformed controls сохранены. | `TEST`: independent review PASS; 18 focused D12 regressions в `tools.test.ts` для primitive/empty/object/nested arrays, exact CanonicalToolCall, no-retry client, Anthropic handler exposure, root-array/depth/pollution/unknown/malformed controls; D11 array-schema transport green; 35 files / 817 tests. `LIVE`: Windows, Claude Code 2.1.241, `deepseek-v4-flash`; real `AskUserQuestion` с one-object `questions` array и nested `Alpha`/`Beta` options, user selected `Alpha`, real `tool_result` continuation и final `Alpha`, без unsafe/guard-exhaustion/unexpected-502/hang failures. Exact raw arguments live не заявляются. | D11 schema contract | `e237562bfb43d782b64eeb9673e0d5eba6abdbe8` |
 | **D13** | P2 | L2 | `KNOWN LIMITATION` | 3+ distinct file targets и часть same-kind steps схлопываются в generic obligation. | `REPO`/history: two-file split intentionally gated to exactly two; 3+ остаётся fallback. | D7, frozen mutation cases | — |
 | **D14** | P2 | L1 | `NEEDS VERIFICATION` | Anthropic `system` content-block arrays могут теряться при normalization. | `REPO`: `normalizeAnthropic()` читает system через string-only `stringField`; tests покрывают только string. Нужен diagnostic protocol case до объявления runtime defect. | Нет | — |
 | **D15** | P2 | L1 / L4 | `CONFIRMED STATIC GAP` | `max_tokens` нормализуется, но не передаётся DeepSeek; Anthropic streaming usage всегда 0, new-format usage coverage отсутствует. | `REPO`: `CanonicalRequest.maxTokens` не используется в payload; Anthropic SSE start/done hardcode zero; usage parser есть только в legacy data path. | D3 terminal/usage semantics | — |
@@ -136,6 +136,7 @@ Closed означает «не переисследовать без новой 
 | D7 tool catalog consistency | `b09067e` | `toolCatalogConsistency.test.ts`, PB14/PB18/PB20 catalog scope; Windows 39-tool WebFetch #33 live | Разрешённый available tool снова отсутствует в prompt, 33+ supported tool не становится настоящим `tool_use` либо unknown tool проходит allowlist. D8 telemetry и D11 schema fidelity не являются reopen D7. |
 | D8 safe request correlation | `6987ae5` | `observabilityCorrelation.test.ts`, PB20/PB24/PB28/PB34 telemetry scope; Windows Claude Code Bash tool-cycle live | `request_ref` снова теряется между L1–L4, raw identity/content попадает в logs, attempts смешиваются либо tool/result refs не коррелируют linked continuation. Cross-restart equality opaque refs не является контрактом. |
 | D11 full tool-schema transport | `cd0b335` | `toolSchemaTransport.test.ts`, PB14/PB17/PB18; Windows Claude Code WebFetch live | Полная schema снова редуцируется/обрезается, allowed catalog превосходит described catalog, overflow достигает upstream/stream либо initial/no-parent repair теряют authoritative catalog. D12 parser ordering остаётся отдельным defect. |
+| D12 nested-array argument safety | `e237562` | 18 focused cases in `tools.test.ts`, D11 array-schema control; Windows Claude Code AskUserQuestion live | Array traversal снова становится недостижимым, nested arrays отклоняются как unsafe, recursive dangerous-key/depth checks обходятся либо root array ошибочно принимается. Exact raw-args live equality не является closure claim. |
 | Normal Anthropic tool streaming | `bd6208e`, `61c44c8` | normal lifecycle sections in `tests/unit/sse.test.ts` | Normal message/tool block ordering ломается. |
 
 **Reopening rule:** нужен reproducible regression, failing existing regression
@@ -272,8 +273,9 @@ green, создавать новый mechanism при подходящем су�
 8. **D9** — CLOSED после deterministic PB02/PB05 coverage и live verification
    RU typo / EN concrete listing / informational control. **D11** — CLOSED после
    full-schema deterministic coverage, independent review и Windows WebFetch
-   live. **D12** — `IMPLEMENTED / VERIFYING` после nested-array safety ordering
-   fix; затем D13, D14, D15 — по одному correctness P2 defect за branch.
+   live. **D12** — CLOSED после deterministic coverage, independent review и
+   Windows `AskUserQuestion` live; затем D13, D14, D15 — по одному correctness
+   P2 defect за branch.
 9. **D10**, затем полный PB-v1, 30–50-tool stress, `/compact`, restart/resume.
 10. **D1** — повторный controlled A/B/C только после стабилизации остальных причин.
 
@@ -291,10 +293,10 @@ green, создавать новый mechanism при подходящем су�
 
 ## 12. Current decision
 
-Проект **не является Production Ready**. D6, D3, D4, D2, D5, D7, D8 и D11 закрыты
+Проект **не является Production Ready**. D6, D3, D4, D2, D5, D7, D8, D11 и D12 закрыты
 после independent review, deterministic coverage и релевантной Windows live
 verification; D9 закрыт после deterministic coverage и live verification.
-Открытых P0/P1 нет; G6, G7 и G16 пройдены. Открытых P2 — 5; остальные defects и release gates
+Открытых P0/P1 нет; G6, G7 и G16 пройдены. Открытых P2 — 4; остальные defects и release gates
 остаются открытыми.
 
 D11 имеет статус `CLOSED`: implementation `cd0b335` прошла independent review,
@@ -302,10 +304,13 @@ D11 имеет статус `CLOSED`: implementation `cd0b335` прошла inde
 `WebFetch(https://example.com)`, получил 559 bytes/200 и завершился `Example
 Domain` без parse/schema/unexpected-502/hang failures. Malformed/no-parent repair
 остаётся только deterministic offline evidence и не заявляется live-tested.
-D12 имеет статус `IMPLEMENTED / VERIFYING`: nested arrays проходят прежнюю
-recursive safety inspection, а root/dangerous-key/depth/size/allowlist controls
-сохранены. Independent review и Windows array-valued tool live ещё нужны; open
-P2 остаётся 5 до closure.
+D12 имеет статус `CLOSED`: implementation `e237562` прошла independent review,
+а Windows Claude Code 2.1.241 / `deepseek-v4-flash` live выполнил настоящий
+`AskUserQuestion` с one-object `questions` array и nested `Alpha`/`Beta` options;
+выбор `Alpha` вернулся реальным `tool_result` и завершился final `Alpha` без
+unsafe/guard-exhaustion/unexpected-502/hang failures. Exact raw argument
+preservation остаётся deterministic offline evidence и не заявляется live-tested.
+D13 — следующий correctness P2.
 
 D9 live verification выполнялась с реальным 39-tool Claude catalog и подтвердила
 PB02/PB05 scope. Во второй части наблюдались upstream `DEEPSEEK_RATE_LIMIT`, один

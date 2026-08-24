@@ -37,8 +37,9 @@ P1 — 0. Остальные
 приоритеты и gates — в
 `PRODUCTION_READINESS.md`. D11 full schema transport закрыт после deterministic
 offline coverage, independent review и Windows Claude Code live WebFetch. D12
-nested-array parser ordering исправлен offline и имеет статус
-`IMPLEMENTED / VERIFYING`; independent review и Windows live ещё нужны.
+nested-array parser ordering закрыт после deterministic coverage, independent
+review и Windows Claude Code `AskUserQuestion` live. Следующий correctness P2 —
+D13.
 D1 остаётся неподтверждённой/deferred P3.
 
 Проект использует **неофициальные** внутренние маршруты веб-сайта DeepSeek
@@ -201,8 +202,15 @@ D1 остаётся неподтверждённой/deferred P3.
   48 KiB, unknown-tool и malformed JSON проверки не ослаблены. 18 focused tests
   покрывают nested-array matrix, exact CanonicalToolCall/Anthropic `tool_use`,
   no-retry DeepSeekClient path и security controls; D11 array-schema transport
-  остаётся green. D12 — `IMPLEMENTED / VERIFYING`, independent review и Windows
-  live ещё обязательны; open P2 остаётся 5.
+  остаётся green. Implementation
+  `e237562bfb43d782b64eeb9673e0d5eba6abdbe8` прошла independent review.
+  Windows live с Claude Code 2.1.241 и `deepseek-v4-flash` выполнил настоящий
+  `AskUserQuestion`: `questions` содержал один object, nested `options` —
+  `Alpha`/`Beta`; выбор `Alpha` вернулся настоящим `tool_result` в continuation,
+  final — `Alpha`, без `unsafe_arguments`, `TOOL_CALL_REQUIRED` exhaustion,
+  unexpected 502 или hang. Exact raw argument preservation остаётся только
+  deterministic offline evidence и не заявляется live-tested. D12 — `CLOSED`;
+  open P2 = 4, следующий correctness P2 — D13.
 - D8 PASS B передаёт уже существующий request-scoped logger явно по всей цепочке
   route → handler → DeepSeek client → PoW. Один случайный process-local salt и
   domain separation создают необратимые `client_ref`, `upstream_ref`,
