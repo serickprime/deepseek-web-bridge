@@ -3,6 +3,21 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-24 — Close D3 after live verification
+
+- Independent review и Windows live verification D3 завершены успешно на
+  Claude Code 2.1.241, `deepseek-v4-flash` и `DS_TIMEOUT_MS=120000`.
+- Direct short completion вернул `D3-LIVE-OK`; long completion вернул 6600
+  chars за 21853 ms без false timeout/incomplete/parse failure. Реальный Claude
+  Code Bash `pwd` завершил tool-cycle с результатом `D:/Проекты/test`, а
+  последующие requests показали `upstream_linked:true`.
+- Normal generations завершались `completion_done`; unexpected
+  `UPSTREAM_TIMEOUT`, `STREAM_INCOMPLETE`, `STREAM_PARSE_FAILED` и
+  `UPSTREAM_ERROR` не наблюдались. Релевантная PB22–PB27 live verification PASS.
+  D3 переведён в `CLOSED`; D2 и D4 остаются открытыми. Claude Code прислал 39
+  tools — это только дополнительное evidence для будущего D7, без изменения
+  его кода или статуса. Production code/tests не менялись; baseline 601/601.
+
 ## 2026-08-24 — Preserve terminal success during cleanup
 
 - Independent review D3 выявил узкий cleanup edge case: после authoritative

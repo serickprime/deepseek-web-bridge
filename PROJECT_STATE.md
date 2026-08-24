@@ -21,8 +21,8 @@ OpenCode, новые providers и новые UI-функции deferred до п�
 **Текущий production status:** `HARDENING IN PROGRESS`, не `PRODUCTION READY`.
 D6 persistence collision закрыт после independent review, deterministic offline
 coverage и реальной Windows Claude Code restart/resume проверки. D3 upstream
-stream lifecycle реализован в PASS B и находится в `IMPLEMENTED / VERIFYING`;
-следующий шаг — independent review, merge и live verification. Остальные
+stream lifecycle закрыт после independent review и Windows live verification;
+следующий шаг — D4 PASS A, только diagnosis. Остальные
 приоритеты и gates — в `PRODUCTION_READINESS.md`; D1 остаётся
 неподтверждённой/deferred P3.
 
@@ -120,8 +120,8 @@ stream lifecycle реализован в PASS B и находится в `IMPLEM
   и только после review — отдельный PASS B implementation branch.
 - PB-v1 содержит 39 неизменяемых сценариев. Статус `PRODUCTION READY` запрещён,
   пока открыты P0/P1 либо не пройдены release gates и повторяемые live/stress
-  runs. D6 persistence collision закрыт; D3 PASS B реализован и ожидает
-  independent review, merge и live verification.
+  runs. D6 persistence collision и D3 upstream stream lifecycle закрыты после
+  independent review и Windows live verification.
 - D6 PASS B реализован как один `PersistentSessionDocument` schema v2 для
   `sessions` и `links`: legacy v1 мигрируется, unknown siblings сохраняются,
   invalid/future-version документы fail closed, а FIFO очередь исключает
@@ -153,8 +153,15 @@ stream lifecycle реализован в PASS B и находится в `IMPLEM
   что never-settling/rejected `reader.cancel()` после authoritative terminal не
   заменяет success на timeout/error, не abort-ит controller и не мешает
   `releaseLock()`. Текущий suite — 29 files / 601 test. D2 parent acceptance и
-  D4 downstream lifecycle намеренно не менялись; D3 остаётся
-  `IMPLEMENTED / VERIFYING`.
+  D4 downstream lifecycle намеренно не менялись.
+- D3 Windows live verification: Claude Code 2.1.241, `deepseek-v4-flash`,
+  `DS_TIMEOUT_MS=120000`. Direct short completion вернул `D3-LIVE-OK`; long
+  completion вернул 6600 chars за 21853 ms. Реальный Claude Code Bash `pwd`
+  завершил tool-cycle, последующие запросы использовали persisted lineage
+  (`upstream_linked:true`), normal generations завершались `completion_done`.
+  Unexpected `UPSTREAM_TIMEOUT`, `STREAM_INCOMPLETE`, `STREAM_PARSE_FAILED` и
+  `UPSTREAM_ERROR` не наблюдались; релевантная PB22–PB27 live verification PASS.
+  D3 — `CLOSED`; D2/D4 не закрыты.
 
 - Нормализация всех трёх протоколов в единый `CanonicalRequest`; tool calls,
   tool results, system prompt, reasoning/search флаги, max_tokens.
