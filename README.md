@@ -197,6 +197,3 @@ Instant/Expert моделям V4 также опубликовано в
 - [Модель угроз](docs/threat-model.md)
 - [Безопасность](SECURITY.md)
 
-## Лицензия
-
-MIT.
