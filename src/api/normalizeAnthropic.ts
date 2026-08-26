@@ -14,6 +14,29 @@ function stringField(body: Record<string, unknown>, key: string, fallback: strin
   return typeof value === "string" ? value : fallback;
 }
 
+function normalizeSystem(value: unknown): string {
+  if (value === undefined) return "";
+  if (typeof value === "string") return value;
+  if (!Array.isArray(value)) {
+    throw new BridgeError("Anthropic system must be a string or an array of text blocks.", {
+      code: "INVALID_REQUEST",
+      status: 400,
+    });
+  }
+
+  const blocks: string[] = [];
+  for (const block of value) {
+    if (!isRecord(block) || block.type !== "text" || typeof block.text !== "string") {
+      throw new BridgeError("Anthropic system blocks must have type text and string text.", {
+        code: "INVALID_REQUEST",
+        status: 400,
+      });
+    }
+    blocks.push(block.text);
+  }
+  return blocks.join("\n");
+}
+
 function boolField(body: Record<string, unknown>, key: string, fallback: boolean): boolean {
   const value = body[key];
   return typeof value === "boolean" ? value : fallback;
@@ -116,7 +139,7 @@ function normalizeMessages(messages: unknown[], system: string): CanonicalMessag
 
 export function normalizeAnthropic(body: unknown, headers: Record<string, string | undefined>): CanonicalRequest {
   const record = requireRecord(body);
-  const system = stringField(record, "system", "");
+  const system = normalizeSystem(record.system);
   const thinking = record.thinking;
   const reasoning = isRecord(thinking) && typeof thinking.type === "string"
     ? thinking.type === "enabled"

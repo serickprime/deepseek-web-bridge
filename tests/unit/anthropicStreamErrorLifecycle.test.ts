@@ -126,6 +126,30 @@ function bridgeError(
 }
 
 describe("D4 Anthropic downstream error lifecycle", () => {
+  it("D14: malformed top-level system blocks fail closed as Anthropic HTTP 400", async () => {
+    const run = vi.fn(async () => result("must not run"));
+    const response = await request(run, {
+      body: {
+        model: "deepseek-v4-flash",
+        max_tokens: 32,
+        stream: false,
+        system: [
+          { type: "text", text: "SYS-A" },
+          { type: "image", source: { type: "base64", data: "not-used" } },
+        ],
+        messages: [{ role: "user", content: "test" }],
+      },
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.contentType).toContain("application/json");
+    expect(JSON.parse(response.body)).toMatchObject({
+      type: "error",
+      error: { type: "invalid_request_error" },
+    });
+    expect(run).not.toHaveBeenCalled();
+  });
+
   it("T1: pre-start BridgeError is a real non-200 Anthropic JSON response", async () => {
     const ensureSession = vi.fn(async () => { throw bridgeError("UPSTREAM_ERROR", 502); });
     const complete = vi.fn(async () => ({ content: "should not run" }));

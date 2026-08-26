@@ -40,6 +40,19 @@ describe("normalizeOpenAI", () => {
       isError: false,
     });
   });
+
+  it("preserves OpenAI system content arrays as a regression control", () => {
+    const req = normalizeOpenAI({
+      messages: [{
+        role: "system",
+        content: [
+          { type: "text", text: "OPENAI-SYS-A" },
+          { type: "text", text: "OPENAI-SYS-B" },
+        ],
+      }],
+    }, {});
+    expect(req.system).toBe("OPENAI-SYS-A\nOPENAI-SYS-B");
+  });
 });
 
 describe("normalizeAnthropic", () => {
@@ -55,6 +68,85 @@ describe("normalizeAnthropic", () => {
     expect(req.system).toBe("Be brief.");
     expect(req.messages).toHaveLength(1);
     expect(req.messages[0]?.parts[0]?.text).toBe("Hi");
+  });
+
+  it("preserves a string system prompt exactly", () => {
+    const system = "  SYS-STRING\nsecond line  ";
+    expect(normalizeAnthropic({ system, messages: [] }, {}).system).toBe(system);
+  });
+
+  it("normalizes one top-level system text block", () => {
+    expect(normalizeAnthropic({
+      system: [{ type: "text", text: "SYS-A" }],
+      messages: [],
+    }, {}).system).toBe("SYS-A");
+  });
+
+  it("joins top-level system text blocks in order with one newline", () => {
+    expect(normalizeAnthropic({
+      system: [
+        { type: "text", text: "SYS-A" },
+        { type: "text", text: "SYS-B" },
+        { type: "text", text: "SYS-C-ёжик" },
+      ],
+      messages: [],
+    }, {}).system).toBe("SYS-A\nSYS-B\nSYS-C-ёжик");
+  });
+
+  it("preserves internal whitespace and newlines in every system block", () => {
+    expect(normalizeAnthropic({
+      system: [
+        { type: "text", text: "  SYS-A\ninner  " },
+        { type: "text", text: "\nSYS-B\t" },
+      ],
+      messages: [],
+    }, {}).system).toBe("  SYS-A\ninner  \n\nSYS-B\t");
+  });
+
+  it("normalizes an empty or absent top-level system to an empty string", () => {
+    expect(normalizeAnthropic({ system: [], messages: [] }, {}).system).toBe("");
+    expect(normalizeAnthropic({ messages: [] }, {}).system).toBe("");
+  });
+
+  it("ignores metadata on valid top-level system text blocks", () => {
+    expect(normalizeAnthropic({
+      system: [{
+        type: "text",
+        text: "SYS-CACHED",
+        cache_control: { type: "ephemeral" },
+      }],
+      messages: [],
+    }, {}).system).toBe("SYS-CACHED");
+  });
+
+  it("preserves user and assistant message contents and order with a system array", () => {
+    const req = normalizeAnthropic({
+      system: [{ type: "text", text: "SYS" }],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "USER-A" }] },
+        { role: "assistant", content: [{ type: "text", text: "ASSISTANT-A" }] },
+        { role: "user", content: [{ type: "text", text: "USER-B" }] },
+      ],
+    }, {});
+    expect(req.messages).toEqual([
+      { role: "user", parts: [{ type: "text", text: "USER-A" }] },
+      { role: "assistant", parts: [{ type: "text", text: "ASSISTANT-A" }] },
+      { role: "user", parts: [{ type: "text", text: "USER-B" }] },
+    ]);
+  });
+
+  it.each([
+    ["unsupported block type", [{ type: "text", text: "SYS-A" }, { type: "image", source: {} }]],
+    ["non-object array item", [{ type: "text", text: "SYS-A" }, "SYS-B"]],
+    ["missing block text", [{ type: "text" }]],
+    ["non-string block text", [{ type: "text", text: 42 }]],
+    ["number system", 42],
+    ["object system", { type: "text", text: "SYS-A" }],
+    ["null system", null],
+  ])("rejects malformed top-level system: %s", (_label, system) => {
+    expect(() => normalizeAnthropic({ system, messages: [] }, {})).toThrowError(
+      expect.objectContaining({ code: "INVALID_REQUEST", status: 400 }),
+    );
   });
 
   it("parses tool_use and tool_result blocks", () => {

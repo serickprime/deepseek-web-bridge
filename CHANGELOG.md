@@ -3,6 +3,20 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-26 — Preserve Anthropic system block arrays
+
+- D14 PASS B добавляет узкую fail-closed нормализацию top-level Anthropic
+  `system`: строка сохраняется точно, ordered `text` blocks соединяются одним
+  `\n`, а metadata валидного text block не влияет на content.
+- Неподдержанный block type, malformed item, отсутствующий/non-string `text` и
+  top-level number/object/null теперь дают typed `INVALID_REQUEST`/400 вместо
+  тихой потери всего system prompt.
+- Deterministic coverage проверяет exact string/whitespace/order semantics,
+  empty/absent controls, malformed HTTP Anthropic error envelope, неизменный
+  порядок user/assistant messages и фактический DeepSeek prompt boundary без
+  serialized raw system JSON. D14 переведён в `IMPLEMENTED / VERIFYING`; review
+  и релевантная Windows live verification ещё требуются. D15 не менялся.
+
 ## 2026-08-24 — Close D17 after live verification
 
 - D17 закрыт после implementation

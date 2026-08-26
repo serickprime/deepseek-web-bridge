@@ -1,6 +1,6 @@
 # Состояние проекта
 
-> **Актуально на:** 2026-08-24.
+> **Актуально на:** 2026-08-26.
 > Этот файл — главный источник правды о стадии проекта. Любой агент обязан
 > прочитать его перед началом работы и обновить после внесения изменений.
 > Обязательный порядок чтения перед задачей: `AGENTS.md` → `PROJECT_STATE.md`
@@ -45,6 +45,10 @@ fidelity закрыт после deterministic coverage, independent review и W
 трёх отдельных `Write` + трёх отдельных `Read`. D13 verdict — `PASS WITH
 COLLATERAL FINDING`: его target behavior прошёл, но pre-existing D17 вмешался в
 final path через ложный `command_execution`, retries и 502.
+D14 top-level Anthropic `system` text-block arrays теперь нормализуются без
+потери и имеют статус `IMPLEMENTED / VERIFYING`; malformed/unsupported supplied
+system fail closed как `INVALID_REQUEST`/400. Review и Windows live verification
+ещё требуются, поэтому open P2 остаётся 3.
 D1 остаётся неподтверждённой/deferred P3.
 
 Проект использует **неофициальные** внутренние маршруты веб-сайта DeepSeek
@@ -111,14 +115,14 @@ D1 остаётся неподтверждённой/deferred P3.
 | 7. DeepSeek | pow (WASM), sseParser, updateParser, client | ✅ готово |
 | 8. Server | middleware, output-адаптеры, protocolStream, routes, server | ✅ готово |
 | 9. Entrypoint | app.ts, index.ts, start.ts | ✅ готово |
-| 10. Тесты | 35 файлов, 874 теста | ✅ готово |
+| 10. Тесты | 35 файлов, 891 тест | ✅ готово |
 | 11. Скрипты | desktopStart, cdp, auth, doctor, launcher, live, real-OS platform smoke | ✅ live-часть работает |
 | 12. Веб-интерфейс | Bridge Console на `GET /` (Mileo dark theme, two-panel, diagnostics, model picker) | ✅ готово |
 
 **Проверки сейчас:**
 - `npm run typecheck` — ✅ без ошибок.
 - `npm run build` — ✅ собирается.
-- `npm test` — ✅ 874/874 (Windows process-lifecycle case требует разрешённый
+- `npm test` — ✅ 891/891 (Windows process-lifecycle case требует разрешённый
   `taskkill`; sandbox-only запуск отдельно воспроизводит известный D10 finding).
 - `npm run test:platform` — ✅ локально на Windows: real process/platform,
   `buildConfig`, Bridge HTTP, Unicode cwd и env propagation без DeepSeek auth.
@@ -238,7 +242,19 @@ D1 остаётся неподтверждённой/deferred P3.
   подтвердил exact A/B/C markers. Отдельный post-final Bash имел новую lineage,
   пустую history и другой upstream ref, поэтому не относится к D17 chain. Open
   P1 = 0; G7 и G16 — PASS. Три P2 и release gates остаются открытыми;
-  production-ready = NO, следующий correctness P2 — D14.
+  production-ready = NO.
+- D14 / P2 — `IMPLEMENTED / VERIFYING`: `normalizeAnthropic()` сохраняет
+  top-level string `system` точно, а ordered array валидных `text` blocks
+  соединяет одним `\n` без trim; metadata block игнорируется. Empty/absent
+  system становится пустой строкой. Unsupported/malformed block, missing или
+  non-string `text`, а также top-level number/object/null fail closed как
+  `INVALID_REQUEST`/400, поэтому supplied system больше не исчезает тихо.
+  17 regressions проверяют direct normalization, string/OpenAI compatibility,
+  exact whitespace/order, Anthropic HTTP error envelope и реальный upstream
+  prompt boundary без serialized raw JSON. Production change ограничен
+  `src/api/normalizeAnthropic.ts`; D15 max_tokens/usage не менялся. Independent
+  review и Windows Claude Code live verification ещё требуются; open P2 = 3,
+  production-ready = NO.
 - D8 PASS B передаёт уже существующий request-scoped logger явно по всей цепочке
   route → handler → DeepSeek client → PoW. Один случайный process-local salt и
   domain separation создают необратимые `client_ref`, `upstream_ref`,

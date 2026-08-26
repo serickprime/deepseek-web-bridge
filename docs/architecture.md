@@ -67,6 +67,15 @@ interface CanonicalRequest {
 адаптеры `outputOpenAI.ts`, `outputAnthropic.ts`, `outputResponses.ts`, а
 `protocolStream.ts` пишет правильные SSE-события для каждого протокола.
 
+Top-level Anthropic `system` принимает строку или ordered array text blocks.
+Строка и content каждого block сохраняются без trim; blocks соединяются ровно
+одним `\n`, а metadata валидного `{ type: "text", text: string }` block может
+быть проигнорирована. Empty/absent system нормализуется в `""`.
+Unsupported/malformed block, missing/non-string `text` и любой иной top-level
+тип fail closed как `INVALID_REQUEST`/400: supplied system prompt никогда не
+отбрасывается частично или целиком молча. Внутренний `CanonicalRequest.system`
+остаётся строкой.
+
 ### DeepSeek-слой
 
 `src/deepseek/client.ts` — оркестратор. Порядок upstream-запроса:
