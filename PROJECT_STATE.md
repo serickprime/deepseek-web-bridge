@@ -56,9 +56,11 @@ D10 graceful shutdown lifecycle реализован в feature branch как е
 `app.stop()` coordinator с подтверждением завершения owned processes. Первый
 independent review выявил две blocking race; follow-up сохраняет native ownership
 до bounded PID capture/confirmed exit и отделяет AUTH workflow abort от
-authoritative Windows Chrome tree termination. Статус — `IMPLEMENTED / AWAITING
-RE-REVIEW`. Open P2 и G15 не меняются до повторного independent review и desktop
-live verification.
+authoritative Windows Chrome tree termination. Повторный review выявил ещё два
+native ownership edge case; следующий узкий follow-up требует whole-string
+decimal PID и сохраняет record/temp после post-spawn launcher error до
+confirmed termination. Статус — `IMPLEMENTED / AWAITING RE-REVIEW`. Open P2 и
+G15 не меняются до повторного independent review и desktop live verification.
 D1 остаётся неподтверждённой/deferred P3.
 
 Проект использует **неофициальные** внутренние маршруты веб-сайта DeepSeek
@@ -125,14 +127,14 @@ D1 остаётся неподтверждённой/deferred P3.
 | 7. DeepSeek | pow (WASM), sseParser, updateParser, client | ✅ готово |
 | 8. Server | middleware, output-адаптеры, protocolStream, routes, server | ✅ готово |
 | 9. Entrypoint | app.ts, index.ts, start.ts | ✅ готово |
-| 10. Тесты | 36 файлов, 938 тестов | ✅ готово |
+| 10. Тесты | 36 файлов, 943 теста | ✅ готово |
 | 11. Скрипты | desktopStart, cdp, auth, doctor, launcher, live, real-OS platform smoke | ✅ live-часть работает |
 | 12. Веб-интерфейс | Bridge Console на `GET /` (Mileo dark theme, two-panel, diagnostics, model picker) | ✅ готово |
 
 **Проверки сейчас:**
 - `npm run typecheck` — ✅ без ошибок.
 - `npm run build` — ✅ собирается.
-- `npm test` — ✅ 938/938; D10 process-lifecycle outcomes проверяются
+- `npm test` — ✅ 943/943; D10 process-lifecycle outcomes проверяются
   deterministic injected helpers без broad/real process kill.
 - `npm run test:platform` — ✅ локально на Windows: real process/platform,
   `buildConfig`, Bridge HTTP, Unicode cwd и env propagation без DeepSeek auth.
@@ -1043,8 +1045,10 @@ OpenCode config не изменялся.
       follow-up реализованы: один bounded coordinator, confirmed target
       termination, retained native ownership при unknown PID, safe typed failure
       и раздельные AUTH abort/Windows Chrome tree cleanup. Первый review был
-      `FAIL`; оба blocker исправлены deterministic regressions. Статус
-      `IMPLEMENTED / AWAITING RE-REVIEW`; до `CLOSED` нужны повторный independent
+      `FAIL`; повторный review подтвердил эти исправления, но нашёл malformed PID
+      parsing и post-spawn launcher-error cleanup. Оба edge case закрыты strict
+      whole-string PID parsing и retained ownership/retry regressions. Статус
+      `IMPLEMENTED / AWAITING RE-REVIEW`; до `CLOSED` нужны ещё один independent
       review и real Windows desktop PB39 shutdown. macOS/Linux GUI lifecycle
       остаётся отдельным platform live TODO.
 - [x] В `src/api/handler.ts` переменная `turn` не используется — tool-цикл

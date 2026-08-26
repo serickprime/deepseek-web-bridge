@@ -397,6 +397,81 @@ describe("native terminal shutdown lifecycle", () => {
     return { launcher, pidFile: pidFile as string, tempDir: path.dirname(pidFile as string) };
   }
 
+  it.each(["44104garbage", "44x"])(
+    "rejects malformed CLI PID content %s without signalling it and retains ownership for retry",
+    async malformedPid => {
+      const { launcher, pidFile, tempDir } = await launchLinuxRecordBeforePid();
+      const parsedPrefix = Number.parseInt(malformedPid, 10);
+      const alive = new Set([launcher.pid, parsedPrefix]);
+      const signalProcess = vi.fn((pid: number) => { alive.delete(pid); });
+      await fs.promises.writeFile(pidFile, malformedPid, "utf8");
+
+      await expect(stopNativeTerminalLaunches({
+        isProcessAlive: pid => alive.has(pid),
+        signalProcess,
+        timeoutMs: 15,
+      })).rejects.toMatchObject({ code: "SHUTDOWN_INCOMPLETE", causeCode: "native_pid_capture_timeout" });
+
+      expect(signalProcess).not.toHaveBeenCalled();
+      expect(launcher.kill).not.toHaveBeenCalled();
+      expect(fs.existsSync(tempDir)).toBe(true);
+
+      await fs.promises.writeFile(pidFile, "44105", "utf8");
+      await stopNativeTerminalLaunches({ isProcessAlive: () => false });
+      await vi.waitFor(() => expect(fs.existsSync(tempDir)).toBe(false));
+    },
+  );
+
+  it("accepts a complete decimal CLI PID surrounded by whitespace", async () => {
+    const cliPid = 44106;
+    const { launcher, pidFile } = await launchLinuxRecordBeforePid();
+    const alive = new Set([cliPid, launcher.pid]);
+    const signalProcess = vi.fn((pid: number) => { alive.delete(pid); });
+    await fs.promises.writeFile(pidFile, ` \r\n${cliPid}\t\n`, "utf8");
+
+    await stopNativeTerminalLaunches({
+      isProcessAlive: pid => alive.has(pid),
+      signalProcess,
+      timeoutMs: 100,
+    });
+
+    expect(signalProcess).toHaveBeenCalledWith(cliPid, "SIGTERM");
+    expect(launcher.kill).toHaveBeenCalledWith("SIGTERM");
+  });
+
+  it("cleans ownership when the native launcher fails before spawn", async () => {
+    const { launcher, tempDir } = await launchLinuxRecordBeforePid();
+
+    launcher.emit("error", new Error("synthetic initial spawn failure"));
+
+    await vi.waitFor(() => expect(fs.existsSync(tempDir)).toBe(false));
+    await expect(stopNativeTerminalLaunches()).resolves.toBeUndefined();
+  });
+
+  it("retains post-spawn launcher ownership after a kill error and allows retry", async () => {
+    const cliPid = process.pid;
+    const { launcher, pidFile, tempDir } = await launchLinuxRecordBeforePid();
+    launcher.emit("spawn");
+    await fs.promises.writeFile(pidFile, String(cliPid), "utf8");
+    const alive = new Set([cliPid, launcher.pid]);
+    const signalProcess = vi.fn((pid: number) => { alive.delete(pid); });
+    launcher.kill.mockImplementationOnce(() => {
+      launcher.emit("error", new Error("synthetic post-spawn kill failure"));
+      return false;
+    });
+
+    await expect(stopNativeTerminalLaunches({
+      isProcessAlive: pid => alive.has(pid),
+      signalProcess,
+      timeoutMs: 50,
+    })).rejects.toMatchObject({ code: "SHUTDOWN_INCOMPLETE", causeCode: "signal_send_failed" });
+
+    expect(fs.existsSync(tempDir)).toBe(true);
+
+    await stopNativeTerminalLaunches({ isProcessAlive: () => false });
+    await vi.waitFor(() => expect(fs.existsSync(tempDir)).toBe(false));
+  });
+
   it("waits for a CLI PID written after shutdown starts and confirms its exit", async () => {
     const cliPid = 44102;
     const { launcher, pidFile, tempDir } = await launchLinuxRecordBeforePid();

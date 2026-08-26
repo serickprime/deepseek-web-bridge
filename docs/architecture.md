@@ -367,6 +367,10 @@ browser user-agent не участвует. Read-only endpoint публичен 
   PID file в пределах существующего target deadline. Неизвестный PID не
   доказывает отсутствие CLI; record/temp data сохраняются, а unresolved capture
   возвращает `SHUTDOWN_INCOMPLETE/native_pid_capture_timeout` и допускает retry.
+  PID file принимается только как полная decimal string после trim; malformed или
+  partial content не становится ownership target. После успешного launcher
+  `spawn` последующий `error` также не удаляет record/temp до подтверждённого
+  termination, поэтому failed cleanup остаётся retryable.
 - Shutdown не вызывает logout, не удаляет `auth.json`, credentials или Chrome
   profile. Logical auth abort закрывает CDP/SSE, но auth Chrome остаётся tracked
   до подтверждённого process exit; shutdown abort не посылает ранний

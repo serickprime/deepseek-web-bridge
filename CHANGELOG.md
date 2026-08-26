@@ -3,6 +3,20 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-26 — Retain strict D10 native process ownership
+
+- `readCliPid()` теперь принимает только полную decimal PID string после trim;
+  malformed/partial значения вроде `44104garbage` и `44x` не сигналятся как
+  owned process, дают bounded `native_pid_capture_timeout` и сохраняют ownership
+  для retry.
+- Initial launcher spawn failure по-прежнему очищает record, но `error` после
+  успешного `spawn` больше не удаляет record/temp до confirmed termination.
+  Failure остаётся typed, ownership сохраняется, следующий cleanup может пройти.
+- Добавлены 5 deterministic regressions для malformed PID variants, valid
+  whitespace PID, initial spawn failure и post-spawn kill error + retry. Focused
+  lifecycle suites — 75/75; full offline baseline — 36 files / 943 tests. D10
+  остаётся `IMPLEMENTED / AWAITING RE-REVIEW`; PB39 и G15 pending.
+
 ## 2026-08-26 — Resolve D10 independent-review lifecycle races
 
 - Первый independent review D10 завершился `FAIL` из-за двух blocking races.

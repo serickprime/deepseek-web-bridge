@@ -281,7 +281,9 @@ async function waitForPidExit(
 async function readCliPid(record: NativeLaunchRecord): Promise<number | null> {
   try {
     const raw = await fs.promises.readFile(record.pidFile, "utf8");
-    const pid = Number.parseInt(raw.trim(), 10);
+    const normalized = raw.trim();
+    if (!/^\d+$/.test(normalized)) return null;
+    const pid = Number(normalized);
     return Number.isSafeInteger(pid) && pid > 1 ? pid : null;
   } catch {
     return null;
@@ -406,11 +408,13 @@ export async function launchNativeTerminal(
       stdout.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, "utf8"));
     });
   }
+  let launcherSpawned = false;
   child.once("spawn", () => {
+    launcherSpawned = true;
     send({ type: "result", ok: true, message: `${command} launched in a new visible terminal` });
   });
   child.once("error", error => {
-    cleanupRecord(record);
+    if (!launcherSpawned) cleanupRecord(record);
     send({ type: "error", message: `Failed to start ${terminalCommand.command}: ${error.message}` });
   });
   child.once("close", code => {
