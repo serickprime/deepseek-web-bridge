@@ -34,8 +34,9 @@ independent review, deterministic coverage и Windows Claude Code live tool-cycl
 D9 natural directory listing classifier закрыт после deterministic coverage и
 live verification RU typo / EN concrete listing / informational control. D17
 false `command_execution` obligation закрыт после deterministic coverage,
-independent review и Windows live 3 Write + 3 Read chain. Открытых P1 — 0; G7 и
-G16 — PASS. Остальные
+independent review и Windows live 3 Write + 3 Read chain. Новый collateral D18
+реализован, но ещё ожидает independent review и Windows live; текущих открытых
+P1 — 1, G7 и G16 — FAIL. Остальные
 приоритеты и gates — в
 `PRODUCTION_READINESS.md`. D11 full schema transport закрыт после deterministic
 offline coverage, independent review и Windows Claude Code live WebFetch. D12
@@ -51,7 +52,12 @@ unsupported supplied system fail closed как `INVALID_REQUEST`/400. Отдел
 live-test не требуется для этого deterministic boundary. D15 формально разделён:
 D15a `max_tokens` остаётся `OPEN / CAPABILITY UNRESOLVED`, а D15b truthful
 Anthropic usage закрыт после independent review и Windows Claude Code 2.1.246
-live verification. Open P2 = 2.
+live verification. Open P2 = 2. D18 — новый P1 collateral L2 defect,
+подтверждённый дополнительным pre-merge acceptance: pronominal Write→Read
+терял `file_verification`, а raw `[调用 Tool]` marker мог пройти final. PASS B
+реализован узко в existing obligation/malformed-intent guard; статус
+`IMPLEMENTED / AWAITING INDEPENDENT REVIEW + WINDOWS LIVE`. Поэтому open P1 =
+1, G7/G16 временно FAIL, production-ready = NO.
 D10 graceful shutdown lifecycle реализован в feature branch как единый bounded
 `app.stop()` coordinator с подтверждением завершения owned processes. Первый
 independent review выявил две blocking race; follow-up сохраняет native ownership
@@ -62,8 +68,9 @@ decimal PID и сохраняет record/temp после post-spawn launcher err
 confirmed termination. Последний independent re-review выявил одноразовый
 post-spawn `error` listener; текущий follow-up делает его долговечным, поэтому
 повторные failed cleanup retries остаются typed/bounded и не теряют ownership.
-Статус — `IMPLEMENTED / AWAITING RE-REVIEW`. Open P2 и G15 не меняются до
-повторного independent review и desktop live verification.
+Final independent re-review и Windows desktop PB39 завершены PASS; D10 и PB39
+не переоткрываются collateral D18. D10 merge operationally blocked до closure
+D18, но shutdown contract и live evidence остаются валидными.
 D1 остаётся неподтверждённой/deferred P3.
 
 Проект использует **неофициальные** внутренние маршруты веб-сайта DeepSeek
@@ -130,14 +137,14 @@ D1 остаётся неподтверждённой/deferred P3.
 | 7. DeepSeek | pow (WASM), sseParser, updateParser, client | ✅ готово |
 | 8. Server | middleware, output-адаптеры, protocolStream, routes, server | ✅ готово |
 | 9. Entrypoint | app.ts, index.ts, start.ts | ✅ готово |
-| 10. Тесты | 36 файлов, 944 теста | ✅ готово |
+| 10. Тесты | 36 файлов, 970 тестов | ✅ готово |
 | 11. Скрипты | desktopStart, cdp, auth, doctor, launcher, live, real-OS platform smoke | ✅ live-часть работает |
 | 12. Веб-интерфейс | Bridge Console на `GET /` (Mileo dark theme, two-panel, diagnostics, model picker) | ✅ готово |
 
 **Проверки сейчас:**
 - `npm run typecheck` — ✅ без ошибок.
 - `npm run build` — ✅ собирается.
-- `npm test` — ✅ 944/944; D10 process-lifecycle outcomes проверяются
+- `npm test` — ✅ 970/970; D10 process-lifecycle outcomes проверяются
   deterministic injected helpers без broad/real process kill.
 - `npm run test:platform` — ✅ локально на Windows: real process/platform,
   `buildConfig`, Bridge HTTP, Unicode cwd и env propagation без DeepSeek auth.
@@ -1044,6 +1051,17 @@ OpenCode config не изменялся.
       исправлены (inconclusive cardinality, релевантность подсчёта, узкий
       re-binding `file_mutation`); нужен повторный live-run с exact count=1 и
       видимым final после свежих API/storage/HTTP evidence.
+- [~] **D18 pronominal verification / raw marker guard** — exact RU/EN
+      Write→Read request теперь сохраняет отдельную `file_verification` для
+      единственного однозначного target при `этот файл` / `этот же файл` /
+      `that file` / `the same file` / `it`. Multi-target anaphora не разрешается
+      догадкой. Allowed `[调用 Tool] {...}` распознаётся как malformed intent и
+      проходит только bounded canonical repair, никогда direct execution.
+      Deterministic focused 26/26, full 970/970, typecheck/build/Windows
+      test:platform/diff-check PASS; статус `IMPLEMENTED / AWAITING INDEPENDENT
+      REVIEW + WINDOWS LIVE`, не `CLOSED`. До closure нужен isolated Windows
+      Claude Code 2.1.241 Write→Read retest с настоящим Read `tool_use`/
+      `tool_result` и final только после fresh evidence.
 - [~] **D10 graceful SHUTDOWN/PID lifecycle** — PASS B и independent-review
       follow-up реализованы: один bounded coordinator, confirmed target
       termination, retained native ownership при unknown PID, safe typed failure
@@ -1053,10 +1071,11 @@ OpenCode config не изменялся.
       whole-string PID parsing и retained ownership/retry regressions. Последний
       re-review выявил исчезновение one-shot `error` listener после первого
       failed retry; lifecycle listener теперь долговечен и regression доказывает
-      два typed failure подряд с retained ownership и последующий cleanup. Статус
-      `IMPLEMENTED / AWAITING RE-REVIEW`; до `CLOSED` нужны ещё один independent
-      review и real Windows desktop PB39 shutdown. macOS/Linux GUI lifecycle
-      остаётся отдельным platform live TODO.
+      два typed failure подряд с retained ownership и последующий cleanup.
+      Final independent re-review — PASS; Windows desktop PB39 — PASS 3/3.
+      D10/PB39 не переоткрыты, но fast-forward merge operationally blocked до
+      review/live/closure collateral D18. macOS/Linux GUI lifecycle остаётся
+      отдельным platform live TODO.
 - [x] В `src/api/handler.ts` переменная `turn` не используется — tool-цикл
       (повтор после tool_result) не замкнут, история ведётся только в
       `SessionStore`. Продумать и реализовать полный цикл tool calling либо

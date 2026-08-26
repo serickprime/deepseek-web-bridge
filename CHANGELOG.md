@@ -3,6 +3,30 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-26 — Guard pronominal file verification and raw tool markers
+
+- D18 исправляет подтверждённый pre-merge collateral L2 defect: при одном
+  однозначном file target последующая verification-фраза `этот файл` / `этот
+  же файл` / `that file` / `the same file` / `it` наследует target предыдущей
+  mutation и создаёт отдельную `file_verification` obligation. Multi-file и
+  conflicting-target формулировки остаются conservative и не связываются
+  догадкой; без Read-like tool obligation не синтезируется.
+- Raw model markers `[调用 Read] {...}`, `[调用Read] {...}`, `[调用 Write] {...}` и
+  `[调用 Bash] {...}` для allowed tools теперь считаются malformed intent, но их
+  arguments не парсятся и не исполняются. Existing bounded repair выдаёт
+  canonical `tool_use` либо `TOOL_CALL_REQUIRED`/502 без downstream leakage;
+  unknown и explanatory/quoted markers остаются обычным текстом.
+- Добавлены 26 focused regressions для exact RU/EN inference, Write/Read
+  evidence, historical/failed/stale controls, ambiguity, marker variants,
+  root `DeepSeekClient` exhaustion и Anthropic `CompletionHandler` exposure.
+  Focused suite — 26/26 и полный `tools.test.ts` — 463/463; full offline
+  baseline — 36 files / 970 tests; typecheck, build, Windows test:platform и
+  diff-check — PASS. D18 — `IMPLEMENTED / AWAITING INDEPENDENT REVIEW +
+  WINDOWS LIVE`, не `CLOSED`.
+- D10 не переоткрыт: его final independent review и Windows desktop PB39 PASS
+  сохраняются. Fast-forward merge D10 остаётся operationally blocked до
+  independent review, live verification и closure D18.
+
 ## 2026-08-26 — Keep native launcher error ownership across retries
 
 - Native terminal launcher теперь сохраняет один долговечный `error` listener на

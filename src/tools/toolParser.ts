@@ -210,10 +210,18 @@ function regexEscape(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function looksLikeBracketedToolInvocation(content: string, allowedNames: string[]): boolean {
+  if (allowedNames.length === 0) return false;
+  const allowedPattern = allowedNames.map(regexEscape).join("|");
+  return new RegExp(`^\\[调用\\s*(?:${allowedPattern})\\s*\\]\\s*\\{[\\s\\S]*\\}$`, "i").test(content.trim());
+}
+
 export function looksLikeMalformedToolIntent(content: string, allowedNames: string[]): boolean {
   if (allowedNames.length === 0 || typeof content !== "string") return false;
   const trimmed = content.trim();
   if (!trimmed || Buffer.byteLength(trimmed, "utf8") > MAX_TOOL_BYTES) return false;
+
+  if (looksLikeBracketedToolInvocation(trimmed, allowedNames)) return true;
 
   const allowedPattern = allowedNames.map(regexEscape).join("|");
   const jsonName = new RegExp(`["'](?:name|tool)["']\\s*:\\s*["'](?:${allowedPattern})["']`, "i");
@@ -739,13 +747,23 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
     for (let index = 1; index < actionMatches.length; index++) {
       const action = actionMatches[index]!;
       if (action.paths.length > 0) continue;
+      const fileAnaphora = /(?:эт\S*(?:\s+же)?\s+файл\S*|в\s+него|\b(?:it|that\s+file|the\s+same\s+file)\b)/i.test(action.span);
       const priorSameContext = actionMatches
         .slice(0, index)
         .reverse()
         .find(previous => previous.context === action.context && previous.paths.includes(implicitPath));
-      if (!priorSameContext) continue;
-      const pronoun = /(?:эт\S*\s+же\s+файл|в\s+него|\b(?:it|the\s+same\s+file)\b)/i.test(action.span);
-      if (action.sequential || pronoun) action.paths = [implicitPath];
+      if (priorSameContext && (action.sequential || fileAnaphora)) {
+        action.paths = [implicitPath];
+        continue;
+      }
+      if (action.context !== "verification" || !fileAnaphora) continue;
+      const priorTargetedAction = actionMatches
+        .slice(0, index)
+        .reverse()
+        .find(previous => previous.paths.length > 0);
+      if (priorTargetedAction?.context === "mutation" && priorTargetedAction.paths.includes(implicitPath)) {
+        action.paths = [implicitPath];
+      }
     }
   }
 
@@ -793,8 +811,13 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
 
   const replaceKind = (kind: "file_mutation" | "file_verification", groups: FileActionGroup[]): void => {
     const index = inferred.findIndex(obligation => obligation.id === kind);
-    if (index < 0) return;
+    const canSynthesizeVerification = index < 0
+      && kind === "file_verification"
+      && groups.length > 0
+      && hasToolMatching(allowedToolNames, /^(?:read|cat)$|read.?file/i);
+    if (index < 0 && !canSynthesizeVerification) return;
     if (groups.length === 0) {
+      if (index < 0) return;
       const existing = inferred[index]!;
       existing.argumentLiterals = kind === "file_mutation"
         ? [...contentLiterals, ...distinctPaths, ...urlLiterals]
@@ -820,7 +843,8 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
         requiredExactResultCount,
       };
     });
-    inferred.splice(index, 1, ...obligations);
+    if (index < 0) inferred.push(...obligations);
+    else inferred.splice(index, 1, ...obligations);
   };
 
   const mutationGroups = actionGroups("mutation");

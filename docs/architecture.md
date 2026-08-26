@@ -194,6 +194,16 @@ partition неоднозначна, conservative single obligation удержи�
 known targets. Paths нормализуются только в Unicode NFC; filesystem
 separator/case canonicalization в этот contract не входит.
 
+Для одного однозначного file target последующая verification action может
+унаследовать target предыдущей mutation только при явной file-anaphora: `этот
+файл`, `этот же файл`, `that file`, `the same file` или `it`. При нескольких
+targets, другом explicit path, conflicting file action либо отсутствии
+Read-like tool Bridge не угадывает referent. Такое association синтезирует
+реальную `file_verification` obligation, поэтому успешный Write не разрешает
+final до fresh correlated Read result. Raw output вида `[调用 <allowed-tool>]
+{...}` считается malformed tool intent: arguments не парсятся/исполняются,
+модель получает bounded canonical repair, а raw marker не публикуется final.
+
 `src/tools/toolRetry.ts` — максимум одна корректирующая попытка. Бесконечных
 retry нет. Bridge не выполняет инструменты — он только сообщает клиенту, какой
 инструмент запросила модель.

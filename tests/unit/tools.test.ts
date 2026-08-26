@@ -3085,6 +3085,321 @@ describe("D13 multi-target obligation fidelity", () => {
   });
 });
 
+describe("pronominal file verification completion guard", () => {
+  const tools = ["Bash", "Read", "Write"];
+  const canonicalTools = [
+    { name: "Bash", description: "Run a command", inputSchema: { type: "object", properties: { command: { type: "string" } } } },
+    { name: "Read", description: "Read a file", inputSchema: { type: "object", properties: { file_path: { type: "string" } } } },
+    { name: "Write", description: "Write a file", inputSchema: { type: "object", properties: { file_path: { type: "string" }, content: { type: "string" } } } },
+  ];
+  const ruPrompt = [
+    "Создай файл premerge-a.txt с точным содержимым:",
+    "PREMERGE-A-731",
+    "После создания обязательно прочитай этот файл.",
+    "Только после успешного чтения напиши:",
+    "PREMERGE-WRITE-READ-OK",
+  ].join("\n\n");
+  const enPrompt = [
+    "Create premerge-a.txt with exact content:",
+    "PREMERGE-A-731",
+    "After creating it, read that file.",
+    "Only after reading it reply:",
+    "PREMERGE-WRITE-READ-OK",
+  ].join("\n\n");
+
+  function msg(role: "user" | "assistant", parts: unknown[]): CanonicalMessage {
+    return { role, parts } as unknown as CanonicalMessage;
+  }
+  const tu = (id: string, name: string, args: Record<string, unknown>): CanonicalMessage =>
+    msg("assistant", [{ type: "tool_use", toolCall: { id, type: "function", name, arguments: args } }]);
+  const tr = (id: string, content = "ok", isError = false): CanonicalMessage =>
+    msg("user", [{ type: "tool_result", toolResult: { toolUseId: id, content, isError } }]);
+  const write = (): CanonicalMessage => tu("write", "Write", { file_path: "premerge-a.txt", content: "PREMERGE-A-731" });
+  const read = (): CanonicalMessage => tu("read", "Read", { file_path: "premerge-a.txt" });
+  const cycle = (prompt: string, calls: CanonicalMessage[] = []) =>
+    inspectCurrentToolCycle([msg("user", [{ type: "text", text: prompt }]), ...calls], tools);
+  const request = (messages: CanonicalMessage[]): CanonicalRequest => ({
+    model: "deepseek-v4-flash",
+    stream: true,
+    system: "",
+    messages,
+    tools: canonicalTools,
+  });
+  const state = (): UpstreamSessionState => ({
+    chatSessionId: "pronominal-session",
+    parentMessageId: null,
+    history: [],
+    updatedAt: 0,
+  });
+
+  function clientWithOutputs(outputs: string[]) {
+    const logger = {
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+      child: vi.fn(),
+    };
+    logger.child.mockReturnValue(logger);
+    const client = new DeepSeekClient({
+      baseUrl: "https://example.invalid",
+      auth: { token: "test-token", cookie: "test-cookie" },
+      sessionManager: {} as never,
+      solver: {} as never,
+      logger: logger as never,
+      redactor: { addSecret: () => {}, redactText: (text: string) => text } as never,
+      timeoutMs: 1_000,
+      maxRetries: 0,
+    });
+    const queue = [...outputs];
+    const runCompletion = vi.fn(async () => ({
+      content: queue.shift() ?? "",
+      reasoning: "",
+      candidateMessageId: null,
+    }));
+    Object.defineProperty(client, "runCompletion", { value: runCompletion });
+    return { client, runCompletion, logger };
+  }
+
+  function handlerFor(client: DeepSeekClient) {
+    Object.defineProperty(client, "ensureSession", {
+      value: vi.fn(async (session: UpstreamSessionState) => {
+        session.chatSessionId = "pronominal-handler-session";
+      }),
+    });
+    const lineage = {
+      getUpstreamKey: vi.fn(),
+      record: vi.fn(async () => {}),
+      removeByUpstreamKey: vi.fn(async () => {}),
+    };
+    const stream = {
+      start: vi.fn(),
+      push: vi.fn(),
+      finish: vi.fn(),
+      fail: vi.fn(),
+    };
+    const logger = {
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+      child: vi.fn(),
+    };
+    logger.child.mockReturnValue(logger);
+    const handler = new CompletionHandler({
+      deepseek: client,
+      sessionStore: new SessionStore(),
+      lineage: lineage as never,
+      logger: logger as never,
+    });
+    return { handler, stream };
+  }
+
+  it.each([
+    ["RU", ruPrompt],
+    ["EN", enPrompt],
+  ])("keeps mutation and pronominal verification obligations for %s", (_name, prompt) => {
+    expect(inferToolObligations(prompt, tools).map(obligation => [
+      obligation.id,
+      obligation.argumentLiterals,
+    ])).toEqual([
+      ["file_mutation", ["premerge-a.txt"]],
+      ["file_verification", ["premerge-a.txt"]],
+    ]);
+  });
+
+  it.each([
+    "Создай файл premerge-a.txt. Затем прочитай этот же файл.",
+    "Create premerge-a.txt. Then read the same file.",
+    "Create premerge-a.txt. Then read it.",
+  ])("supports an unambiguous same-file anaphora: %s", prompt => {
+    expect(inferToolObligations(prompt, tools).map(obligation => [obligation.id, obligation.argumentLiterals])).toEqual([
+      ["file_mutation", ["premerge-a.txt"]],
+      ["file_verification", ["premerge-a.txt"]],
+    ]);
+  });
+
+  it("keeps verification missing after the successful Write result", () => {
+    const evidence = cycle(ruPrompt, [write(), tr("write", "File written")]);
+
+    expect(evidence.hasCurrentToolResult).toBe(true);
+    expect(evidence.hasSuccessfulCurrentToolResult).toBe(true);
+    expect(evidence.fulfilledObligationIds).toEqual(["file_mutation"]);
+    expect(evidence.missingObligations.map(obligation => obligation.id)).toEqual(["file_verification"]);
+    expect(evidence.missingActionKinds).toEqual(["file_verification"]);
+    expect(evidence.requiresActionToolResult).toBe(true);
+  });
+
+  it("fulfills verification only after a fresh successful Read result", () => {
+    const afterWrite = cycle(ruPrompt, [write(), tr("write", "File written")]);
+    const afterRead = cycle(ruPrompt, [
+      write(), tr("write", "File written"), read(), tr("read", "PREMERGE-A-731"),
+    ]);
+
+    expect(afterWrite.fulfilledObligationIds).not.toContain("file_verification");
+    expect(afterRead.fulfilledObligationIds).toEqual(["file_mutation", "file_verification"]);
+    expect(afterRead.missingObligations).toEqual([]);
+    expect(shouldRetry(true, null, "PREMERGE-WRITE-READ-OK", "", tools, afterRead)).toBe(false);
+  });
+
+  it("allows a canonical Read call while verification is pending", () => {
+    const evidence = cycle(ruPrompt, [write(), tr("write", "File written")]);
+    const inspection = inspectToolCallFromOutput({
+      content: '{"tool_call":{"name":"Read","arguments":{"file_path":"premerge-a.txt"}}}',
+      reasoning: "",
+    }, tools);
+
+    expect(inspection.toolCall).toMatchObject({ name: "Read", arguments: { file_path: "premerge-a.txt" } });
+    expect(shouldRetry(true, inspection.toolCall, "", "", tools, evidence, inspection.malformedToolIntent)).toBe(false);
+  });
+
+  it.each([
+    String.raw`[调用 Read] {"file_path":"D:\\x\\a.txt"}`,
+    String.raw`[调用Read] {"file_path":"D:\\x\\a.txt"}`,
+    String.raw`[调用 Write] {"file_path":"D:\\x\\a.txt","content":"x"}`,
+    String.raw`[调用 Bash] {"command":"pwd"}`,
+    String.raw`[调用 Read] {"file_path":"D:\DeepSeek-Bridge-Premerge-Live\premerge-a.txt"}`,
+  ])("classifies a bracketed allowed-tool invocation as malformed without executing it: %s", raw => {
+    const inspection = inspectToolCallFromOutput({ content: raw, reasoning: "" }, tools);
+
+    expect(inspection.toolCall).toBeNull();
+    expect(inspection.malformedToolIntent).toBe(true);
+    expect(looksLikeMalformedToolIntent(raw, tools)).toBe(true);
+  });
+
+  it("retries a bracketed marker even when the existing successful result fulfilled every obligation", () => {
+    const writeOnly = "Создай файл premerge-a.txt.";
+    const evidence = cycle(writeOnly, [write(), tr("write", "File written")]);
+    const marker = String.raw`[调用 Read] {"file_path":"D:\\x\\a.txt"}`;
+    const inspection = inspectToolCallFromOutput({ content: marker, reasoning: "" }, tools);
+
+    expect(evidence.hasSuccessfulCurrentToolResult).toBe(true);
+    expect(evidence.missingObligations).toEqual([]);
+    expect(shouldRetry(
+      true,
+      inspection.toolCall,
+      marker,
+      "",
+      tools,
+      evidence,
+      inspection.malformedToolIntent,
+    )).toBe(true);
+  });
+
+  it.each([
+    String.raw`[调用 Unknown] {"file_path":"a.txt"}`,
+    String.raw`Example: [调用 Read] {"file_path":"a.txt"}`,
+    String.raw`The documentation says "[调用 Read] {\"file_path\":\"a.txt\"}".`,
+  ])("does not classify unknown or explanatory marker text as executable intent: %s", text => {
+    expect(looksLikeMalformedToolIntent(text, tools)).toBe(false);
+    expect(inspectToolCallFromOutput({ content: text, reasoning: "" }, tools).malformedToolIntent).toBe(false);
+  });
+
+  it.each([
+    "Create a.txt and b.txt. Then read it.",
+    "Create a.txt. Create b.txt. Then read that file.",
+  ])("does not guess a verification referent among multiple targets: %s", prompt => {
+    const verifications = inferToolObligations(prompt, tools)
+      .filter(obligation => obligation.kind === "file_verification");
+    expect(verifications).toEqual([]);
+  });
+
+  it("keeps an explicit different verification target", () => {
+    const obligations = inferToolObligations("Create a.txt. Then read b.txt.", tools);
+    expect(obligations.map(obligation => [obligation.id, obligation.argumentLiterals])).toEqual([
+      ["file_mutation", ["a.txt"]],
+      ["file_verification", ["b.txt"]],
+    ]);
+  });
+
+  it("preserves existing explicit-path Write to Read behavior", () => {
+    const prompt = "Создай файл premerge-a.txt. Затем прочитай файл premerge-a.txt.";
+    expect(inferToolObligations(prompt, tools).map(obligation => [obligation.id, obligation.argumentLiterals])).toEqual([
+      ["file_mutation", ["premerge-a.txt"]],
+      ["file_verification", ["premerge-a.txt"]],
+    ]);
+  });
+
+  it("does not synthesize verification without a Read-like tool", () => {
+    expect(inferToolObligations(ruPrompt, ["Write", "Bash"]).map(obligation => obligation.kind))
+      .toEqual(["file_mutation"]);
+  });
+
+  it("ignores historical and failed Read results but accepts a fresh success", () => {
+    const historical = inspectCurrentToolCycle([
+      msg("user", [{ type: "text", text: "Read premerge-a.txt." }]),
+      read(), tr("read", "PREMERGE-A-731"),
+      msg("assistant", [{ type: "text", text: "Old result" }]),
+      msg("user", [{ type: "text", text: ruPrompt }]),
+    ], tools);
+    const failed = cycle(ruPrompt, [
+      write(), tr("write", "File written"), read(), tr("read", "permission denied", true),
+    ]);
+    const fresh = cycle(ruPrompt, [
+      write(), tr("write", "File written"), read(), tr("read", "PREMERGE-A-731"),
+    ]);
+    const stale = cycle(ruPrompt, [
+      read(), tr("read", "PREMERGE-A-731"), write(), tr("write", "File written"),
+    ]);
+
+    expect(historical.fulfilledObligationIds).toEqual([]);
+    expect(historical.missingObligations.map(obligation => obligation.id))
+      .toEqual(["file_mutation", "file_verification"]);
+    expect(failed.fulfilledObligationIds).toEqual(["file_mutation"]);
+    expect(failed.missingObligations.map(obligation => obligation.id)).toEqual(["file_verification"]);
+    expect(fresh.fulfilledObligationIds).toEqual(["file_mutation", "file_verification"]);
+    expect(stale.fulfilledObligationIds).toEqual(["file_mutation"]);
+    expect(stale.staleObligations.map(obligation => obligation.id)).toEqual(["file_verification"]);
+  });
+
+  it("boundedly rejects repeated raw markers instead of accepting them as final", async () => {
+    const marker = String.raw`[调用 Read] {"file_path":"D:\DeepSeek-Bridge-Premerge-Live\premerge-a.txt"}`;
+    const { client, runCompletion } = clientWithOutputs([marker, marker, marker]);
+
+    await expect(client.complete(request([
+      msg("user", [{ type: "text", text: ruPrompt }]), write(), tr("write", "File written"),
+    ]), state())).rejects.toMatchObject({ code: "TOOL_CALL_REQUIRED", status: 502 });
+    expect(runCompletion).toHaveBeenCalledTimes(COMPLETION_GUARD_MAX_ATTEMPTS);
+  });
+
+  it("does not expose a raw marker through CompletionHandler", async () => {
+    const marker = String.raw`[调用 Read] {"file_path":"D:\DeepSeek-Bridge-Premerge-Live\premerge-a.txt"}`;
+    const { client } = clientWithOutputs([marker, marker, marker]);
+    const { handler, stream } = handlerFor(client);
+
+    await expect(handler.run({
+      protocol: "anthropic",
+      request: request([msg("user", [{ type: "text", text: ruPrompt }]), write(), tr("write", "File written")]),
+      headers: {},
+      body: {},
+      stream: stream as never,
+    })).rejects.toMatchObject({ code: "TOOL_CALL_REQUIRED", status: 502 });
+    expect(stream.push).not.toHaveBeenCalled();
+    expect(stream.finish).not.toHaveBeenCalled();
+  });
+
+  it("exposes a repaired canonical Read call through CompletionHandler", async () => {
+    const marker = String.raw`[调用 Read] {"file_path":"D:\DeepSeek-Bridge-Premerge-Live\premerge-a.txt"}`;
+    const canonical = '{"tool_call":{"name":"Read","arguments":{"file_path":"premerge-a.txt"}}}';
+    const { client, runCompletion } = clientWithOutputs([marker, canonical]);
+    const { handler, stream } = handlerFor(client);
+
+    const result = await handler.run({
+      protocol: "anthropic",
+      request: request([msg("user", [{ type: "text", text: ruPrompt }]), write(), tr("write", "File written")]),
+      headers: {},
+      body: {},
+      stream: stream as never,
+    });
+
+    expect(runCompletion).toHaveBeenCalledTimes(2);
+    expect(result.result.toolCalls[0]).toMatchObject({ name: "Read", arguments: { file_path: "premerge-a.txt" } });
+    expect(stream.push).toHaveBeenCalledWith(expect.objectContaining({
+      type: "tool_use",
+      toolCall: expect.objectContaining({ name: "Read", arguments: { file_path: "premerge-a.txt" } }),
+    }));
+    expect(stream.push).not.toHaveBeenCalledWith(expect.objectContaining({ type: "content", text: marker }));
+  });
+});
+
 describe("same-file additive final-state verification", () => {
   const tools = ["Bash", "Read", "Write", "Edit"];
   const basePrompt = 'Создай report.txt с содержимым "STEP-1". Затем добавь строку "STEP-2".';
