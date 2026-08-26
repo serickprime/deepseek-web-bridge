@@ -8,6 +8,18 @@
 
 ## Кратко
 
+**DEVELOPMENT MODE:** `RELEASE HARDENING / SCOPE FREEZE FOR v1.0`
+
+**CURRENT BLOCKER:** D18 — `AWAITING FOURTH INDEPENDENT REVIEW + WINDOWS LIVE`.
+
+**NEXT:** fourth independent review D18.
+
+До закрытия D18 действует release-mode policy из `AGENTS.md`: новые функции,
+provider/UI scope, unrelated fixes и архитектурные улучшения заморожены. После
+D18 работа переходит к последовательному release acceptance R1–R10 из
+`PRODUCTION_READINESS.md`; новый finding блокирует v1.0 только при доказанном
+release-blocker outcome в поддерживаемом Claude Code contract.
+
 **DeepSeek Web Bridge** — локальный HTTP-мост, который превращает вашу
 авторизованную веб-сессию `chat.deepseek.com` в локальный API, совместимый с
 OpenAI Chat Completions, OpenAI Responses и Anthropic Messages. Основные клиенты:

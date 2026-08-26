@@ -3,6 +3,20 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-26 — Enter v1.0 release hardening mode
+
+- В `AGENTS.md` зафиксирован обязательный v1.0 scope freeze: никаких новых
+  функций/providers/UI, архитектурных рефакторингов, unrelated fixes или
+  автоматического превращения каждого linguistic edge case в blocker.
+- Формализованы release-blocker outcomes, regression-first и existing-test
+  protection, правило one-defect/one-layer, independent review и stop rule после
+  closure D18. Structured obligation planner/shadow mode перенесены в backlog
+  v1.1.
+- В `PRODUCTION_READINESS.md` добавлены supported Claude Code v1.0 contract,
+  release path R1–R10 и RC exit criteria. `PROJECT_STATE.md` теперь явно
+  показывает mode, current blocker D18 и следующий шаг — fourth independent
+  review. Это docs-only изменение: D18 не закрыт, D10/PB39 не переоткрыты.
+
 ## 2026-08-26 — Unify D18 local action semantics
 
 - Третий independent review D18 завершился `FAIL`: расширенные conditional /

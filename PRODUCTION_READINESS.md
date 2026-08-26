@@ -13,6 +13,67 @@
 release gates. `PROJECT_STATE.md` остаётся общим состоянием проекта. Перед
 работой над defect разработчик обязан прочитать `AGENTS.md` и этот документ.
 
+## v1.0 Release Policy / Exit Criteria
+
+Проект находится в режиме `RELEASE HARDENING / SCOPE FREEZE FOR v1.0`.
+Приоритет — стабилизация существующего Claude Code → Anthropic-compatible
+Bridge → DeepSeek Web contract. Новые функции, providers, UI-возможности,
+архитектурные рефакторинги и unrelated fixes не входят в release scope без
+отдельного решения.
+
+### Release-blocker classification
+
+Finding блокирует v1.0 только при доказанном outcome: неверный или лишний tool
+execution; потеря/повреждение пользовательских данных; security/privacy defect;
+fabrication/replay/duplicate action; неверная `tool_use`/`tool_result`/session/
+lineage correlation; reproducible unexpected 5xx/502; hang/deadlock/unbounded
+retry; crash; потеря заявленного session/persistence state; regression закрытого
+P0/P1 contract; либо невозможность нормально использовать основной supported
+Claude Code workflow.
+
+Linguistic edge cases, cosmetic/observability issues, unsupported wording,
+deferred provider/UI work и архитектурные улучшения по умолчанию относятся к
+backlog v1.1. Они становятся blockers только при доказанном outcome выше.
+
+До production change обязательны deterministic reproduction, по возможности
+A/B с known-good revision и разделение introduced regression / pre-existing
+collateral. Existing tests не ослабляются ради green. Для P0/P1 сохраняется
+цепочка implementation → full regression → independent read-only review →
+runtime live acceptance при необходимости → closure. Один defect остаётся в
+одном primary layer с минимальным production diff.
+
+### Supported v1.0 contract
+
+Primary client — Claude Code; primary protocol — Anthropic Messages API
+compatible flow; upstream — DeepSeek Web. Обязательный runtime scope: normal
+text, `Write`, `Read`, `Edit`, `Bash`, sequential/multi-step tool cycles,
+корректная `tool_use`/`tool_result` correlation, bounded malformed-tool repair,
+persistence/restart/resume, graceful shutdown, `/compact` и normal long-session
+use. OpenCode, дополнительные providers и новые UI-возможности не являются
+release blockers вне явно заявленного scope.
+
+### Release path after D18
+
+R1 D18 independent review → R2 D18 Windows live → R3 pre-merge core acceptance
+(text/Write/Read/Edit/Bash/multi-step/shutdown) → R4 PB-v1 deterministic
+acceptance → R5 30–50 tool stress runs → R6 `/compact` → R7 restart/resume/
+persistence → R8 final full regression + release documentation → R9 v1.0 RC →
+R10 v1.0. Пройденный этап не повторяется без regression evidence.
+
+### v1.0 RC exit criteria
+
+- open P0 = 0 и open release-blocking P1 = 0;
+- full tests и platform tests green;
+- core live, stress, `/compact`, restart/resume и shutdown acceptance green;
+- в supported flow нет reproducible unexpected 502/hang;
+- известные P2/P3 перечислены в backlog/known limitations.
+
+`Production Ready` означает отсутствие известных release blockers в supported
+v1.0 contract, а не отсутствие вообще любых bugs. После closure D18 действует
+stop rule: не продолжать бесконечный поиск искусственных linguistic forms, а
+перейти к release acceptance и классифицировать новые findings по этой policy.
+Structured obligation planner/shadow mode остаются backlog v1.1.
+
 ## 1. Scope freeze
 
 До прохождения всех production gates разрешён только следующий scope:
