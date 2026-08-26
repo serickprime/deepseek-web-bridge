@@ -45,10 +45,11 @@ fidelity закрыт после deterministic coverage, independent review и W
 трёх отдельных `Write` + трёх отдельных `Read`. D13 verdict — `PASS WITH
 COLLATERAL FINDING`: его target behavior прошёл, но pre-existing D17 вмешался в
 final path через ложный `command_execution`, retries и 502.
-D14 top-level Anthropic `system` text-block arrays теперь нормализуются без
-потери и имеют статус `IMPLEMENTED / VERIFYING`; malformed/unsupported supplied
-system fail closed как `INVALID_REQUEST`/400. Review и Windows live verification
-ещё требуются, поэтому open P2 остаётся 3.
+D14 top-level Anthropic `system` text-block arrays закрыт после deterministic
+normalization/prompt-boundary coverage и independent review; malformed или
+unsupported supplied system fail closed как `INVALID_REQUEST`/400. Отдельный
+live-test не требуется для этого deterministic boundary. Open P2 = 2; следующий
+correctness P2 — D15.
 D1 остаётся неподтверждённой/deferred P3.
 
 Проект использует **неофициальные** внутренние маршруты веб-сайта DeepSeek
@@ -243,7 +244,7 @@ D1 остаётся неподтверждённой/deferred P3.
   пустую history и другой upstream ref, поэтому не относится к D17 chain. Open
   P1 = 0; G7 и G16 — PASS. Три P2 и release gates остаются открытыми;
   production-ready = NO.
-- D14 / P2 — `IMPLEMENTED / VERIFYING`: `normalizeAnthropic()` сохраняет
+- D14 / P2 — `CLOSED`: `normalizeAnthropic()` сохраняет
   top-level string `system` точно, а ordered array валидных `text` blocks
   соединяет одним `\n` без trim; metadata block игнорируется. Empty/absent
   system становится пустой строкой. Unsupported/malformed block, missing или
@@ -252,8 +253,13 @@ D1 остаётся неподтверждённой/deferred P3.
   17 regressions проверяют direct normalization, string/OpenAI compatibility,
   exact whitespace/order, Anthropic HTTP error envelope и реальный upstream
   prompt boundary без serialized raw JSON. Production change ограничен
-  `src/api/normalizeAnthropic.ts`; D15 max_tokens/usage не менялся. Independent
-  review и Windows Claude Code live verification ещё требуются; open P2 = 3,
+  `src/api/normalizeAnthropic.ts`; D15 max_tokens/usage не менялся. Rebased
+  implementation `1f2f17267272e97d5941741d5767cc2e6e3de760` прошла independent
+  review и повторный полный контроль 891/891. Live-test не требуется: defect
+  детерминирован на normalization/serialization boundary, который напрямую
+  захвачен tests; Claude Code 2.1.241 не был подтверждён как отправитель
+  top-level system array. Возможная будущая shape telemetry не должна логировать
+  content и не входит в D14. Open P2 = 2, следующий correctness P2 — D15;
   production-ready = NO.
 - D8 PASS B передаёт уже существующий request-scoped logger явно по всей цепочке
   route → handler → DeepSeek client → PoW. Один случайный process-local salt и

@@ -3,6 +3,22 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-26 — Close D14 after independent verification
+
+- D14 закрыт после успешного independent review rebased implementation
+  `1f2f17267272e97d5941741d5767cc2e6e3de760` и повторного полного контроля:
+  typecheck/build/Windows test:platform/diff-check PASS, 35 files / 891 tests.
+- Deterministic evidence подтверждает exact normalization и downstream prompt
+  boundary: ordered blocks, whitespace и Unicode сохранены, raw system JSON не
+  попадает в prompt, malformed/unsupported supplied system fail closed через
+  Anthropic `invalid_request_error`/400.
+- Отдельный live-test для closure не требуется: defect полностью находится на
+  deterministic normalization/serialization boundary, захваченном tests, а
+  Claude Code 2.1.241 не был подтверждён как отправитель top-level system array.
+  Будущая shape-only telemetry остаётся отдельным возможным work без content
+  logging. D14 переведён в `CLOSED`; open P2 уменьшен до 2, следующий correctness
+  P2 — D15. G7/G16 остаются PASS, production-ready остаётся NO.
+
 ## 2026-08-26 — Preserve Anthropic system block arrays
 
 - D14 PASS B добавляет узкую fail-closed нормализацию top-level Anthropic
