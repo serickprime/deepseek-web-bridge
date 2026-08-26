@@ -698,41 +698,52 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
     argumentLiterals: string[];
     resultLiterals: string[];
   }
+  type D18ActionRequirement =
+    | { requirement: "mandatory" }
+    | { requirement: "non_mandatory"; reason: "negation" | "explanation" | "conditional" | "optional" | "alternative" | "meta" };
 
   const localActionPrefix = (action: FileActionMatch, priorAction?: FileActionMatch): string =>
     content.slice(priorAction?.verbEnd ?? Math.max(0, action.start - 120), action.start).slice(-120);
-  const localActionSuffix = (action: FileActionMatch): string =>
-    content.slice(action.verbEnd, action.end).slice(0, 240);
-  const isLocallyNegatedAction = (action: FileActionMatch, priorAction?: FileActionMatch): boolean =>
-    /(?:\b(?:do\s+not|don't|never|not\s+need\s+to|no\s+need\s+to)\s*|(?:не\s+(?:нужно|надо)|необязательно)\s*)$/i.test(
-      localActionPrefix(action, priorAction),
-    );
-  const isExecutablePronominalVerification = (
+  const localActionSuffix = (action: FileActionMatch): string => {
+    const suffix = content.slice(action.verbEnd, action.end).slice(0, 240);
+    const boundary = suffix.search(/\.(?=\s|$)|[!?\r\n]/);
+    return boundary < 0 ? suffix : suffix.slice(0, boundary);
+  };
+  const classifyD18LocalAction = (
     action: FileActionMatch,
-    priorAction: FileActionMatch,
-  ): boolean => {
+    priorAction?: FileActionMatch,
+  ): D18ActionRequirement => {
     const localPrefix = localActionPrefix(action, priorAction);
     const localSuffix = localActionSuffix(action);
-    if (isLocallyNegatedAction(action, priorAction)) return false;
-    if (/(?:\b(?:explain|tell\s+me|describe)\b[^.!?\r\n]{0,64}\bhow\s+to\s*|(?:объясни|расскажи|опиши)[^.!?\r\n]{0,64}как\s*)$/i.test(localPrefix)) {
-      return false;
+    if (/(?:\b(?:do\s+not|don't|never|not\s+need\s+to|no\s+need\s+to)\s*|(?:не\s+(?:нужно|надо)|необязательно)\s*)$/i.test(localPrefix)) {
+      return { requirement: "non_mandatory", reason: "negation" };
     }
-    if (/(?:\bif\s+(?:necessary|required|needed)\s*,?\s*|\bif\s+you\s+want\s+to\s*|(?:если\s+(?:потребуется|нужно|необходимо)|при\s+необходимости)\s*,?\s*)$/i.test(localPrefix)) {
-      return false;
+    if (/(?:\b(?:explain|tell\s+me|describe)\b[^.!?\r\n]{0,64}\bhow\s+to\s*|(?:объясни|расскажи|опиши)[^.!?\r\n]{0,64}как\s*)$/i.test(localPrefix)) {
+      return { requirement: "non_mandatory", reason: "explanation" };
+    }
+    if (/(?:\b(?:if\s+(?:necessary|required|needed|possible|appropriate)|if\s+you\s+(?:want|need)(?:\s+to)?|(?:only\s+)?when\s+(?:necessary|required|needed)|whenever\s+(?:necessary|required|needed)|in\s+case\b[^.!?\r\n]{0,64}|unless\b[^.!?\r\n]{0,64})\s*,?\s*|(?:если\s+(?:потребуется|понадобится|нужно|необходимо|возможно|это\s+будет\s+необходимо)|(?:только\s+)?когда\s+(?:потребуется|понадобится|нужно|необходимо)|при\s+необходимости)\s*,?\s*)$/i.test(localPrefix)) {
+      return { requirement: "non_mandatory", reason: "conditional" };
     }
     if (/(?:\b(?:you\s+)?(?:can|may)\s*|(?:при\s+желании\s+)?можешь\s*)$/i.test(localPrefix)) {
-      return false;
+      return { requirement: "non_mandatory", reason: "optional" };
     }
     if (/(?:\bbefore\s*|перед\s+тем\s+как\s*)$/i.test(localPrefix)) {
-      return false;
+      return { requirement: "non_mandatory", reason: "meta" };
     }
     if (/^reading\b[^.!?\r\n]{0,80}\boptional\b/i.test(action.span)) {
-      return false;
+      return { requirement: "non_mandatory", reason: "optional" };
     }
-    if (/(?:\b(?:but\s+)?only\s+if\b|\bif\s+(?:necessary|needed|required|you\s+need(?:\s+to)?|you\s+want(?:\s+to)?)\b|\bunless\b|\boptional(?:ly)?\b|\bor\s+\S|только\s+если|если\s+(?:потребуется|понадобится|нужно|необходимо|будет\s+нужно)|при\s+(?:необходимости|желании)|необязательно|или\s+\S)/i.test(localSuffix)) {
-      return false;
+    if (/(?:\b(?:if|unless)\b|\b(?:only\s+)?(?:when|whenever)\b|\bin\s+case\b|только\s+если|если|(?:только\s+)?когда|при\s+необходимости)/i.test(localSuffix)) {
+      return { requirement: "non_mandatory", reason: "conditional" };
     }
-    return /(?:^|[.!?]\s*|\n+|,\s*)(?:(?:then|now|please)\s+|after\s+(?:creating|writing|saving)(?:\s+(?:it|the\s+file))?\s*,?\s*|(?:затем|потом|теперь|пожалуйста)\s+|после\s+(?:создания|записи|сохранения|этого)\s*,?\s*(?:обязательно\s+)?|обязательно\s+)?$/i.test(localPrefix);
+    if (/(?:\boptional(?:ly)?\b|\bif\s+you\s+(?:want|need)(?:\s+to)?\b|при\s+желании|необязательно)/i.test(localSuffix)) {
+      return { requirement: "non_mandatory", reason: "optional" };
+    }
+    if (/(?:\bor\s+\S|\beither\b|(?:^|\s)(?:или|либо)\s+\S)/i.test(`${localPrefix} ${localSuffix}`)) {
+      return { requirement: "non_mandatory", reason: "alternative" };
+    }
+    const mandatoryPrefix = /(?:^|[.!?]\s*|\n+|,\s*)\s*(?:(?:then|now|please)\s+|after\s+(?:creating|writing|saving)(?:\s+(?:it|the\s+file))?\s*,?\s*|(?:затем|потом|теперь|пожалуйста)\s+|после\s+(?:создания|записи|сохранения|этого)\s*,?\s*(?:обязательно\s+)?|обязательно\s+)?$/i.test(localPrefix);
+    return mandatoryPrefix ? { requirement: "mandatory" } : { requirement: "non_mandatory", reason: "meta" };
   };
 
   const distinctPaths = [...new Set(pathLiterals.map(path => path.normalize("NFC")))];
@@ -799,21 +810,16 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
     }
   }
 
+  const d18InheritedVerificationActions = new Set<FileActionMatch>();
   for (let index = 1; index < actionMatches.length; index++) {
     const action = actionMatches[index]!;
     if (action.context !== "verification" || action.paths.length > 0) continue;
     const fileAnaphora = /(?:эт\S*(?:\s+же)?\s+файл\S*|в\s+него|\b(?:it|that\s+file|the\s+same\s+file)\b)/i.test(action.span);
     if (!fileAnaphora) continue;
     const priorActions = actionMatches.slice(0, index);
-    const affirmativeMutations = priorActions.flatMap((candidate, candidateIndex) => {
-      if (candidate.context !== "mutation" || isLocallyNegatedAction(candidate, actionMatches[candidateIndex - 1])) {
-        return [];
-      }
-      const localMutationText = content.slice(candidate.verbEnd, candidate.end);
-      const localBoundary = localMutationText.search(/\.(?=\s|$)|[!?\r\n]/);
-      const directMutationText = localBoundary < 0
-        ? localMutationText
-        : localMutationText.slice(0, localBoundary);
+    const mutationTargets = priorActions.flatMap((candidate, candidateIndex) => {
+      if (candidate.context !== "mutation") return [];
+      const directMutationText = localActionSuffix(candidate);
       const directPaths = new Set(
         candidate.paths
           .filter(path => directMutationText.includes(path))
@@ -824,18 +830,35 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
       while ((directPathMatch = directPathPattern.exec(directMutationText))) {
         if (directPathMatch[1]) directPaths.add(directPathMatch[1].normalize("NFC"));
       }
-      return directPaths.size > 0 ? [{ action: candidate, paths: [...directPaths] }] : [];
+      return directPaths.size > 0 ? [{
+        action: candidate,
+        paths: [...directPaths],
+        classification: classifyD18LocalAction(candidate, actionMatches[candidateIndex - 1]),
+      }] : [];
     });
+    const affirmativeMutations = mutationTargets.filter(candidate => candidate.classification.requirement === "mandatory");
     const candidatePaths = [...new Set(affirmativeMutations.flatMap(candidate => candidate.paths))];
     if (candidatePaths.length !== 1) continue;
     const priorMutation = affirmativeMutations.at(-1)?.action;
     if (!priorMutation) continue;
+    const hasPossibleNewTargetBarrier = mutationTargets.some(candidate => (
+      candidate.action.start > priorMutation.start
+      && candidate.classification.requirement === "non_mandatory"
+      && candidate.classification.reason !== "negation"
+      && candidate.classification.reason !== "explanation"
+      && /^(?:созда\S*|сделай|create|make)$/i.test(candidate.action.verb)
+      && candidate.paths.some(path => path !== candidatePaths[0])
+    ));
+    if (hasPossibleNewTargetBarrier) continue;
     const priorMutationIndex = actionMatches.indexOf(priorMutation);
     const interveningTargetedVerification = actionMatches
       .slice(priorMutationIndex + 1, index)
       .some(candidate => candidate.context === "verification" && candidate.paths.length > 0);
     if (interveningTargetedVerification) continue;
-    if (isExecutablePronominalVerification(action, priorMutation)) action.paths = [candidatePaths[0]!];
+    if (classifyD18LocalAction(action, actionMatches[index - 1]).requirement === "mandatory") {
+      action.paths = [candidatePaths[0]!];
+      d18InheritedVerificationActions.add(action);
+    }
   }
 
   const associatedPaths = new Set(actionMatches.flatMap(action => action.paths));
@@ -843,8 +866,12 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
   const localValues = (action: FileActionMatch, roles: ExactLiteralRole[]): string[] =>
     literalValues(extractExactUserLiterals(action.span), roles);
   const actionGroups = (context: FileActionContext): FileActionGroup[] => {
-    if (hasUnknownContextPath) return [];
-    const actions = actionMatches.filter(action => action.context === context && action.paths.length > 0);
+    const actions = actionMatches.filter(action => (
+      action.context === context
+      && action.paths.length > 0
+      && (!hasUnknownContextPath || (context === "verification" && d18InheritedVerificationActions.has(action)))
+    ));
+    if (hasUnknownContextPath && actions.length === 0) return [];
     const groups: FileActionGroup[] = [];
     let previousSignature = "";
     let previousVerb = "";

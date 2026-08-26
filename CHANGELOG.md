@@ -3,6 +3,26 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-26 — Unify D18 local action semantics
+
+- Третий independent review D18 завершился `FAIL`: расширенные conditional /
+  alternative suffix-формы всё ещё могли синтезировать mandatory
+  `file_verification`, а conditional mutation другого target загрязняла набор
+  referent-кандидатов.
+- Один narrow D18-local classifier теперь одинаково классифицирует mutation и
+  pronominal verification clauses по их локальным prefix/suffix boundaries.
+  Conditional, optional, negated, explanatory, alternative и meta actions не
+  становятся affirmative D18 referents; generic `file_mutation` inference не
+  менялся.
+- Добавлен fail-safe ambiguity barrier: conditional creation нового distinct
+  target непосредственно перед pronoun Read не угадывается, но более поздняя
+  mandatory mutation однозначно supersede-ит ранний conditional target.
+  Unrelated non-action filename не блокирует уже доказанную D18 inheritance.
+- Добавлены 45 regressions: 17 third-review suffix cases, positive RU/EN recall,
+  clause locality, conditional mutation A–G и post-Write root cycles. Focused
+  D18 suite — 126/126, `tools.test.ts` — 563/563. D18 — `IMPLEMENTED / AWAITING
+  FOURTH INDEPENDENT REVIEW + WINDOWS LIVE`, не `CLOSED`. D10/PB39 не менялись.
+
 ## 2026-08-26 — Guard D18 pronominal verification suffix semantics
 
 - Второй independent review D18 завершился `FAIL`: локальный prefix gate не

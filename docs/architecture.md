@@ -198,15 +198,17 @@ separator/case canonicalization в этот contract не входит.
 унаследовать target предыдущей mutation только при явной file-anaphora: `этот
 файл`, `этот же файл`, `that file`, `the same file` или `it`. При нескольких
 targets, другом explicit path, conflicting file action либо отсутствии
-Read-like tool Bridge не угадывает referent. Cross-context association требует
-локально affirmative executable clause: prefix и suffix соответствующей action
-проверяются отдельно, поэтому negated, explanatory, conditional,
-optional/modal, alternative и subordinate meta references не синтезируют
-mandatory Read. Gate анализирует transition между конкретными actions, а не
-global prompt, так что unrelated отрицание, explanation или условие о другом
-файле в отдельной clause не отключает явный `Then read it`. Для этого D18
-association выделяет direct mutation target до локальной границы clause, не
-изменяя общий D13 action-group contract. Такое association синтезирует реальную
+Read-like tool Bridge не угадывает referent. Cross-context association пропускает
+verification action и mutation referent через один narrow D18-local classifier.
+Он анализирует prefix/suffix только до границы соответствующей clause, поэтому
+negated, explanatory, conditional, optional/modal, alternative и subordinate
+meta actions не участвуют в mandatory inheritance. Conditional creation нового
+distinct target прямо перед pronoun Read считается неоднозначностью; ранний
+conditional target не мешает более поздней explicit mandatory mutation
+восстановить однозначный referent. Unrelated clause marker или filename не
+отключает явный `Then read it`. Эти правила используются только D18 association
+и не меняют общий D13 action-group или generic mutation-inference contract.
+Такое association синтезирует реальную
 `file_verification` obligation, поэтому успешный Write не разрешает final до
 fresh correlated Read result. Raw output вида `[调用 <allowed-tool>]
 {...}` считается malformed tool intent: arguments не парсятся/исполняются,

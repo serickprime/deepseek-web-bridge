@@ -3265,8 +3265,37 @@ describe("pronominal file verification completion guard", () => {
     ["RU if it becomes needed", "Создай a.txt. Прочитай этот файл, если будет нужно."],
   ] as const;
 
+  const thirdReviewConditionalSuffixCases = [
+    ["EN when necessary", "Create a.txt. Read it when necessary."],
+    ["EN when needed", "Create a.txt. Read it when needed."],
+    ["EN only when", "Create a.txt. Read it only when needed."],
+    ["EN whenever", "Create a.txt. Read it whenever necessary."],
+    ["EN in case", "Create a.txt. Read it in case you need it."],
+    ["EN if possible", "Create a.txt. Read it if possible."],
+    ["EN if appropriate", "Create a.txt. Read it if appropriate."],
+    ["EN unless", "Create a.txt. Read it unless you decide not to."],
+    ["EN or alternative", "Create a.txt. Read it or leave it alone."],
+    ["EN either-or", "Create a.txt. Either read it or explain the format."],
+    ["RU when", "Создай a.txt. Прочитай этот файл когда понадобится."],
+    ["RU only when", "Создай a.txt. Прочитай этот файл только когда потребуется."],
+    ["RU extended if", "Создай a.txt. Прочитай этот файл если это будет необходимо."],
+    ["RU if possible", "Создай a.txt. Прочитай этот файл если возможно."],
+    ["RU when necessary", "Создай a.txt. Прочитай этот файл при необходимости."],
+    ["RU either alternative", "Создай a.txt. Прочитай этот файл либо оставь как есть."],
+    ["RU or alternative", "Создай a.txt. Прочитай этот файл или оставь как есть."],
+  ] as const;
+
   it.each(nonExecutablePronominalSuffixCases)(
     "does not synthesize unconditional verification for %s",
+    (_name, prompt) => {
+      const obligations = inferToolObligations(prompt, tools);
+      expect(obligations.map(obligation => obligation.kind)).toContain("file_mutation");
+      expect(obligations.map(obligation => obligation.kind)).not.toContain("file_verification");
+    },
+  );
+
+  it.each(thirdReviewConditionalSuffixCases)(
+    "does not make the third-review conditional suffix mandatory for %s",
     (_name, prompt) => {
       const obligations = inferToolObligations(prompt, tools);
       expect(obligations.map(obligation => obligation.kind)).toContain("file_mutation");
@@ -3295,6 +3324,29 @@ describe("pronominal file verification completion guard", () => {
   });
 
   it.each([
+    "Create a.txt. Read it.",
+    "Create a.txt. Then read it.",
+    "Create a.txt. Read it now.",
+    "Create a.txt. Read it carefully.",
+    "Create a.txt. Read it completely.",
+    "Create a.txt. Read it and report its contents.",
+    "Create a.txt. Read it to verify the marker.",
+    "Create a.txt. Read it before replying.",
+    "Create a.txt. Read it before giving the final answer.",
+    "Create a.txt. Read it after writing it.",
+    "Создай a.txt. Прочитай этот файл.",
+    "Создай a.txt. Затем прочитай этот файл.",
+    "Создай a.txt. Прочитай этот файл внимательно.",
+    "Создай a.txt. Прочитай этот файл и сообщи содержимое.",
+    "Создай a.txt. Прочитай этот файл, чтобы проверить маркер.",
+    "Создай a.txt. Прочитай этот файл перед финальным ответом.",
+  ])("keeps the fourth-followup mandatory recall control: %s", prompt => {
+    const verification = inferToolObligations(prompt, tools)
+      .find(obligation => obligation.kind === "file_verification");
+    expect(verification?.argumentLiterals).toEqual(["a.txt"]);
+  });
+
+  it.each([
     "If needed, do nothing else. Create a.txt. Then read it.",
     "Create a.txt. If b.txt exists, leave it alone. Then read it.",
     "Create a.txt. If b.txt exists, leave it alone. Then read a.txt.",
@@ -3302,6 +3354,30 @@ describe("pronominal file verification completion guard", () => {
     const verification = inferToolObligations(prompt, tools)
       .find(obligation => obligation.kind === "file_verification");
     expect(verification?.argumentLiterals).toEqual(["a.txt"]);
+  });
+
+  it.each([
+    "If needed, do nothing else. Create a.txt. Then read it.",
+    "Create a.txt. If b.txt exists, ignore b.txt. Then read it.",
+    "You may ignore b.txt. Create a.txt. Then read it.",
+  ])("isolates the local Read from another clause marker: %s", prompt => {
+    const verification = inferToolObligations(prompt, tools)
+      .find(obligation => obligation.kind === "file_verification");
+    expect(verification?.argumentLiterals).toEqual(["a.txt"]);
+  });
+
+  it.each([
+    ["conditional target before mandatory target", "If needed, create b.txt. Create a.txt. Then read it.", ["a.txt"]],
+    ["conditional suffix before mandatory target", "Create b.txt only if needed. Create a.txt. Then read it.", ["a.txt"]],
+    ["conditional edit after mandatory target", "Create a.txt. If needed edit b.txt. Then read it.", ["a.txt"]],
+    ["two mandatory targets", "Create a.txt. Create b.txt. Then read it.", []],
+    ["grouped mandatory targets", "Create a.txt and b.txt. Then read it.", []],
+    ["two mandatory actions on one target", "Create a.txt. Edit a.txt. Then read it.", ["a.txt"]],
+    ["possible new target ambiguity barrier", "Create a.txt. Create b.txt only if needed. Then read it.", []],
+  ])("applies D18 mutation candidate semantics for %s", (_name, prompt, expectedPaths) => {
+    const verifications = inferToolObligations(prompt, tools)
+      .filter(obligation => obligation.kind === "file_verification");
+    expect(verifications.flatMap(obligation => obligation.argumentLiterals)).toEqual(expectedPaths);
   });
 
   it("accepts a normal final after Write when suffix semantics made Read conditional", () => {
@@ -3314,6 +3390,31 @@ describe("pronominal file verification completion guard", () => {
       expect(evidence.missingActionKinds, prompt).not.toContain("file_verification");
       expect(shouldRetry(true, null, "done", "", tools, evidence), prompt).toBe(false);
     }
+  });
+
+  it("accepts a normal final after Write for every third-review conditional suffix", () => {
+    for (const [, prompt] of thirdReviewConditionalSuffixCases) {
+      const evidence = inspectCurrentToolCycle([
+        msg("user", [{ type: "text", text: prompt }]),
+        tu("write-a", "Write", { file_path: "a.txt", content: "A" }),
+        tr("write-a", "File written"),
+      ], tools);
+      expect(evidence.missingActionKinds, prompt).not.toContain("file_verification");
+      expect(shouldRetry(true, null, "done", "", tools, evidence), prompt).toBe(false);
+    }
+  });
+
+  it("keeps verification for the mandatory target after a conditional mutation candidate", () => {
+    const prompt = "If needed, create b.txt. Create a.txt. Then read it.";
+    const evidence = inspectCurrentToolCycle([
+      msg("user", [{ type: "text", text: prompt }]),
+      tu("write-a", "Write", { file_path: "a.txt", content: "A" }),
+      tr("write-a", "File written"),
+    ], tools);
+    expect(evidence.missingObligations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "file_verification", argumentLiterals: ["a.txt"] }),
+    ]));
+    expect(evidence.requiresActionToolResult).toBe(true);
   });
 
   it.each([
