@@ -63,7 +63,26 @@ beforeEach(() => {
   vi.mocked(childProcess.spawn).mockReset();
 });
 
+function nativePidFiles(args: readonly unknown[] | undefined): string[] {
+  return (args ?? []).flatMap(arg => {
+    if (typeof arg !== "string") return [];
+    if (arg.endsWith("cli.pid")) return [arg];
+    return [...arg.matchAll(/'([^']+cli\.pid)'/g)].map(match => match[1]!);
+  });
+}
+
+async function seedMissingNativePidFiles(): Promise<void> {
+  let pid = 49000;
+  for (const [, args] of vi.mocked(childProcess.spawn).mock.calls) {
+    for (const pidFile of nativePidFiles(args)) {
+      if (fs.existsSync(pidFile) || !fs.existsSync(path.dirname(pidFile))) continue;
+      await fs.promises.writeFile(pidFile, String(pid++), "utf8");
+    }
+  }
+}
+
 afterEach(async () => {
+  await seedMissingNativePidFiles();
   await stopNativeTerminalLaunches();
   await Promise.all(tempDirs.splice(0).map(dir => fs.promises.rm(dir, { recursive: true, force: true })));
   vi.clearAllMocks();
@@ -229,14 +248,20 @@ describe("Linux native terminal launch", () => {
     const cwd = await unicodeWorkDir();
     const tracked = fakeChild();
     const unrelated = fakeChild(42000);
+    const cliPid = 42001;
     vi.mocked(childProcess.spawn).mockReturnValue(tracked as never);
 
     await launchClaudeCode(cwd, "deepseek-chat", vi.fn(), {
       platform: "linux",
       commandAvailable: async command => command === "claude" || command === "konsole",
     });
+    const args = vi.mocked(childProcess.spawn).mock.calls.at(-1)![1]!;
+    const pidFile = args.find(arg => typeof arg === "string" && arg.endsWith("cli.pid"));
+    await fs.promises.writeFile(pidFile as string, String(cliPid), "utf8");
+    const alive = new Set([cliPid, tracked.pid]);
     await stopNativeTerminalLaunches({
-      isProcessAlive: pid => pid === tracked.pid && tracked.exitCode === null,
+      isProcessAlive: pid => alive.has(pid),
+      signalProcess: vi.fn(pid => { alive.delete(pid); }),
     });
 
     expect(tracked.kill).toHaveBeenCalledWith("SIGTERM");
@@ -254,6 +279,10 @@ describe("native terminal shutdown lifecycle", () => {
       commandAvailable: async () => true,
       pathAvailable: () => true,
     });
+    const args = vi.mocked(childProcess.spawn).mock.calls.at(-1)![1]!;
+    const [pidFile] = nativePidFiles(args);
+    expect(pidFile).toBeTypeOf("string");
+    await fs.promises.writeFile(pidFile!, "43004", "utf8");
     launcher.stdout.write("731|/dev/ttys009\n");
     launcher.stdout.end();
     finishChild(launcher);
@@ -353,6 +382,71 @@ describe("native terminal shutdown lifecycle", () => {
     await fs.promises.writeFile(pidFile!, String(cliPid), "utf8");
     return launcher;
   }
+
+  async function launchLinuxRecordBeforePid() {
+    const cwd = await unicodeWorkDir();
+    const launcher = fakeChild(44101);
+    vi.mocked(childProcess.spawn).mockReturnValueOnce(launcher as never);
+    await launchClaudeCode(cwd, "deepseek-chat", vi.fn(), {
+      platform: "linux",
+      commandAvailable: async command => command === "claude" || command === "konsole",
+    });
+    const args = vi.mocked(childProcess.spawn).mock.calls.at(-1)![1]!;
+    const pidFile = args.find(arg => typeof arg === "string" && arg.endsWith("cli.pid"));
+    expect(pidFile).toBeTypeOf("string");
+    return { launcher, pidFile: pidFile as string, tempDir: path.dirname(pidFile as string) };
+  }
+
+  it("waits for a CLI PID written after shutdown starts and confirms its exit", async () => {
+    const cliPid = 44102;
+    const { launcher, pidFile, tempDir } = await launchLinuxRecordBeforePid();
+    const alive = new Set([cliPid, launcher.pid]);
+    const signalProcess = vi.fn((pid: number) => { alive.delete(pid); });
+
+    const stopping = stopNativeTerminalLaunches({
+      isProcessAlive: pid => alive.has(pid),
+      signalProcess,
+      timeoutMs: 200,
+    });
+    expect(fs.existsSync(pidFile)).toBe(false);
+    await new Promise(resolve => setTimeout(resolve, 10));
+    await fs.promises.writeFile(pidFile, String(cliPid), "utf8");
+
+    await stopping;
+
+    expect(signalProcess).toHaveBeenCalledWith(cliPid, "SIGTERM");
+    await vi.waitFor(() => expect(fs.existsSync(tempDir)).toBe(false));
+  });
+
+  it("fails boundedly and retains ownership when the CLI PID never appears", async () => {
+    const { launcher, pidFile, tempDir } = await launchLinuxRecordBeforePid();
+
+    await expect(stopNativeTerminalLaunches({
+      isProcessAlive: pid => pid === launcher.pid,
+      timeoutMs: 15,
+    })).rejects.toMatchObject({ code: "SHUTDOWN_INCOMPLETE", causeCode: "native_pid_capture_timeout" });
+
+    expect(launcher.kill).not.toHaveBeenCalled();
+    expect(fs.existsSync(tempDir)).toBe(true);
+
+    await fs.promises.writeFile(pidFile, "44103", "utf8");
+    await stopNativeTerminalLaunches({ isProcessAlive: () => false });
+    await vi.waitFor(() => expect(fs.existsSync(tempDir)).toBe(false));
+  });
+
+  it("does not treat launcher exit during pending PID capture as proof that no CLI started", async () => {
+    const { launcher, pidFile, tempDir } = await launchLinuxRecordBeforePid();
+    finishChild(launcher);
+
+    await expect(stopNativeTerminalLaunches({
+      isProcessAlive: () => false,
+      timeoutMs: 15,
+    })).rejects.toMatchObject({ code: "SHUTDOWN_INCOMPLETE", causeCode: "native_pid_capture_timeout" });
+
+    expect(fs.existsSync(tempDir)).toBe(true);
+    await fs.promises.writeFile(pidFile, "44104", "utf8");
+    await stopNativeTerminalLaunches({ isProcessAlive: () => false });
+  });
 
   it("confirms Linux runner PID exit after SIGTERM", async () => {
     const cliPid = 44002;

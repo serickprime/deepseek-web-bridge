@@ -363,9 +363,15 @@ browser user-agent не участвует. Read-only endpoint публичен 
   Ownership удаляется только после observed `exit`/`close` либо подтверждения,
   что exact target уже отсутствует. Иначе coordinator возвращает
   `SHUTDOWN_INCOMPLETE`; entrypoint завершает Node с code 1. Success даёт code 0.
+- Native PID capture является частью shutdown ownership boundary: shutdown ждёт
+  PID file в пределах существующего target deadline. Неизвестный PID не
+  доказывает отсутствие CLI; record/temp data сохраняются, а unresolved capture
+  возвращает `SHUTDOWN_INCOMPLETE/native_pid_capture_timeout` и допускает retry.
 - Shutdown не вызывает logout, не удаляет `auth.json`, credentials или Chrome
   profile. Logical auth abort закрывает CDP/SSE, но auth Chrome остаётся tracked
-  до подтверждённого process exit. Logout по-прежнему не останавливает Bridge/CLI.
+  до подтверждённого process exit; shutdown abort не посылает ранний
+  `child.kill()`, чтобы Windows exact-PID tree cleanup сохранил root ownership.
+  Logout по-прежнему не останавливает Bridge/CLI.
 
 `claudeCodeLaunch`/`openCodeLaunch` означают наличие поддержанного visible-terminal
 transport, а не установленного CLI binary. Наличие `claude`/`opencode` проверяется

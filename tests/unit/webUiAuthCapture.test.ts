@@ -1,6 +1,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { EventEmitter } from "node:events";
+import type { ChildProcess, spawn } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const cdp = vi.hoisted(() => ({
@@ -8,6 +10,7 @@ const cdp = vi.hoisted(() => ({
   killed: false,
   hifValue: '"local-storage-hif"' as string | null,
   emitRequest: true,
+  launchResult: undefined as ChildProcess | undefined,
 }));
 
 vi.mock("../../src/cdp.js", () => {
@@ -48,16 +51,36 @@ vi.mock("../../src/cdp.js", () => {
     CdpConnection: MockCdpConnection,
     createPage: vi.fn(async () => "ws://test"),
     findChrome: vi.fn(() => "chrome.exe"),
-    launchChrome: vi.fn(() => ({
-      pid: undefined,
-      kill: () => { cdp.killed = true; },
-      on: vi.fn(),
-    })),
+    launchChrome: vi.fn(() => cdp.launchResult),
     waitForDebugger: vi.fn(async () => {}),
   };
 });
 
 import { runAuthSSE, stopActiveAuthChrome } from "../../src/server/actions.js";
+
+function fakeChild(pid = 54001): ChildProcess {
+  const child = new EventEmitter() as ChildProcess;
+  Object.assign(child, {
+    pid,
+    exitCode: null,
+    signalCode: null,
+    kill: vi.fn(() => {
+      cdp.killed = true;
+      (child as { exitCode: number | null }).exitCode = 0;
+      child.emit("exit", 0, null);
+      child.emit("close", 0, null);
+      return true;
+    }),
+    unref: vi.fn(),
+  });
+  return child;
+}
+
+function finishChild(child: ChildProcess, code = 0): void {
+  (child as { exitCode: number | null }).exitCode = code;
+  child.emit("exit", code, null);
+  child.emit("close", code, null);
+}
 
 describe("Web UI auth credential capture", () => {
   let dataDir: string;
@@ -71,9 +94,11 @@ describe("Web UI auth credential capture", () => {
     cdp.killed = false;
     cdp.hifValue = '"local-storage-hif"';
     cdp.emitRequest = true;
+    cdp.launchResult = fakeChild();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await stopActiveAuthChrome({ isProcessAlive: () => false }).catch(() => {});
     vi.unstubAllEnvs();
     vi.restoreAllMocks();
     fs.rmSync(dataDir, { recursive: true, force: true });
@@ -118,14 +143,82 @@ describe("Web UI auth credential capture", () => {
     expect(cdp.killed).toBe(true);
   });
 
-  it("cancels an active AUTH when auth Chrome is stopped for SHUTDOWN", async () => {
+  it("cancels active AUTH without killing Chrome before authoritative Windows tree cleanup", async () => {
     cdp.emitRequest = false;
+    const chrome = cdp.launchResult!;
+    const helper = fakeChild(54002);
+    const alive = new Set([chrome.pid!]);
+    const spawnProcess = vi.fn(() => {
+      process.nextTick(() => {
+        alive.delete(chrome.pid!);
+        finishChild(chrome);
+        finishChild(helper);
+      });
+      return helper;
+    });
     const authPromise = runAuthSSE(() => {});
     await vi.waitFor(() => expect(cdp.requestHandler).toBeTypeOf("function"));
 
-    await stopActiveAuthChrome();
+    await stopActiveAuthChrome({
+      platform: "win32",
+      timeoutMs: 100,
+      isProcessAlive: pid => alive.has(pid),
+      spawnProcess: spawnProcess as typeof spawn,
+    });
 
     await expect(authPromise).resolves.toBeNull();
-    expect(cdp.killed).toBe(true);
+    expect(chrome.kill).not.toHaveBeenCalled();
+    expect(spawnProcess).toHaveBeenCalledWith("taskkill", ["/PID", String(chrome.pid), "/T", "/F"], { stdio: "ignore" });
+  });
+
+  it("retains active AUTH Chrome ownership when authoritative tree cleanup fails", async () => {
+    cdp.emitRequest = false;
+    const chrome = cdp.launchResult!;
+    const alive = new Set([chrome.pid!]);
+    let attempts = 0;
+    const spawnProcess = vi.fn(() => {
+      const helper = fakeChild(54100 + attempts);
+      attempts++;
+      process.nextTick(() => {
+        if (attempts === 2) {
+          alive.delete(chrome.pid!);
+          finishChild(chrome);
+        }
+        finishChild(helper);
+      });
+      return helper;
+    });
+    const authPromise = runAuthSSE(() => {});
+    await vi.waitFor(() => expect(cdp.requestHandler).toBeTypeOf("function"));
+
+    await expect(stopActiveAuthChrome({
+      platform: "win32",
+      timeoutMs: 15,
+      isProcessAlive: pid => alive.has(pid),
+      spawnProcess: spawnProcess as typeof spawn,
+    })).rejects.toMatchObject({ code: "SHUTDOWN_INCOMPLETE", causeCode: "target_exit_timeout" });
+    expect(chrome.kill).not.toHaveBeenCalled();
+
+    await stopActiveAuthChrome({
+      platform: "win32",
+      timeoutMs: 100,
+      isProcessAlive: pid => alive.has(pid),
+      spawnProcess: spawnProcess as typeof spawn,
+    });
+    await expect(authPromise).resolves.toBeNull();
+    expect(spawnProcess).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps external request cancellation responsible for its own Chrome cleanup", async () => {
+    cdp.emitRequest = false;
+    const chrome = cdp.launchResult!;
+    const controller = new AbortController();
+    const authPromise = runAuthSSE(() => {}, controller.signal);
+    await vi.waitFor(() => expect(cdp.requestHandler).toBeTypeOf("function"));
+
+    controller.abort();
+
+    await expect(authPromise).resolves.toBeNull();
+    expect(chrome.kill).toHaveBeenCalledOnce();
   });
 });

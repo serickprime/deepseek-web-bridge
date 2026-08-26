@@ -3,6 +3,25 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-26 — Resolve D10 independent-review lifecycle races
+
+- Первый independent review D10 завершился `FAIL` из-за двух blocking races.
+  Native shutdown теперь ждёт PID runner/CLI внутри существующего bounded
+  termination budget; неизвестный PID не считается отсутствием CLI, record и
+  private temp directory сохраняются для retry, а unresolved ownership даёт
+  safe `SHUTDOWN_INCOMPLETE/native_pid_capture_timeout`.
+- Logical AUTH cancellation для authoritative shutdown отделена от Chrome
+  termination: abort закрывает CDP/workflow resources, но не вызывает ранний
+  `child.kill()`. Windows cleanup сохраняет root PID для exact
+  `taskkill /PID <owned-pid> /T /F`, подтверждает exit и только затем удаляет
+  ownership. Normal completion/failure и external request cancellation сохраняют
+  прежний best-effort Chrome cleanup; logout и auth-file semantics не менялись.
+- Добавлены deterministic race regressions для shutdown до PID file, позднего
+  PID, never-appearing PID, launcher exit во время capture, retry с retained
+  temp ownership, а также совместного active AUTH abort + Windows tree kill,
+  failed tree cleanup retry и external-cancellation control. D10 остаётся
+  `IMPLEMENTED / AWAITING RE-REVIEW`; PB39 и G15 pending.
+
 ## 2026-08-26 — Harden graceful shutdown lifecycle
 
 - D10 PASS B вводит единый idempotent coordinator в `app.stop()`: HTTP listener,

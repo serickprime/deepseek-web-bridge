@@ -54,6 +54,7 @@ interface NativeLaunchRecord {
   tempDir: string;
   pidFile: string;
   cliPid?: number;
+  shutdownInProgress?: boolean;
   macWindowId?: number;
   macTty?: string;
   monitor?: NodeJS.Timeout;
@@ -287,20 +288,40 @@ async function readCliPid(record: NativeLaunchRecord): Promise<number | null> {
   }
 }
 
+function retainCliPid(record: NativeLaunchRecord, pid: number): void {
+  record.cliPid = pid;
+  if (record.monitor) return;
+  record.monitor = setInterval(() => {
+    if (record.shutdownInProgress || !record.cliPid || processIsAlive(record.cliPid)) return;
+    if (childHasExited(record.child, processIsAlive)) cleanupRecord(record);
+  }, 500);
+  record.monitor.unref();
+}
+
 async function captureCliPid(record: NativeLaunchRecord): Promise<void> {
   for (let attempt = 0; attempt < 100 && nativeLaunches.has(record); attempt++) {
     const pid = await readCliPid(record);
     if (pid) {
-      record.cliPid = pid;
-      record.monitor = setInterval(() => {
-        if (!record.cliPid || !processIsAlive(record.cliPid)) cleanupRecord(record);
-      }, 500);
-      record.monitor.unref();
+      retainCliPid(record, pid);
       return;
     }
     await unrefDelay(50);
   }
-  if (record.child.exitCode !== null) cleanupRecord(record);
+}
+
+async function waitForCliPid(record: NativeLaunchRecord, deadline: number): Promise<number | null> {
+  while (nativeLaunches.has(record)) {
+    if (record.cliPid) return record.cliPid;
+    const pid = await readCliPid(record);
+    if (pid) {
+      retainCliPid(record, pid);
+      return pid;
+    }
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) return null;
+    await shutdownDelay(Math.min(50, remaining));
+  }
+  return null;
 }
 
 function parseMacTarget(record: NativeLaunchRecord, stdout: Buffer[]): void {
@@ -460,45 +481,44 @@ async function stopNativeRecord(record: NativeLaunchRecord, options: NativeStopO
   const isAlive = options.isProcessAlive ?? processIsAlive;
   const signalProcess = options.signalProcess ?? ((pid, signal) => process.kill(pid, signal));
   const deadline = Date.now() + timeoutMs;
+  record.shutdownInProgress = true;
+  try {
+    const cliPid = await waitForCliPid(record, deadline);
+    if (!cliPid) {
+      if (!nativeLaunches.has(record)) return;
+      throw shutdownIncomplete("native_pid_capture_timeout");
+    }
 
-  if (!record.cliPid) record.cliPid = (await readCliPid(record)) ?? undefined;
-  if (record.cliPid && isAlive(record.cliPid)) {
-    try { signalProcess(record.cliPid, "SIGTERM"); } catch {
-      if (isAlive(record.cliPid)) throw shutdownIncomplete("signal_send_failed");
+    if (isAlive(cliPid)) {
+      try { signalProcess(cliPid, "SIGTERM"); } catch {
+        if (isAlive(cliPid)) throw shutdownIncomplete("signal_send_failed");
+      }
+      if (!await waitForPidExit(cliPid, deadline, isAlive)) {
+        throw shutdownIncomplete("target_exit_timeout");
+      }
     }
-    if (!await waitForPidExit(record.cliPid, deadline, isAlive)) {
-      throw shutdownIncomplete("target_exit_timeout");
+
+    if (!childHasExited(record.child, isAlive)) {
+      let signalled = false;
+      try { signalled = record.child.kill("SIGTERM"); } catch { /* normalized below */ }
+      if (!signalled && !childHasExited(record.child, isAlive)) {
+        throw shutdownIncomplete("signal_send_failed");
+      }
+      if (!await waitForChildExit(record.child, deadline, isAlive)) {
+        throw shutdownIncomplete("target_exit_timeout");
+      }
     }
+
+    if (record.platform === "darwin" && record.macWindowId && record.macTty) {
+      const windowResult = await closeMacTerminalWindow(record.macWindowId, record.macTty, options);
+      if (windowResult === "timeout") throw shutdownIncomplete("mac_window_close_failed");
+      if (windowResult === "failed") options.onWarning?.("mac_window_close_failed");
+    }
+
+    cleanupRecord(record);
+  } finally {
+    if (nativeLaunches.has(record)) record.shutdownInProgress = false;
   }
-
-  if (!childHasExited(record.child, isAlive)) {
-    let signalled = false;
-    try { signalled = record.child.kill("SIGTERM"); } catch { /* normalized below */ }
-    if (!signalled && !childHasExited(record.child, isAlive)) {
-      throw shutdownIncomplete("signal_send_failed");
-    }
-    if (!await waitForChildExit(record.child, deadline, isAlive)) {
-      throw shutdownIncomplete("target_exit_timeout");
-    }
-  }
-
-  if (!record.cliPid) record.cliPid = (await readCliPid(record)) ?? undefined;
-  if (record.cliPid && isAlive(record.cliPid)) {
-    try { signalProcess(record.cliPid, "SIGTERM"); } catch {
-      if (isAlive(record.cliPid)) throw shutdownIncomplete("signal_send_failed");
-    }
-    if (!await waitForPidExit(record.cliPid, deadline, isAlive)) {
-      throw shutdownIncomplete("target_exit_timeout");
-    }
-  }
-
-  if (record.platform === "darwin" && record.macWindowId && record.macTty) {
-    const windowResult = await closeMacTerminalWindow(record.macWindowId, record.macTty, options);
-    if (windowResult === "timeout") throw shutdownIncomplete("mac_window_close_failed");
-    if (windowResult === "failed") options.onWarning?.("mac_window_close_failed");
-  }
-
-  cleanupRecord(record);
 }
 
 export async function stopNativeTerminalLaunches(options: NativeStopOptions = {}): Promise<void> {

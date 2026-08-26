@@ -217,15 +217,25 @@ export async function runAuthSSE(
   activeAuthControllers.add(authController);
 
   let conn: CdpConnection | null = null;
+  let chromeTerminationRequested = false;
 
-  const cleanup = () => {
+  const closeAuthResources = () => {
     if (conn) { try { conn.close(); } catch {} }
+  };
+  const terminateChromeBestEffort = () => {
+    closeAuthResources();
+    if (chromeTerminationRequested) return;
+    chromeTerminationRequested = true;
     try { child.kill(); } catch {}
   };
 
-  const abortCleanup = () => { cleanup(); };
-  signal?.addEventListener("abort", abortCleanup, { once: true });
-  authController.signal.addEventListener("abort", abortCleanup, { once: true });
+  const externalAbortCleanup = () => {
+    if (authController.signal.aborted) closeAuthResources();
+    else terminateChromeBestEffort();
+  };
+  const shutdownAbortCleanup = () => { closeAuthResources(); };
+  signal?.addEventListener("abort", externalAbortCleanup, { once: true });
+  authController.signal.addEventListener("abort", shutdownAbortCleanup, { once: true });
 
   try {
     await waitForDebugger(CDP_PORT, 20_000);
@@ -273,7 +283,8 @@ export async function runAuthSSE(
 
     const deadline = Date.now() + 5 * 60 * 1000;
     while (Date.now() < deadline) {
-      if (signal?.aborted || authController.signal.aborted) { cleanup(); return null; }
+      if (authController.signal.aborted) { closeAuthResources(); return null; }
+      if (signal?.aborted) { terminateChromeBestEffort(); return null; }
 
       if (captured.token && !captured.hifLeim) {
         try {
@@ -325,34 +336,35 @@ export async function runAuthSSE(
             const bizMsg = typeof verifyData.biz_msg === "string" ? verifyData.biz_msg : bizCode !== 0 ? `biz_code ${bizCode}` : "";
             const detail = bizMsg ? `${verifyMsg}: ${bizMsg}` : verifyMsg;
             send({ type: "error", step: "auth", message: `Credentials invalid: ${detail}. auth.json NOT saved.` });
-            cleanup();
+            terminateChromeBestEffort();
             return null;
           }
         } catch (err) {
           send({ type: "error", step: "auth", message: `Credential verification failed: ${err instanceof Error ? err.message : String(err)}. auth.json NOT saved.` });
-          cleanup();
+          terminateChromeBestEffort();
           return null;
         }
 
         fs.mkdirSync(path.dirname(config.authFile), { recursive: true });
         await writeJsonAtomic(config.authFile, auth, 0o600);
 
-        cleanup();
+        terminateChromeBestEffort();
         return auth;
       }
       await new Promise(resolve => setTimeout(resolve, 2000));
     }
 
     send({ type: "error", step: "auth", message: `Timeout: ${requestsSeen} API requests seen, ${requestsWithAuth} with Bearer, hif-leim: ${hifSeen}. Send a message after login.` });
-    cleanup();
+    terminateChromeBestEffort();
     return null;
   } catch (error) {
     send({ type: "error", step: "auth", message: error instanceof Error ? error.message : String(error) });
-    cleanup();
+    if (authController.signal.aborted) closeAuthResources();
+    else terminateChromeBestEffort();
     return null;
   } finally {
-    signal?.removeEventListener("abort", abortCleanup);
-    authController.signal.removeEventListener("abort", abortCleanup);
+    signal?.removeEventListener("abort", externalAbortCleanup);
+    authController.signal.removeEventListener("abort", shutdownAbortCleanup);
     activeAuthControllers.delete(authController);
   }
 }
