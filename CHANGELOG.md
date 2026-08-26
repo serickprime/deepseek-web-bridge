@@ -3,6 +3,24 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-26 — Guard D18 pronominal verification suffix semantics
+
+- Второй independent review D18 завершился `FAIL`: локальный prefix gate не
+  учитывал conditional/optional/disjunctive wording после самого Read-глагола,
+  поэтому формы `read it only if needed`, `read it or skip it` и их RU-варианты
+  всё ещё могли создавать ложный mandatory `file_verification`.
+- D18 cross-context association теперь проверяет и локальный action suffix;
+  conditional, optional, alternative и `unless`-формы fail closed. Для
+  locality узко выделяется direct mutation target до границы mutation clause,
+  поэтому unrelated условие про другой файл не делает referent неоднозначным и
+  не меняет общий D13 action-group inference.
+- Добавлены 33 regressions: exact A–J второго review, дополнительные
+  conditional controls, positive RU/EN recall, locality и post-Write root-cycle
+  acceptance. Focused D18 suite — 81/81; полный `tools.test.ts` — 518/518;
+  historical guard suites — 263/263. Pre-existing explicit-path collateral и
+  raw `[调用 Tool]` marker behavior не менялись. D18 — `IMPLEMENTED / AWAITING
+  THIRD INDEPENDENT REVIEW + WINDOWS LIVE`, не `CLOSED`.
+
 ## 2026-08-26 — Narrow D18 pronominal verification synthesis
 
 - Первый independent review D18 завершился `FAIL`: cross-context inheritance

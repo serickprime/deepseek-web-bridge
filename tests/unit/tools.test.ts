@@ -3246,6 +3246,76 @@ describe("pronominal file verification completion guard", () => {
     },
   );
 
+  const nonExecutablePronominalSuffixCases = [
+    ["EN only-if necessary", "Create a.txt. Read it only if necessary."],
+    ["EN if needed", "Create a.txt. Read it if needed."],
+    ["EN only-if need", "Create a.txt. Read it only if you need to."],
+    ["EN if wanted", "Create a.txt. Read it if you want."],
+    ["EN but-only-if", "Create a.txt. Read it, but only if necessary."],
+    ["EN alternative", "Create a.txt. Read it or just explain how to read it."],
+    ["RU only-if", "Создай a.txt. Прочитай этот файл, только если понадобится."],
+    ["RU if required", "Создай a.txt. Прочитай этот файл, если потребуется."],
+    ["RU if necessary", "Создай a.txt. Прочитай этот файл только при необходимости."],
+    ["RU alternative", "Создай a.txt. Прочитай этот файл или просто объясни, как это сделать."],
+    ["EN unless", "Create a.txt. Read it unless that is unnecessary."],
+    ["EN optional", "Create a.txt. Read it optional."],
+    ["EN optionally", "Create a.txt. Read it optionally."],
+    ["EN modal suffix", "Create a.txt. You should read it only if needed."],
+    ["RU if desired", "Создай a.txt. Прочитай этот файл при желании."],
+    ["RU if it becomes needed", "Создай a.txt. Прочитай этот файл, если будет нужно."],
+  ] as const;
+
+  it.each(nonExecutablePronominalSuffixCases)(
+    "does not synthesize unconditional verification for %s",
+    (_name, prompt) => {
+      const obligations = inferToolObligations(prompt, tools);
+      expect(obligations.map(obligation => obligation.kind)).toContain("file_mutation");
+      expect(obligations.map(obligation => obligation.kind)).not.toContain("file_verification");
+    },
+  );
+
+  it.each([
+    "Create a.txt. Read it.",
+    "Create a.txt. Then read it.",
+    "Create a.txt. Read it now.",
+    "Create a.txt. Read it carefully.",
+    "Create a.txt. Read it and report the contents.",
+    "Create a.txt. Read it to verify the marker.",
+    "Create a.txt. Read it, then tell me what it contains.",
+    "If the build succeeds, create a.txt. Then read it.",
+    "Создай a.txt. Прочитай этот файл.",
+    "Создай a.txt. Затем прочитай этот файл.",
+    "Создай a.txt. Прочитай этот файл внимательно.",
+    "Создай a.txt. Прочитай этот файл и сообщи содержимое.",
+    "Создай a.txt. Прочитай этот файл, чтобы проверить маркер.",
+  ])("keeps affirmative post-verbal verification for %s", prompt => {
+    const verification = inferToolObligations(prompt, tools)
+      .find(obligation => obligation.kind === "file_verification");
+    expect(verification?.argumentLiterals).toEqual(["a.txt"]);
+  });
+
+  it.each([
+    "If needed, do nothing else. Create a.txt. Then read it.",
+    "Create a.txt. If b.txt exists, leave it alone. Then read it.",
+    "Create a.txt. If b.txt exists, leave it alone. Then read a.txt.",
+  ])("keeps local verification despite an unrelated conditional clause: %s", prompt => {
+    const verification = inferToolObligations(prompt, tools)
+      .find(obligation => obligation.kind === "file_verification");
+    expect(verification?.argumentLiterals).toEqual(["a.txt"]);
+  });
+
+  it("accepts a normal final after Write when suffix semantics made Read conditional", () => {
+    for (const [, prompt] of nonExecutablePronominalSuffixCases) {
+      const evidence = inspectCurrentToolCycle([
+        msg("user", [{ type: "text", text: prompt }]),
+        tu("write-a", "Write", { file_path: "a.txt", content: "A" }),
+        tr("write-a", "File written"),
+      ], tools);
+      expect(evidence.missingActionKinds, prompt).not.toContain("file_verification");
+      expect(shouldRetry(true, null, "done", "", tools, evidence), prompt).toBe(false);
+    }
+  });
+
   it.each([
     ["unrelated negation", "Do not modify b.txt. Create a.txt. Then read it."],
     ["unrelated explanation", "Explain nothing else. Create a.txt, then read it."],

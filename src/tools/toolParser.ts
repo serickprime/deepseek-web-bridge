@@ -701,6 +701,8 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
 
   const localActionPrefix = (action: FileActionMatch, priorAction?: FileActionMatch): string =>
     content.slice(priorAction?.verbEnd ?? Math.max(0, action.start - 120), action.start).slice(-120);
+  const localActionSuffix = (action: FileActionMatch): string =>
+    content.slice(action.verbEnd, action.end).slice(0, 240);
   const isLocallyNegatedAction = (action: FileActionMatch, priorAction?: FileActionMatch): boolean =>
     /(?:\b(?:do\s+not|don't|never|not\s+need\s+to|no\s+need\s+to)\s*|(?:не\s+(?:нужно|надо)|необязательно)\s*)$/i.test(
       localActionPrefix(action, priorAction),
@@ -710,6 +712,7 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
     priorAction: FileActionMatch,
   ): boolean => {
     const localPrefix = localActionPrefix(action, priorAction);
+    const localSuffix = localActionSuffix(action);
     if (isLocallyNegatedAction(action, priorAction)) return false;
     if (/(?:\b(?:explain|tell\s+me|describe)\b[^.!?\r\n]{0,64}\bhow\s+to\s*|(?:объясни|расскажи|опиши)[^.!?\r\n]{0,64}как\s*)$/i.test(localPrefix)) {
       return false;
@@ -724,6 +727,9 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
       return false;
     }
     if (/^reading\b[^.!?\r\n]{0,80}\boptional\b/i.test(action.span)) {
+      return false;
+    }
+    if (/(?:\b(?:but\s+)?only\s+if\b|\bif\s+(?:necessary|needed|required|you\s+need(?:\s+to)?|you\s+want(?:\s+to)?)\b|\bunless\b|\boptional(?:ly)?\b|\bor\s+\S|только\s+если|если\s+(?:потребуется|понадобится|нужно|необходимо|будет\s+нужно)|при\s+(?:необходимости|желании)|необязательно|или\s+\S)/i.test(localSuffix)) {
       return false;
     }
     return /(?:^|[.!?]\s*|\n+|,\s*)(?:(?:then|now|please)\s+|after\s+(?:creating|writing|saving)(?:\s+(?:it|the\s+file))?\s*,?\s*|(?:затем|потом|теперь|пожалуйста)\s+|после\s+(?:создания|записи|сохранения|этого)\s*,?\s*(?:обязательно\s+)?|обязательно\s+)?$/i.test(localPrefix);
@@ -799,15 +805,31 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
     const fileAnaphora = /(?:эт\S*(?:\s+же)?\s+файл\S*|в\s+него|\b(?:it|that\s+file|the\s+same\s+file)\b)/i.test(action.span);
     if (!fileAnaphora) continue;
     const priorActions = actionMatches.slice(0, index);
-    const affirmativeMutations = priorActions.filter((candidate, candidateIndex) => (
-      candidate.context === "mutation"
-      && candidate.paths.length > 0
-      && !isLocallyNegatedAction(candidate, actionMatches[candidateIndex - 1])
-    ));
+    const affirmativeMutations = priorActions.flatMap((candidate, candidateIndex) => {
+      if (candidate.context !== "mutation" || isLocallyNegatedAction(candidate, actionMatches[candidateIndex - 1])) {
+        return [];
+      }
+      const localMutationText = content.slice(candidate.verbEnd, candidate.end);
+      const localBoundary = localMutationText.search(/\.(?=\s|$)|[!?\r\n]/);
+      const directMutationText = localBoundary < 0
+        ? localMutationText
+        : localMutationText.slice(0, localBoundary);
+      const directPaths = new Set(
+        candidate.paths
+          .filter(path => directMutationText.includes(path))
+          .map(path => path.normalize("NFC")),
+      );
+      const directPathPattern = new RegExp(PATH_LIKE_SOURCE, "giu");
+      let directPathMatch: RegExpExecArray | null;
+      while ((directPathMatch = directPathPattern.exec(directMutationText))) {
+        if (directPathMatch[1]) directPaths.add(directPathMatch[1].normalize("NFC"));
+      }
+      return directPaths.size > 0 ? [{ action: candidate, paths: [...directPaths] }] : [];
+    });
     const candidatePaths = [...new Set(affirmativeMutations.flatMap(candidate => candidate.paths))];
     if (candidatePaths.length !== 1) continue;
-    const priorMutation = affirmativeMutations.at(-1);
-    if (!priorMutation || !priorMutation.paths.includes(candidatePaths[0]!)) continue;
+    const priorMutation = affirmativeMutations.at(-1)?.action;
+    if (!priorMutation) continue;
     const priorMutationIndex = actionMatches.indexOf(priorMutation);
     const interveningTargetedVerification = actionMatches
       .slice(priorMutationIndex + 1, index)

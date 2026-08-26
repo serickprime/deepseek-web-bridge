@@ -35,9 +35,10 @@ D9 natural directory listing classifier закрыт после deterministic co
 live verification RU typo / EN concrete listing / informational control. D17
 false `command_execution` obligation закрыт после deterministic coverage,
 independent review и Windows live 3 Write + 3 Read chain. Новый collateral D18
-реализован; первый independent review завершился FAIL из-за false-positive
-cross-context Read synthesis, узкий follow-up исправлен и ожидает second
-independent review и Windows live; текущих открытых
+реализован; первый и второй independent review выявили отдельные false-positive
+cross-context Read synthesis cases. Третий узкий follow-up добавляет локальный
+suffix gate и direct-target locality, после чего ожидаются third independent
+review и Windows live; текущих открытых
 P1 — 1, G7 и G16 — FAIL. Остальные
 приоритеты и gates — в
 `PRODUCTION_READINESS.md`. D11 full schema transport закрыт после deterministic
@@ -57,10 +58,12 @@ Anthropic usage закрыт после independent review и Windows Claude Cod
 live verification. Open P2 = 2. D18 — новый P1 collateral L2 defect,
 подтверждённый дополнительным pre-merge acceptance: pronominal Write→Read
 терял `file_verification`, а raw `[调用 Tool]` marker мог пройти final. PASS B
-реализован узко в existing obligation/malformed-intent guard. Follow-up требует
-локально affirmative executable verification clause и не синтезирует mandatory
-Read из negation/explanation/condition/option/meta references; статус
-`IMPLEMENTED / AWAITING SECOND INDEPENDENT REVIEW + WINDOWS LIVE`. Поэтому open P1 =
+реализован узко в existing obligation/malformed-intent guard. Cross-context
+association требует affirmative executable verification clause как до, так и
+после Read-глагола и не синтезирует mandatory Read из
+negation/explanation/condition/option/alternative/meta references; unrelated
+условие о другом файле не скрывает direct mutation target. Статус
+`IMPLEMENTED / AWAITING THIRD INDEPENDENT REVIEW + WINDOWS LIVE`. Поэтому open P1 =
 1, G7/G16 временно FAIL, production-ready = NO.
 D10 graceful shutdown lifecycle реализован в feature branch как единый bounded
 `app.stop()` coordinator с подтверждением завершения owned processes. Первый
@@ -141,14 +144,14 @@ D1 остаётся неподтверждённой/deferred P3.
 | 7. DeepSeek | pow (WASM), sseParser, updateParser, client | ✅ готово |
 | 8. Server | middleware, output-адаптеры, protocolStream, routes, server | ✅ готово |
 | 9. Entrypoint | app.ts, index.ts, start.ts | ✅ готово |
-| 10. Тесты | 36 файлов, 992 теста | ✅ готово |
+| 10. Тесты | 36 файлов, 1025 тестов | ✅ готово |
 | 11. Скрипты | desktopStart, cdp, auth, doctor, launcher, live, real-OS platform smoke | ✅ live-часть работает |
 | 12. Веб-интерфейс | Bridge Console на `GET /` (Mileo dark theme, two-panel, diagnostics, model picker) | ✅ готово |
 
 **Проверки сейчас:**
 - `npm run typecheck` — ✅ без ошибок.
 - `npm run build` — ✅ собирается.
-- `npm test` — ✅ 992/992; D10 process-lifecycle outcomes проверяются
+- `npm test` — ✅ 1025/1025; D10 process-lifecycle outcomes проверяются
   deterministic injected helpers без broad/real process kill.
 - `npm run test:platform` — ✅ локально на Windows: real process/platform,
   `buildConfig`, Bridge HTTP, Unicode cwd и env propagation без DeepSeek auth.
@@ -1063,11 +1066,14 @@ OpenCode config не изменялся.
       проходит только bounded canonical repair, никогда direct execution.
       Первый independent review — `FAIL`: D18 cross-context inheritance создавало
       ложный mandatory Read для negated/explanatory/conditional/optional/meta
-      clauses. Follow-up добавил локальный affirmative executable-clause gate;
-      22 новых controls, focused D18 48/48, tools 485/485, full 992/992.
+      clauses. Первый follow-up добавил локальный affirmative prefix gate;
+      второй independent review выявил A–J false positives в suffix после
+      Read-глагола. Третий follow-up добавляет local suffix gate и D18-only
+      direct-target locality; 33 новых controls, focused D18 81/81, tools
+      518/518, historical guard suites 263/263, full 1025/1025.
       Explicit-path contrast/negation cases A/B подтверждены как pre-existing
       base limitation и оставлены отдельным collateral pending PASS A. Статус
-      `IMPLEMENTED / AWAITING SECOND INDEPENDENT REVIEW + WINDOWS LIVE`, не
+      `IMPLEMENTED / AWAITING THIRD INDEPENDENT REVIEW + WINDOWS LIVE`, не
       `CLOSED`. До closure нужен isolated Windows
       Claude Code 2.1.241 Write→Read retest с настоящим Read `tool_use`/
       `tool_result` и final только после fresh evidence.
