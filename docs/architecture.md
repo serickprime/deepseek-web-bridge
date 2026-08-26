@@ -339,10 +339,33 @@ browser user-agent не участвует. Read-only endpoint публичен 
   custom provider `deepseek-bridge` и явный `--model
   deepseek-bridge/deepseek-v4-*`. Глобальные файлы конфигурации OpenCode не
   создаются и не изменяются.
-- SHUTDOWN посылает SIGTERM только точному PID runner/CLI и точному launcher child.
-  На macOS Bridge дополнительно закрывает только созданное им окно Terminal.app,
-  если совпадают window id + tty и в окне осталась одна вкладка. Terminal.app или
-  terminal-emulator процессы не ищутся и не завершаются по имени.
+- SHUTDOWN посылает signal только точному owned PID runner/CLI и точному launcher
+  child. На Windows сохраняется `taskkill /PID <owned-pid> /T /F`; helper success
+  не заменяет подтверждение target `exit`/`close`. На macOS Bridge дополнительно
+  закрывает только созданное им окно Terminal.app, если совпадают window id + tty
+  и в окне осталась одна вкладка. Terminal.app или terminal-emulator процессы не
+  ищутся и не завершаются по имени.
+
+### Graceful shutdown lifecycle
+
+- `AppHandle.stop()` — единственный idempotent coordinator для server listener,
+  tracked Web UI CLI/native launches и active auth Chrome. Concurrent/repeated
+  calls возвращают тот же Promise; SIGINT, SIGTERM и `/bridge/shutdown` используют
+  этот путь без отдельной cleanup implementation.
+- HTTP shutdown endpoint сначала завершает acknowledgement
+  `{"ok":true,"message":"Shutdown accepted."}`, затем запускает coordinator.
+  Это исключает deadlock текущего request с `server.close()` и не утверждает, что
+  cleanup уже завершён.
+- Owned target termination имеет deadline 5 s, macOS exact-window helper — 2 s,
+  весь shutdown — один absolute deadline 10 s. Cleanup разных owners начинается
+  конкурентно, поэтому deadline не умножается на число processes.
+- Signal/helper completion не считается доказательством target termination.
+  Ownership удаляется только после observed `exit`/`close` либо подтверждения,
+  что exact target уже отсутствует. Иначе coordinator возвращает
+  `SHUTDOWN_INCOMPLETE`; entrypoint завершает Node с code 1. Success даёт code 0.
+- Shutdown не вызывает logout, не удаляет `auth.json`, credentials или Chrome
+  profile. Logical auth abort закрывает CDP/SSE, но auth Chrome остаётся tracked
+  до подтверждённого process exit. Logout по-прежнему не останавливает Bridge/CLI.
 
 `claudeCodeLaunch`/`openCodeLaunch` означают наличие поддержанного visible-terminal
 transport, а не установленного CLI binary. Наличие `claude`/`opencode` проверяется

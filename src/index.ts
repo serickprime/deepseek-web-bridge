@@ -1,4 +1,5 @@
 import { buildApp } from "./app.js";
+import { BridgeError } from "./utils/errors.js";
 
 const app = buildApp();
 app.server.start().catch(error => {
@@ -17,8 +18,11 @@ async function shutdown(signal: string): Promise<void> {
   console.log(`Received ${signal}, shutting down...`);
   try {
     await app.stop();
-  } finally {
     process.exit(0);
+  } catch (error) {
+    const causeCode = error instanceof BridgeError ? error.causeCode : "shutdown_operation_failed";
+    console.error(`Shutdown incomplete (${causeCode ?? "shutdown_operation_failed"}).`);
+    process.exit(1);
   }
 }
 

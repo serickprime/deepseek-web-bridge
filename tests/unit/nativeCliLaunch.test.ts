@@ -26,6 +26,7 @@ function fakeChild(pid = 41000) {
     stderr: PassThrough;
     pid: number;
     exitCode: number | null;
+    signalCode: NodeJS.Signals | null;
     kill: ReturnType<typeof vi.fn>;
     unref: ReturnType<typeof vi.fn>;
   };
@@ -33,12 +34,19 @@ function fakeChild(pid = 41000) {
   child.stderr = new PassThrough();
   child.pid = pid;
   child.exitCode = null;
+  child.signalCode = null;
   child.kill = vi.fn(() => {
     child.exitCode = 0;
     return true;
   });
   child.unref = vi.fn();
   return child;
+}
+
+function finishChild(child: ReturnType<typeof fakeChild>, code = 0): void {
+  child.exitCode = code;
+  child.emit("exit", code, null);
+  child.emit("close", code, null);
 }
 
 const tempDirs: string[] = [];
@@ -227,9 +235,162 @@ describe("Linux native terminal launch", () => {
       platform: "linux",
       commandAvailable: async command => command === "claude" || command === "konsole",
     });
-    await stopNativeTerminalLaunches();
+    await stopNativeTerminalLaunches({
+      isProcessAlive: pid => pid === tracked.pid && tracked.exitCode === null,
+    });
 
     expect(tracked.kill).toHaveBeenCalledWith("SIGTERM");
     expect(unrelated.kill).not.toHaveBeenCalled();
+  });
+});
+
+describe("native terminal shutdown lifecycle", () => {
+  async function launchMacRecord() {
+    const cwd = await unicodeWorkDir();
+    const launcher = fakeChild(43001);
+    vi.mocked(childProcess.spawn).mockReturnValueOnce(launcher as never);
+    await launchClaudeCode(cwd, "deepseek-chat", vi.fn(), {
+      platform: "darwin",
+      commandAvailable: async () => true,
+      pathAvailable: () => true,
+    });
+    launcher.stdout.write("731|/dev/ttys009\n");
+    launcher.stdout.end();
+    finishChild(launcher);
+    return launcher;
+  }
+
+  function closeHelper(control: string, code = 0) {
+    const helper = fakeChild(43002);
+    process.nextTick(() => {
+      helper.stdout.write(control);
+      helper.stdout.end();
+      finishChild(helper, code);
+    });
+    return helper;
+  }
+
+  it("closes only the exact macOS window id and tty and accepts closed", async () => {
+    await launchMacRecord();
+    const spawnProcess = vi.fn(() => closeHelper("closed\n") as never);
+
+    await stopNativeTerminalLaunches({ isProcessAlive: () => false, spawnProcess: spawnProcess as never });
+
+    expect(spawnProcess).toHaveBeenCalledWith(
+      "osascript",
+      ["-e", expect.stringContaining("targetId"), "731", "/dev/ttys009"],
+      { stdio: ["ignore", "pipe", "ignore"], shell: false },
+    );
+  });
+
+  it("treats macOS not-found as a safe narrow no-op", async () => {
+    await launchMacRecord();
+    const warning = vi.fn();
+
+    await stopNativeTerminalLaunches({
+      isProcessAlive: () => false,
+      spawnProcess: vi.fn(() => closeHelper("not-found\n") as never) as never,
+      onWarning: warning,
+    });
+
+    expect(warning).not.toHaveBeenCalled();
+  });
+
+  it("reports macOS helper non-zero as a non-destructive warning", async () => {
+    await launchMacRecord();
+    const warning = vi.fn();
+
+    await stopNativeTerminalLaunches({
+      isProcessAlive: () => false,
+      spawnProcess: vi.fn(() => closeHelper("", 1) as never) as never,
+      onWarning: warning,
+    });
+
+    expect(warning).toHaveBeenCalledWith("mac_window_close_failed");
+  });
+
+  it("reports macOS helper spawn error as a non-destructive warning", async () => {
+    await launchMacRecord();
+    const warning = vi.fn();
+
+    await stopNativeTerminalLaunches({
+      isProcessAlive: () => false,
+      spawnProcess: vi.fn(() => { throw new Error("synthetic"); }) as never,
+      onWarning: warning,
+    });
+
+    expect(warning).toHaveBeenCalledWith("mac_window_close_failed");
+  });
+
+  it("bounds a hanging macOS helper and retains the record for retry", async () => {
+    await launchMacRecord();
+    const hanging = fakeChild(43003);
+
+    await expect(stopNativeTerminalLaunches({
+      isProcessAlive: () => false,
+      spawnProcess: vi.fn(() => hanging as never) as never,
+      macWindowTimeoutMs: 10,
+    })).rejects.toMatchObject({ code: "SHUTDOWN_INCOMPLETE", causeCode: "mac_window_close_failed" });
+    expect(hanging.kill).toHaveBeenCalledWith("SIGKILL");
+
+    await stopNativeTerminalLaunches({
+      isProcessAlive: () => false,
+      spawnProcess: vi.fn(() => closeHelper("not-found\n") as never) as never,
+    });
+  });
+
+  async function launchLinuxRecord(cliPid: number) {
+    const cwd = await unicodeWorkDir();
+    const launcher = fakeChild(44001);
+    vi.mocked(childProcess.spawn).mockReturnValueOnce(launcher as never);
+    await launchClaudeCode(cwd, "deepseek-chat", vi.fn(), {
+      platform: "linux",
+      commandAvailable: async command => command === "claude" || command === "konsole",
+    });
+    const args = vi.mocked(childProcess.spawn).mock.calls.at(-1)![1]!;
+    const pidFile = args.find(arg => typeof arg === "string" && arg.endsWith("cli.pid"));
+    expect(pidFile).toBeTypeOf("string");
+    await fs.promises.writeFile(pidFile!, String(cliPid), "utf8");
+    return launcher;
+  }
+
+  it("confirms Linux runner PID exit after SIGTERM", async () => {
+    const cliPid = 44002;
+    const launcher = await launchLinuxRecord(cliPid);
+    const alive = new Set([cliPid, launcher.pid]);
+
+    await stopNativeTerminalLaunches({
+      isProcessAlive: pid => alive.has(pid),
+      signalProcess: vi.fn(pid => { alive.delete(pid); }),
+      timeoutMs: 100,
+    });
+
+    expect(launcher.kill).toHaveBeenCalledWith("SIGTERM");
+  });
+
+  it("keeps a Linux record when SIGTERM cannot be sent", async () => {
+    const cliPid = 44003;
+    await launchLinuxRecord(cliPid);
+
+    await expect(stopNativeTerminalLaunches({
+      isProcessAlive: pid => pid === cliPid,
+      signalProcess: vi.fn(() => { throw new Error("synthetic"); }),
+      timeoutMs: 15,
+    })).rejects.toMatchObject({ code: "SHUTDOWN_INCOMPLETE", causeCode: "signal_send_failed" });
+
+    await stopNativeTerminalLaunches({ isProcessAlive: () => false });
+  });
+
+  it("bounds Linux runner exit confirmation", async () => {
+    const cliPid = 44004;
+    await launchLinuxRecord(cliPid);
+
+    await expect(stopNativeTerminalLaunches({
+      isProcessAlive: pid => pid === cliPid,
+      signalProcess: vi.fn(),
+      timeoutMs: 10,
+    })).rejects.toMatchObject({ code: "SHUTDOWN_INCOMPLETE", causeCode: "target_exit_timeout" });
+
+    await stopNativeTerminalLaunches({ isProcessAlive: () => false });
   });
 });

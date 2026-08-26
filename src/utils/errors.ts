@@ -18,7 +18,8 @@ export type BridgeErrorCode =
   | "PERSISTENCE_ERROR"
   | "UPSTREAM_ERROR"
   | "INVALID_REQUEST"
-  | "REQUEST_TOO_LARGE";
+  | "REQUEST_TOO_LARGE"
+  | "SHUTDOWN_INCOMPLETE";
 
 export interface BridgeErrorOptions {
   code: BridgeErrorCode;

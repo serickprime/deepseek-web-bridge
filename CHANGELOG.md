@@ -3,6 +3,31 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-26 — Harden graceful shutdown lifecycle
+
+- D10 PASS B вводит единый idempotent coordinator в `app.stop()`: HTTP listener,
+  tracked CLI/native launches и active auth Chrome начинают завершаться
+  конкурентно в пределах одного absolute 10-second deadline. `/bridge/shutdown`
+  теперь сначала отвечает `Shutdown accepted.`, а после завершения response
+  использует тот же coordinator, что SIGINT/SIGTERM; fixed 500 ms assumption и
+  duplicate route cleanup удалены.
+- Windows `taskkill /PID <owned-pid> /T /F` считается успешным только после
+  подтверждённого exit/close target; spawn error, non-zero helper, helper timeout
+  и target timeout различаются как safe `SHUTDOWN_INCOMPLETE` cause codes.
+  Не подтверждённый target остаётся tracked. Logout semantics, `shell:true`,
+  Unicode cwd и точное PID ownership не менялись; SHUTDOWN не удаляет auth data.
+- Auth Chrome остаётся tracked после logical CDP cleanup до реального process
+  exit. Linux/macOS runner PID и launcher child получают bounded termination
+  confirmation; macOS helper ограничен 2 seconds и работает только с точными
+  window id + tty без broad Terminal.app/emulator kill. PID reuse остаётся
+  документированным residual risk вне D10 scope.
+- Добавлен `shutdownLifecycle.test.ts` и расширены lifecycle/route/native tests:
+  Windows helper/target outcomes, retained ownership, auth Chrome, Linux signals,
+  macOS exact-window outcomes, coordinator idempotence/deadline, auth preservation
+  и единый signal path. Focused lifecycle suites — 65/65; full offline baseline —
+  36 files / 933 tests. D10 — `IMPLEMENTED / AWAITING INDEPENDENT REVIEW`, не
+  `CLOSED`; desktop live verification и G15 остаются pending.
+
 ## 2026-08-26 — Close D15b after live verification
 
 - D15b закрыт после independent review PASS и Windows live verification с

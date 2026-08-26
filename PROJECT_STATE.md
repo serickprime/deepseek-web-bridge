@@ -52,6 +52,10 @@ live-test не требуется для этого deterministic boundary. D15 
 D15a `max_tokens` остаётся `OPEN / CAPABILITY UNRESOLVED`, а D15b truthful
 Anthropic usage закрыт после independent review и Windows Claude Code 2.1.246
 live verification. Open P2 = 2.
+D10 graceful shutdown lifecycle реализован в feature branch как единый bounded
+`app.stop()` coordinator с подтверждением завершения owned processes; статус —
+`IMPLEMENTED / AWAITING INDEPENDENT REVIEW`. Open P2 и G15 не меняются до
+independent review и desktop live verification.
 D1 остаётся неподтверждённой/deferred P3.
 
 Проект использует **неофициальные** внутренние маршруты веб-сайта DeepSeek
@@ -118,15 +122,15 @@ D1 остаётся неподтверждённой/deferred P3.
 | 7. DeepSeek | pow (WASM), sseParser, updateParser, client | ✅ готово |
 | 8. Server | middleware, output-адаптеры, protocolStream, routes, server | ✅ готово |
 | 9. Entrypoint | app.ts, index.ts, start.ts | ✅ готово |
-| 10. Тесты | 35 файлов, 904 теста | ✅ готово |
+| 10. Тесты | 36 файлов, 933 теста | ✅ готово |
 | 11. Скрипты | desktopStart, cdp, auth, doctor, launcher, live, real-OS platform smoke | ✅ live-часть работает |
 | 12. Веб-интерфейс | Bridge Console на `GET /` (Mileo dark theme, two-panel, diagnostics, model picker) | ✅ готово |
 
 **Проверки сейчас:**
 - `npm run typecheck` — ✅ без ошибок.
 - `npm run build` — ✅ собирается.
-- `npm test` — ✅ 904/904 (Windows process-lifecycle case требует разрешённый
-  `taskkill`; sandbox-only запуск отдельно воспроизводит известный D10 finding).
+- `npm test` — ✅ 933/933; D10 process-lifecycle outcomes проверяются
+  deterministic injected helpers без broad/real process kill.
 - `npm run test:platform` — ✅ локально на Windows: real process/platform,
   `buildConfig`, Bridge HTTP, Unicode cwd и env propagation без DeepSeek auth.
 - `npm run auth` / Web UI AUTH — ✅ Bearer захватывается из сети, HIF читается из
@@ -473,10 +477,13 @@ D1 остаётся неподтверждённой/deferred P3.
   но оставляет HTTP Bridge и запущенные через Web UI Claude Code/OpenCode работать.
   Для удаления используется async `fs.promises.rm`: на Windows с Node 24.12
   `fs.rmSync` молча не удалял targets под кириллическим путём репозитория.
-  `/bridge/shutdown` останавливает только tracked CLI-процессы, активный auth Chrome,
-  HTTP-сервер и затем Node process; credentials не удаляются. Активный AUTH сначала
-  отменяется внутренним AbortController, чтобы graceful stop не ожидал открытый SSE бесконечно.
-  `RouteContext.gracefulStop` прокидывается из `AppHandle.stop`.
+  `/bridge/shutdown` возвращает acknowledgement `Shutdown accepted.`, после
+  завершения HTTP response вызывает единый idempotent `AppHandle.stop()` и
+  останавливает только tracked CLI/native processes, active auth Chrome и HTTP
+  server; credentials не удаляются. SIGINT/SIGTERM используют тот же coordinator.
+  Owned process termination bounded 5 seconds, macOS close helper — 2 seconds,
+  общий absolute shutdown deadline — 10 seconds. Не подтверждённая termination
+  даёт typed `SHUTDOWN_INCOMPLETE` и exit code 1, а ownership сохраняется.
   **ProtocolStream.start()** — вызывается из CompletionHandler перед
   `stream.push()`, отправляет `message_start` для Anthropic streaming и первым
   SSE write фиксирует lazy HTTP 200. До него route сохраняет возможность вернуть
@@ -1029,12 +1036,12 @@ OpenCode config не изменялся.
       исправлены (inconclusive cardinality, релевантность подсчёта, узкий
       re-binding `file_mutation`); нужен повторный live-run с exact count=1 и
       видимым final после свежих API/storage/HTTP evidence.
-- [ ] **Повторно проверить production SHUTDOWN/PID lifecycle** — после
-      action-integrity live-run наблюдалось, что `/bridge/shutdown` закрывал HTTP
-      listener, но исходный Node PID дважды оставался жив и требовал точечного
-      завершения. Ранее успешные SHUTDOWN сценарии также зафиксированы выше;
-      root cause нового наблюдения не установлен. В repeated-failure задаче
-      shutdown-код не менялся.
+- [~] **D10 graceful SHUTDOWN/PID lifecycle** — PASS B реализован: один bounded
+      coordinator, confirmed target termination, retained ownership on failure,
+      safe typed failure и deterministic Windows/Linux/macOS/auth/route coverage.
+      Статус `IMPLEMENTED / AWAITING INDEPENDENT REVIEW`; до `CLOSED` нужны
+      independent review и real Windows desktop PB39 shutdown. macOS/Linux GUI
+      lifecycle остаётся отдельным platform live TODO.
 - [x] В `src/api/handler.ts` переменная `turn` не используется — tool-цикл
       (повтор после tool_result) не замкнут, история ведётся только в
       `SessionStore`. Продумать и реализовать полный цикл tool calling либо

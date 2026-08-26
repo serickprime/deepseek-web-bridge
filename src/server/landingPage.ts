@@ -394,7 +394,7 @@ select.f-inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xml
   window.doShutdown=function(){
     fetch("/bridge/shutdown",{method:"POST",headers:{"content-type":"application/json"},body:"{}"})
       .then(function(r){return r.json();}).then(function(){
-        document.body.innerHTML='<div style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:var(--m);color:var(--txt)"><div style="text-align:center"><div style="font-size:18px;margin-bottom:12px">Bridge stopped.</div><div style="color:var(--txt-m);font-size:13px">You can close this tab.</div></div></div>';
+        document.body.innerHTML='<div style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:var(--m);color:var(--txt)"><div style="text-align:center"><div style="font-size:18px;margin-bottom:12px">Shutdown accepted.</div><div style="color:var(--txt-m);font-size:13px">Bridge is shutting down. You can close this tab.</div></div></div>';
         try{window.close();}catch(ex){}
       }).catch(function(){showToast("Shutdown failed","error");});
   };

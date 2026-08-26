@@ -3,6 +3,7 @@ import { join, resolve, sep } from "node:path";
 import { mkdtemp, rm, mkdir, writeFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { spawn, type ChildProcess } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { performLogout, stopLaunchedProcesses, trackProcess, pickFolder } from "../../src/server/actions.js";
 import { LANDING_PAGE_HTML } from "../../src/server/landingPage.js";
 
@@ -96,29 +97,43 @@ describe("performLogout", () => {
 });
 
 describe("stopLaunchedProcesses", () => {
-  it("kills tracked child processes and clears set", async () => {
-    const child = spawn("node", ["-e", "setTimeout(() => {}, 60000)"], {
-      stdio: "ignore",
-      detached: true,
-    });
-    trackProcess(child);
-    await stopLaunchedProcesses();
-    await new Promise(r => setTimeout(r, 1000));
+  it("waits for the tracked child lifecycle event instead of a fixed sleep", async () => {
+    const child = new EventEmitter() as ChildProcess;
+    Object.assign(child, { pid: 41001, exitCode: null, signalCode: null, kill: vi.fn(), unref: vi.fn() });
     let alive = true;
-    try { process.kill(child.pid!, 0); } catch { alive = false; }
-    expect(alive).toBe(false);
+    const helper = new EventEmitter() as ChildProcess;
+    Object.assign(helper, { pid: 41002, exitCode: null, signalCode: null, kill: vi.fn() });
+    const spawnProcess = vi.fn(() => {
+      process.nextTick(() => {
+        alive = false;
+        (child as any).exitCode = 0;
+        child.emit("exit", 0, null);
+        child.emit("close", 0, null);
+        (helper as any).exitCode = 0;
+        helper.emit("close", 0, null);
+      });
+      return helper;
+    });
+
+    trackProcess(child);
+    await stopLaunchedProcesses({
+      platform: "win32",
+      timeoutMs: 100,
+      spawnProcess: spawnProcess as typeof spawn,
+      isProcessAlive: () => alive,
+    });
+
+    expect(spawnProcess).toHaveBeenCalledWith("taskkill", ["/PID", "41001", "/T", "/F"], { stdio: "ignore" });
   });
 
   it("does not kill untracked processes", async () => {
-    const victim = spawn("node", ["-e", "setTimeout(() => {}, 60000)"], {
-      stdio: "ignore",
-      detached: true,
-    });
-    await stopLaunchedProcesses();
-    let alive = true;
-    try { process.kill(victim.pid!, 0); } catch { alive = false; }
-    expect(alive).toBe(true);
-    try { victim.kill("SIGTERM"); } catch {}
+    const victim = new EventEmitter() as ChildProcess;
+    const kill = vi.fn();
+    Object.assign(victim, { pid: 42001, exitCode: null, signalCode: null, kill, unref: vi.fn() });
+
+    await stopLaunchedProcesses({ platform: "win32", timeoutMs: 25 });
+
+    expect(kill).not.toHaveBeenCalled();
   });
 });
 

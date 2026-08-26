@@ -7,13 +7,19 @@ import { writeJsonAtomic, readJsonIfExists } from "../utils/atomicFile.js";
 import { isRecord } from "../utils/json.js";
 import { Redactor } from "../utils/redaction.js";
 import { Logger } from "../utils/logger.js";
+import { BridgeError } from "../utils/errors.js";
 import { PowSolver, parseChallengePayload } from "../deepseek/pow.js";
 import { SseAccumulator } from "../deepseek/sseParser.js";
 import { DeepSeekPatchParser } from "../deepseek/updateParser.js";
 import { COMPLETION_PATH, SESSION_CREATE_PATH, CLIENT_HEADERS, BROWSER_HEADERS, UPSTREAM_USER_AGENT } from "../config/constants.js";
 import { CdpConnection, createPage, launchChrome, waitForDebugger, findChrome } from "../cdp.js";
 import { findLinuxFolderPicker, isCommandAvailableSync, type CommandAvailability } from "./system.js";
-import { launchNativeTerminal, stopNativeTerminalLaunches, type NativeLaunchOptions } from "./terminalLaunch.js";
+import {
+  launchNativeTerminal,
+  stopNativeTerminalLaunches,
+  type NativeLaunchOptions,
+  type NativeStopOptions,
+} from "./terminalLaunch.js";
 import {
   OPENCODE_PROVIDER_ID,
   PRIMARY_MODELS,
@@ -214,7 +220,6 @@ export async function runAuthSSE(
 
   const cleanup = () => {
     if (conn) { try { conn.close(); } catch {} }
-    activeAuthProcesses.delete(child);
     try { child.kill(); } catch {}
   };
 
@@ -632,6 +637,111 @@ const launchedProcesses: Set<ChildProcess> = new Set();
 const activeAuthProcesses: Set<ChildProcess> = new Set();
 const activeAuthControllers: Set<AbortController> = new Set();
 
+export const OWNED_PROCESS_TERMINATION_TIMEOUT_MS = 5_000;
+
+type SpawnProcess = typeof spawn;
+
+export interface ProcessStopOptions {
+  platform?: NodeJS.Platform;
+  timeoutMs?: number;
+  spawnProcess?: SpawnProcess;
+  isProcessAlive?: (pid: number) => boolean;
+}
+
+export interface StopLaunchedProcessOptions extends ProcessStopOptions {
+  native?: NativeStopOptions;
+}
+
+function processIsAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function childHasExited(child: ChildProcess, isAlive: (pid: number) => boolean): boolean {
+  if (child.exitCode !== null || child.signalCode !== null) return true;
+  return child.pid === undefined || !isAlive(child.pid);
+}
+
+function shutdownIncomplete(causeCode: string): BridgeError {
+  return new BridgeError("Owned process termination was not confirmed.", {
+    code: "SHUTDOWN_INCOMPLETE",
+    status: 500,
+    retryable: false,
+    upstreamStage: "shutdown_cleanup",
+    causeCode,
+  });
+}
+
+async function waitForChildExit(
+  child: ChildProcess,
+  deadline: number,
+  isAlive: (pid: number) => boolean,
+): Promise<boolean> {
+  if (childHasExited(child, isAlive)) return true;
+  const remaining = Math.max(0, deadline - Date.now());
+  if (remaining === 0) return childHasExited(child, isAlive);
+
+  return await new Promise<boolean>(resolve => {
+    let settled = false;
+    const finish = (exited: boolean) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      child.removeListener("exit", onExit);
+      child.removeListener("close", onExit);
+      resolve(exited);
+    };
+    const onExit = () => finish(true);
+    const timer = setTimeout(() => finish(childHasExited(child, isAlive)), remaining);
+    child.once("exit", onExit);
+    child.once("close", onExit);
+    if (childHasExited(child, isAlive)) finish(true);
+  });
+}
+
+type HelperOutcome =
+  | { kind: "close"; code: number | null }
+  | { kind: "error" }
+  | { kind: "timeout" };
+
+async function runTaskkill(
+  pid: number,
+  deadline: number,
+  spawnProcess: SpawnProcess,
+): Promise<HelperOutcome> {
+  let killer: ChildProcess;
+  try {
+    killer = spawnProcess("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore" });
+  } catch {
+    return { kind: "error" };
+  }
+
+  return await new Promise<HelperOutcome>(resolve => {
+    let settled = false;
+    const finish = (outcome: HelperOutcome) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      killer.removeListener("close", onClose);
+      killer.removeListener("error", onError);
+      resolve(outcome);
+    };
+    const onClose = (code: number | null) => finish({ kind: "close", code });
+    const onError = () => finish({ kind: "error" });
+    const remaining = Math.max(0, deadline - Date.now());
+    const timer = setTimeout(() => {
+      try { killer.kill(); } catch { /* exact helper only */ }
+      finish({ kind: "timeout" });
+    }, remaining);
+    killer.once("close", onClose);
+    killer.once("error", onError);
+  });
+}
+
 export function trackProcess(child: ChildProcess | null): void {
   if (child) {
     launchedProcesses.add(child);
@@ -639,27 +749,55 @@ export function trackProcess(child: ChildProcess | null): void {
   }
 }
 
-async function stopTrackedChild(child: ChildProcess): Promise<void> {
+async function stopTrackedChild(child: ChildProcess, options: ProcessStopOptions = {}): Promise<void> {
+  const platform = options.platform ?? process.platform;
+  const timeoutMs = options.timeoutMs ?? OWNED_PROCESS_TERMINATION_TIMEOUT_MS;
+  const spawnProcess = options.spawnProcess ?? spawn;
+  const isAlive = options.isProcessAlive ?? processIsAlive;
+  const deadline = Date.now() + timeoutMs;
+  if (childHasExited(child, isAlive)) return;
+
   const pid = child.pid;
-  if (pid && process.platform === "win32") {
-    await new Promise<void>((resolve) => {
-      const killer = spawn("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore" });
-      killer.once("close", () => resolve());
-      killer.once("error", () => resolve());
-    });
-  } else {
-    child.kill("SIGTERM");
+  if (!pid) throw shutdownIncomplete("target_pid_missing");
+
+  if (platform === "win32") {
+    const helper = await runTaskkill(pid, deadline, spawnProcess);
+    if (await waitForChildExit(child, deadline, isAlive)) return;
+    if (helper.kind === "timeout") throw shutdownIncomplete("taskkill_timeout");
+    if (helper.kind === "error") throw shutdownIncomplete("taskkill_spawn_failed");
+    if (helper.code !== 0) throw shutdownIncomplete("taskkill_nonzero");
+    throw shutdownIncomplete("target_exit_timeout");
+  }
+
+  let signalled = false;
+  try { signalled = child.kill("SIGTERM"); } catch { /* normalized below */ }
+  if (!signalled && childHasExited(child, isAlive)) return;
+  if (!signalled) throw shutdownIncomplete("signal_send_failed");
+  if (!await waitForChildExit(child, deadline, isAlive)) {
+    throw shutdownIncomplete("target_exit_timeout");
   }
 }
 
-export async function stopLaunchedProcesses(): Promise<void> {
-  for (const child of launchedProcesses) {
-    try {
-      await stopTrackedChild(child);
-    } catch { /* best effort */ }
+export async function stopLaunchedProcesses(options: StopLaunchedProcessOptions = {}): Promise<void> {
+  const failures: BridgeError[] = [];
+  const children = [...launchedProcesses];
+  const results = await Promise.allSettled(children.map(child => stopTrackedChild(child, options)));
+  for (let index = 0; index < results.length; index++) {
+    const result = results[index]!;
+    if (result.status === "fulfilled") {
+      launchedProcesses.delete(children[index]!);
+    } else {
+      failures.push(result.reason instanceof BridgeError
+        ? result.reason
+        : shutdownIncomplete("process_cleanup_failed"));
+    }
   }
-  launchedProcesses.clear();
-  await stopNativeTerminalLaunches();
+  try {
+    await stopNativeTerminalLaunches(options.native);
+  } catch (error) {
+    failures.push(error instanceof BridgeError ? error : shutdownIncomplete("native_cleanup_failed"));
+  }
+  if (failures.length > 0) throw failures[0];
 }
 
 export function trackAuthProcess(child: ChildProcess): void {
@@ -667,15 +805,23 @@ export function trackAuthProcess(child: ChildProcess): void {
   child.on("close", () => { activeAuthProcesses.delete(child); });
 }
 
-export async function stopActiveAuthChrome(): Promise<void> {
+export async function stopActiveAuthChrome(options: ProcessStopOptions = {}): Promise<void> {
+  const children = [...activeAuthProcesses];
   for (const controller of activeAuthControllers) controller.abort();
   activeAuthControllers.clear();
-  for (const child of activeAuthProcesses) {
-    try {
-      await stopTrackedChild(child);
-    } catch { /* best effort */ }
+  const failures: BridgeError[] = [];
+  const results = await Promise.allSettled(children.map(child => stopTrackedChild(child, options)));
+  for (let index = 0; index < results.length; index++) {
+    const result = results[index]!;
+    if (result.status === "fulfilled") {
+      activeAuthProcesses.delete(children[index]!);
+    } else {
+      failures.push(result.reason instanceof BridgeError
+        ? result.reason
+        : shutdownIncomplete("auth_process_cleanup_failed"));
+    }
   }
-  activeAuthProcesses.clear();
+  if (failures.length > 0) throw failures[0];
 }
 
 /* ── FOLDER PICKER ── */

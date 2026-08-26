@@ -1,6 +1,9 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 vi.mock("node:child_process", async (importOriginal) => {
   const actual = await importOriginal() as any;
@@ -170,7 +173,7 @@ describe("/bridge/shutdown", () => {
   });
   afterEach(() => { exitSpy.mockRestore(); vi.restoreAllMocks(); });
 
-  it("calls stopLaunchedProcesses, gracefulStop, then process.exit", async () => {
+  it("acknowledges first and invokes only the shared coordinator after response finish", async () => {
     vi.mocked(stopLaunchedProcesses).mockResolvedValue();
     vi.mocked(stopActiveAuthChrome).mockResolvedValue();
     const gs = vi.fn(async () => {});
@@ -181,13 +184,58 @@ describe("/bridge/shutdown", () => {
     await handler(new EventEmitter() as any, res, "ref");
 
     expect(res.writeHead).toHaveBeenCalledWith(200, { "content-type": "application/json" });
-    expect(stopLaunchedProcesses).toHaveBeenCalledOnce();
-    expect(stopActiveAuthChrome).toHaveBeenCalledOnce();
+    expect(res.end).toHaveBeenCalledWith(JSON.stringify({ ok: true, message: "Shutdown accepted." }));
+    expect(stopLaunchedProcesses).not.toHaveBeenCalled();
+    expect(stopActiveAuthChrome).not.toHaveBeenCalled();
     expect(performLogout).not.toHaveBeenCalled();
+    expect(gs).not.toHaveBeenCalled();
 
-    await new Promise(r => setTimeout(r, 700));
+    res.emit("finish");
+    await new Promise<void>(resolve => setImmediate(resolve));
+    await Promise.resolve();
 
     expect(gs).toHaveBeenCalledOnce();
     expect(exitSpy).toHaveBeenCalledWith(0);
+  });
+
+  it("exits with code 1 when the shared coordinator reports incomplete cleanup", async () => {
+    const failure = Object.assign(new Error("safe"), {
+      code: "SHUTDOWN_INCOMPLETE",
+      causeCode: "target_exit_timeout",
+    });
+    const gs = vi.fn(async () => { throw failure; });
+    const ctx = mockCtx(gs);
+    const handler = routes(ctx as any).find(r => r.path === "/bridge/shutdown")!.handler;
+    const res = mockRes();
+
+    await handler(new EventEmitter() as any, res, "ref");
+    res.emit("finish");
+    res.emit("close");
+    await new Promise<void>(resolve => setImmediate(resolve));
+    await Promise.resolve();
+
+    expect(gs).toHaveBeenCalledOnce();
+    expect(exitSpy).toHaveBeenCalledTimes(1);
+    expect(exitSpy).toHaveBeenCalledWith(1);
+  });
+
+  it("does not delete auth credentials while accepting shutdown", async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "bridge-shutdown-auth-"));
+    const authFile = join(tempDir, "auth.json");
+    writeFileSync(authFile, '{"sentinel":"preserved"}', "utf8");
+    const gs = vi.fn(async () => {});
+    const handler = routes(mockCtx(gs) as any).find(r => r.path === "/bridge/shutdown")!.handler;
+    const res = mockRes();
+
+    try {
+      await handler(new EventEmitter() as any, res, "ref");
+      res.emit("finish");
+      await new Promise<void>(resolve => setImmediate(resolve));
+
+      expect(readFileSync(authFile, "utf8")).toBe('{"sentinel":"preserved"}');
+      expect(performLogout).not.toHaveBeenCalled();
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 });

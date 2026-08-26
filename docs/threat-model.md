@@ -25,6 +25,8 @@
 | Подмена upstream | TLS-проверка не отключается; самоподписанный upstream сертификат не принимается. |
 | Смешивание сессий клиентов | нет общей fallback-сессии; explicit upstream identity и связь call-id; mutex на одну upstream-сессию. |
 | Повторное использование чужих credential | токен/куки из `data/auth.json` принадлежат только владельцу; никакие auth-данные не отправляются третьим сторонам. |
+| Orphan owned process или broad shutdown kill | Bridge хранит только созданные им process records; Windows использует exact PID tree, Unix — exact runner/launcher PID, macOS — exact window id + tty. Signal/helper result не очищает ownership без подтверждённого target exit. Untracked processes и весь Terminal.app/emulator по имени не завершаются. |
+| Зависший shutdown helper | Owned process wait ограничен 5 s, macOS helper — 2 s, весь coordinator — 10 s. Неподтверждённая cleanup возвращает `SHUTDOWN_INCOMPLETE` и exit code 1 без raw error/argv/path telemetry. |
 
 ## Не принимаемые меры
 
@@ -42,3 +44,8 @@ TLS. Эти механизмы пользователь проходит/соб�
 - Локальный `count_tokens` — приблизительная оценка, не официальный токенизатор.
 - Recap/compaction в текущем Claude Code воспроизводимо не подтверждены; поведение
   помечается `UNKNOWN`, пока не подтверждено live-тестом.
+- Точечное Unix PID ownership не включает portable process-start identity;
+  теоретический PID reuse остаётся residual risk. Новый cross-platform identity
+  subsystem не вводится без отдельного доказательства необходимости.
+- D10 lifecycle покрыт deterministic tests, но Windows desktop PB39 и настоящие
+  macOS/Linux GUI terminal shutdown остаются pending до independent/live проверки.

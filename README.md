@@ -116,6 +116,14 @@ claude --model deepseek-v4-flash
 transport; наличие бинарников `claude`/`opencode` проверяется при самом запуске.
 Пути с Unicode и `~/` поддерживаются на macOS/Linux.
 
+Кнопка **SHUTDOWN** сначала получает от Bridge acknowledgement
+`Shutdown accepted.`, затем Bridge перестаёт принимать новые запросы и boundedly
+завершает только запущенные им CLI/native processes и active auth Chrome. Это не
+LOGOUT: `auth.json`, DeepSeek credentials и Chrome profile сохраняются. При
+неподтверждённом завершении owned process Bridge выходит с ненулевым кодом и не
+прибегает к завершению всех `claude`, `opencode`, Terminal.app или terminal
+emulator процессов по имени.
+
 ## Запуск OpenCode
 
 При запуске из Bridge Console OpenCode получает временную конфигурацию только

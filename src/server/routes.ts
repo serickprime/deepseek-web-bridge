@@ -16,7 +16,7 @@ import type { SessionManager } from "../auth/sessionManager.js";
 import type { Redactor } from "../utils/redaction.js";
 import type { AuthCredentials } from "../deepseek/client.js";
 import { LANDING_PAGE_HTML } from "./landingPage.js";
-import { runAuthSSE, runDoctorSSE, runDiagnosticsSSE, checkAuthStatus, launchClaudeCode, launchOpenCode, writeSSE, endSSE, pickFolder, performLogout, stopLaunchedProcesses, stopActiveAuthChrome, type ActionEvent } from "./actions.js";
+import { runAuthSSE, runDoctorSSE, runDiagnosticsSSE, checkAuthStatus, launchClaudeCode, launchOpenCode, writeSSE, endSSE, pickFolder, performLogout, stopActiveAuthChrome, type ActionEvent } from "./actions.js";
 import { getSystemCapabilities, type SystemCapabilities } from "./system.js";
 import { DEFAULT_MODEL_ID, resolveModelSelection } from "../config/modelCapabilities.js";
 
@@ -436,7 +436,7 @@ export function routes(ctx: RouteContext): Array<{
       method: "POST",
       path: "/bridge/logout",
       handler: async (_req, res) => {
-        await stopActiveAuthChrome();
+        try { await stopActiveAuthChrome(); } catch { /* logout remains local and best effort */ }
         const result = await performLogout();
         if (!result.ok) {
           sendJson(res, 500, result);
@@ -450,16 +450,20 @@ export function routes(ctx: RouteContext): Array<{
       method: "POST",
       path: "/bridge/shutdown",
       handler: async (_req, res) => {
-        sendJson(res, 200, { ok: true, message: "Bridge stopped." });
-        await stopLaunchedProcesses();
-        await stopActiveAuthChrome();
-        setTimeout(async () => {
-          try {
-            await ctx.gracefulStop?.();
-          } finally {
-            process.exit(0);
-          }
-        }, 500);
+        let started = false;
+        const beginShutdown = () => {
+          if (started) return;
+          started = true;
+          setImmediate(() => {
+            void (ctx.gracefulStop?.() ?? Promise.resolve()).then(
+              () => process.exit(0),
+              () => process.exit(1),
+            );
+          });
+        };
+        res.once("finish", beginShutdown);
+        res.once("close", beginShutdown);
+        sendJson(res, 200, { ok: true, message: "Shutdown accepted." });
       },
     },
     {
