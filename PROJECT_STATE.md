@@ -50,7 +50,8 @@ normalization/prompt-boundary coverage и independent review; malformed или
 unsupported supplied system fail closed как `INVALID_REQUEST`/400. Отдельный
 live-test не требуется для этого deterministic boundary. D15 формально разделён:
 D15a `max_tokens` остаётся `OPEN / CAPABILITY UNRESOLVED`, а D15b truthful
-Anthropic usage реализован и имеет статус `IMPLEMENTED / VERIFYING`. Open P2 = 3.
+Anthropic usage закрыт после independent review и Windows Claude Code 2.1.246
+live verification. Open P2 = 2.
 D1 остаётся неподтверждённой/deferred P3.
 
 Проект использует **неофициальные** внутренние маршруты веб-сайта DeepSeek
@@ -117,7 +118,7 @@ D1 остаётся неподтверждённой/deferred P3.
 | 7. DeepSeek | pow (WASM), sseParser, updateParser, client | ✅ готово |
 | 8. Server | middleware, output-адаптеры, protocolStream, routes, server | ✅ готово |
 | 9. Entrypoint | app.ts, index.ts, start.ts | ✅ готово |
-| 10. Тесты | 35 файлов, 891 тест | ✅ готово |
+| 10. Тесты | 35 файлов, 904 теста | ✅ готово |
 | 11. Скрипты | desktopStart, cdp, auth, doctor, launcher, live, real-OS platform smoke | ✅ live-часть работает |
 | 12. Веб-интерфейс | Bridge Console на `GET /` (Mileo dark theme, two-panel, diagnostics, model picker) | ✅ готово |
 
@@ -267,7 +268,7 @@ D1 остаётся неподтверждённой/deferred P3.
   DeepSeek Web completion payload/frontend не показал подтверждённого поля
   output limit. Bridge не добавляет guessed upstream field и не пытается
   downstream-truncate output с риском для terminal/tool semantics.
-- D15b / P2 — `IMPLEMENTED / VERIFYING`: `CanonicalResult.usage` означает только
+- D15b / P2 — `CLOSED`: `CanonicalResult.usage` означает только
   точный upstream input/output split. Legacy `data.usage` продолжает давать
   exact prompt/completion counts, а V4 `response.accumulated_token_usage`
   сохраняется отдельно как cumulative parent-chain telemetry и никогда не
@@ -277,8 +278,18 @@ D1 остаётся неподтверждённой/deferred P3.
   точном `completionTokens`. Явный upstream zero остаётся zero. 13 focused
   regressions покрывают parser initial/BATCH/latest/terminal, text/tool,
   exact/zero/unknown/partial и handler propagation; focused suites — 85/85,
-  full baseline — 35 files / 904 tests. Independent review и релевантная
-  verification ещё требуются; open P2 = 3, production-ready = NO.
+  full baseline — 35 files / 904 tests. Implementation
+  `a4c43a222be14e4513923b3d9525398cb616980a` прошла independent review.
+  Windows live с Claude Code 2.1.246 / `deepseek-v4-flash` подтвердил, что
+  реальный Anthropic streaming с unknown usage принимается клиентом: настоящий
+  Bash и linked `tool_result` continuation завершились final
+  `D15B-TOOL-PASS`, без usage/SSE parse failure, hang или D15b-related 502;
+  основная continuation имела `completion_attempt=1`, `guard_attempt=0` и
+  `completion_done`. Verdict — `PASS WITH COLLATERAL FINDING`: initial Bash
+  request потребовал один `missing_tool_evidence` retry, а после успешного final
+  появилась отдельная new-lineage chain с дополнительной guard/tool activity.
+  Это отдельный guard/client finding и не D15b failure; guard code не менялся.
+  Open P2 = 2, production-ready = NO.
 - D8 PASS B передаёт уже существующий request-scoped logger явно по всей цепочке
   route → handler → DeepSeek client → PoW. Один случайный process-local salt и
   domain separation создают необратимые `client_ref`, `upstream_ref`,

@@ -3,6 +3,27 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-26 — Close D15b after live verification
+
+- D15b закрыт после independent review PASS и Windows live verification с
+  Claude Code 2.1.246 / `deepseek-v4-flash`. Реальный Anthropic streaming с
+  unknown usage был принят клиентом без usage/SSE parse failure, hang или
+  D15b-related 502; настоящий Bash выполнился, linked `tool_result`
+  continuation завершился видимым final `D15B-TOOL-PASS`.
+- Основная continuation прошла с `completion_attempt=1`, `guard_attempt=0` и
+  `completion_done`. V4 `accumulated_token_usage` остаётся только cumulative
+  parent-chain telemetry и не выдаётся за Anthropic input/output usage.
+- Live verdict — `PASS WITH COLLATERAL FINDING`: initial Bash request потребовал
+  один `missing_tool_evidence` guard retry, а после успешной основной
+  continuation появилась отдельная new-lineage chain с дополнительной
+  guard/tool activity. Это отдельный guard/client collateral finding, не D15b
+  failure; guard production code в closure не менялся.
+- Closure сохраняет implementation `a4c43a222be14e4513923b3d9525398cb616980a`,
+  13 focused regressions и baseline 904/904. D15b переведён в `CLOSED`; D15a
+  остаётся `OPEN / CAPABILITY UNRESOLVED`. Open P2 уменьшен с 3 до 2;
+  P0/P1/P2/P3 = 0/0/2/1, G7/G16 — PASS, production-ready — NO. Production code
+  и tests в docs-only closure не менялись.
+
 ## 2026-08-26 — Make Anthropic usage reporting truthful
 
 - D15 разделён на D15a (`OPEN / CAPABILITY UNRESOLVED`) и D15b
