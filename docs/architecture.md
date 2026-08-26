@@ -369,8 +369,9 @@ browser user-agent не участвует. Read-only endpoint публичен 
   возвращает `SHUTDOWN_INCOMPLETE/native_pid_capture_timeout` и допускает retry.
   PID file принимается только как полная decimal string после trim; malformed или
   partial content не становится ownership target. После успешного launcher
-  `spawn` последующий `error` также не удаляет record/temp до подтверждённого
-  termination, поэтому failed cleanup остаётся retryable.
+  `spawn` долговечный lifecycle listener обрабатывает любое число последующих
+  `error`: они не удаляют record/temp до подтверждённого termination и не
+  превращают repeated cleanup retry в unhandled EventEmitter error.
 - Shutdown не вызывает logout, не удаляет `auth.json`, credentials или Chrome
   profile. Logical auth abort закрывает CDP/SSE, но auth Chrome остаётся tracked
   до подтверждённого process exit; shutdown abort не посылает ранний

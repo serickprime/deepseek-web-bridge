@@ -413,7 +413,7 @@ export async function launchNativeTerminal(
     launcherSpawned = true;
     send({ type: "result", ok: true, message: `${command} launched in a new visible terminal` });
   });
-  child.once("error", error => {
+  child.on("error", error => {
     if (!launcherSpawned) cleanupRecord(record);
     send({ type: "error", message: `Failed to start ${terminalCommand.command}: ${error.message}` });
   });

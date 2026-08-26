@@ -3,6 +3,18 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-26 — Keep native launcher error ownership across retries
+
+- Native terminal launcher теперь сохраняет один долговечный `error` listener на
+  всём lifecycle child process. Initial error до `spawn` по-прежнему очищает
+  ownership, но любое число post-spawn errors обрабатывается без удаления
+  record/temp и без unhandled EventEmitter error между shutdown retries.
+- Добавлен deterministic regression: два последовательных `child.kill()`
+  emit-ят `error`, оба stop boundedly возвращают
+  `SHUTDOWN_INCOMPLETE/signal_send_failed` с retained ownership, третий retry
+  подтверждает termination и очищает private temp data. Focused native suite —
+  32/32; D10 остаётся `IMPLEMENTED / AWAITING RE-REVIEW`, PB39 не запускался.
+
 ## 2026-08-26 — Retain strict D10 native process ownership
 
 - `readCliPid()` теперь принимает только полную decimal PID string после trim;
