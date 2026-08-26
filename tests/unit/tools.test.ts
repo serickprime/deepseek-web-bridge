@@ -3217,6 +3217,63 @@ describe("pronominal file verification completion guard", () => {
     ]);
   });
 
+  const nonExecutablePronominalVerificationCases = [
+    ["EN negation", "Create a.txt. Do not read it."],
+    ["EN no-need negation", "Create a.txt. You do not need to read it."],
+    ["RU no-need negation", "Создай a.txt. Не нужно прочитать этот файл."],
+    ["RU no-need aspect", "Создай a.txt. Не надо прочитывать этот файл."],
+    ["EN explain", "Create a.txt. Explain how to read it."],
+    ["RU explain", "Создай a.txt. Объясни, как прочитать этот файл."],
+    ["EN tell how", "Create a.txt. Tell me how to read it."],
+    ["EN describe how", "Create a.txt. Describe how to read it."],
+    ["EN conditional", "Create a.txt. If necessary, read it."],
+    ["RU conditional", "Создай a.txt. Если потребуется, прочитай этот файл."],
+    ["EN can later", "Create a.txt. You can read it later."],
+    ["EN may if wanted", "Create a.txt. You may read it if you want."],
+    ["EN optional gerund", "Create a.txt. Reading it is optional."],
+    ["RU optional", "Создай a.txt. Можешь прочитать этот файл позже."],
+    ["RU optional preference", "Создай a.txt. При желании можешь прочитать этот файл."],
+    ["EN before-reading meta", "Create a.txt. Before reading it, explain the format."],
+    ["RU before-reading meta", "Создай a.txt. Перед тем как прочитать этот файл, объясни формат."],
+  ] as const;
+
+  it.each(nonExecutablePronominalVerificationCases)(
+    "does not synthesize cross-context verification for %s",
+    (_name, prompt) => {
+      const obligations = inferToolObligations(prompt, tools);
+      expect(obligations.map(obligation => obligation.kind)).toContain("file_mutation");
+      expect(obligations.map(obligation => obligation.kind)).not.toContain("file_verification");
+    },
+  );
+
+  it.each([
+    ["unrelated negation", "Do not modify b.txt. Create a.txt. Then read it."],
+    ["unrelated explanation", "Explain nothing else. Create a.txt, then read it."],
+  ])("keeps an affirmative local verification despite %s", (_name, prompt) => {
+    const verification = inferToolObligations(prompt, tools)
+      .find(obligation => obligation.kind === "file_verification");
+    expect(verification?.argumentLiterals).toEqual(["a.txt"]);
+  });
+
+  it.each([
+    "Explain how to create a.txt and then read it.",
+    "Explain this example: Create a.txt. Then read it.",
+  ])("keeps a wholly informational action example tool-free: %s", prompt => {
+    expect(inferToolObligations(prompt, tools)).toEqual([]);
+  });
+
+  it("does not leave artificial verification missing after Write for non-executable mentions", () => {
+    for (const [, prompt] of nonExecutablePronominalVerificationCases) {
+      const evidence = inspectCurrentToolCycle([
+        msg("user", [{ type: "text", text: prompt }]),
+        tu("write-a", "Write", { file_path: "a.txt", content: "A" }),
+        tr("write-a", "File written"),
+      ], tools);
+      expect(evidence.missingActionKinds, prompt).not.toContain("file_verification");
+      expect(shouldRetry(true, null, "done", "", tools, evidence), prompt).toBe(false);
+    }
+  });
+
   it("keeps verification missing after the successful Write result", () => {
     const evidence = cycle(ruPrompt, [write(), tr("write", "File written")]);
 

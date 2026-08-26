@@ -4,7 +4,7 @@
 >
 > **Baseline:** `fix/tool-guard-pronominal-verification` — D18 PASS B branch based on reviewed D10 head
 >
-> **Offline baseline:** 36 test files, 970 tests
+> **Offline baseline:** 36 test files, 992 tests
 >
 > **Открыто:** P0 — 0, P1 — 1, P2 — 2; deferred P3 — 1
 > **Production scope:** Claude Code → Anthropic-compatible Bridge → DeepSeek Web → Bridge → Claude Code
@@ -92,7 +92,7 @@ transport, policy и persistence defects не объединяются в оди
 | **D15a** | P2 | L1 / L4 | `OPEN / CAPABILITY UNRESOLVED` | Anthropic `max_tokens` нормализуется, но для внутреннего DeepSeek Web completion protocol не подтверждено enforceable output-limit field; guessed field запрещён. | `LIVE DIAGNOSTIC`: Claude Code 2.1.241 отправляет `max_tokens=32000`; актуальный Web payload/frontend не показал `max_tokens`, `max_new_tokens`, `max_output_tokens` или иной доказанный limit field. Downstream truncation не доказана безопасной для SSE/tool/terminal contract. | Отдельная capability verification | — |
 | **D15b** | P2 | L1 / L4 | `CLOSED` | Anthropic usage имеет exact-or-unavailable semantics: exact legacy split передаётся, unknown usage omitted; V4 cumulative counter хранится отдельно и не masquerade-ит как per-request usage. | `TEST`: implementation `a4c43a222be14e4513923b3d9525398cb616980a`, independent review PASS; 13 focused regressions; V4 initial/BATCH/latest/FINISHED/INCOMPLETE, legacy split, non-stream exact/zero/unknown/partial, streaming text/tool и handler propagation; focused 85/85, full 35 files / 904 tests. `LIVE` Windows, Claude Code 2.1.246, `deepseek-v4-flash`: unknown-usage Anthropic stream принят real client; Bash + linked `tool_result` завершились `D15B-TOOL-PASS`, main continuation `completion_attempt=1` / `guard_attempt=0` / `completion_done`, без usage/SSE failure, hang или D15b 502. Verdict `PASS WITH COLLATERAL FINDING`: один initial `missing_tool_evidence` retry и отдельная post-final new-lineage guard/tool chain относятся к guard/client collateral, не D15b. | D3 terminal semantics; D4 downstream lifecycle | `a4c43a222be14e4513923b3d9525398cb616980a` |
 | **D17** | P1 | L2 | `CLOSED` | Один shared narrow predicate требует explicit command wording, conservative recognizable CLI literal либо явный Bash/shell/PowerShell/terminal context; generic `Выполни ...` action/file wording не создаёт `command_execution`. | `TEST`: 23 D17 regressions; focused 436/436, full 35 files / 874 tests; independent review PASS. `LIVE`: Windows, Claude Code 2.1.241, `deepseek-v4-flash`, real 39-tool catalog; 3 Write + 3 Read results, каждый requested cycle `completion_attempt=1` / `guard_attempt=0`, immediate `D17-LIVE-PASS`, no Bash/missing command/502, external marker verification PASS. Отдельный new-lineage/empty-history/different-upstream post-final Bash не относится к D17 chain. | D13 CLOSED | `d3d57de901ba3b07afeb27aa634054b8c1092f2f` |
-| **D18** | P1 | L2 / L1 | `IMPLEMENTED / AWAITING INDEPENDENT REVIEW + WINDOWS LIVE` | Single unambiguous mutation target переносится в последующую pronominal file verification (`этот файл`, `этот же файл`, `that file`, `the same file`, `it`); raw allowed `[调用 Tool] {...}` не может стать final и требует canonical repair. Ambiguous multi-target referents не угадываются, marker arguments не исполняются. | `TEST`: 26 focused cases; exact RU/EN inference, Write/Read evidence, historical/failed/stale, ambiguity/explicit-target controls, allowed/unknown/quoted markers, root bounded exhaustion и Anthropic handler no-leak/repaired exposure; tools 463/463, full 36 files / 970 tests; typecheck/build/Windows test:platform/diff-check PASS. `LIVE`: pending isolated Windows Claude Code 2.1.241 Write→Read retest. | D13/D17 guards; blocks D10 merge only operationally | — |
+| **D18** | P1 | L2 / L1 | `IMPLEMENTED / AWAITING SECOND INDEPENDENT REVIEW + WINDOWS LIVE` | Single unambiguous mutation target переносится в последующую affirmative executable pronominal file verification (`этот файл`, `этот же файл`, `that file`, `the same file`, `it`); negated/explanatory/conditional/optional/meta mention не создаёт mandatory Read. Raw allowed `[调用 Tool] {...}` не может стать final и требует canonical repair. | `REVIEW`: initial independent review FAIL из-за false-positive cross-context synthesis. `TEST`: follow-up добавил 22 controls; D18 focused 48/48, tools 485/485, full 36 files / 992 tests; historical malformed/final-state/D13/D17 suites и standard checks PASS. A/B подтвердил explicit-path contrast/negation behavior как pre-existing collateral вне follow-up scope. `LIVE`: pending isolated Windows Claude Code 2.1.241 Write→Read retest after second review. | D13/D17 guards; blocks D10 merge only operationally | — |
 
 ### 5.2 Acceptance and required evidence
 
@@ -204,7 +204,7 @@ versioned addendum; новые regressions добавляются новыми I
 | Gate | Pass condition | Baseline status |
 | --- | --- | --- |
 | G1 | `npm run typecheck` green | PASS (recheck each branch) |
-| G2 | `npm test` 100% green | PASS: 970/970 on D18 branch (recheck release commit) |
+| G2 | `npm test` 100% green | PASS: 992/992 on D18 branch (recheck release commit) |
 | G3 | `npm run build` green | PASS (recheck each branch) |
 | G4 | `npm run test:platform` green | PASS on current Windows baseline |
 | G5 | CI Windows/Linux/macOS green for release commit | NEEDS RELEASE-COMMIT VERIFICATION |
@@ -316,7 +316,7 @@ P0 — 0, P1 — 1, P2 — 2; deferred P3 — 1. G6 и G15 пройдены; G7/
 closure D18, остальные release gates остаются открытыми. D10 final independent
 re-review и Windows desktop PB39 PASS 3/3, но merge operationally blocked до
 closure D18; D15b имеет статус `CLOSED`, D15a — `OPEN / CAPABILITY UNRESOLVED`.
-D18 — `IMPLEMENTED / AWAITING INDEPENDENT REVIEW + WINDOWS LIVE`. D15b live
+D18 — `IMPLEMENTED / AWAITING SECOND INDEPENDENT REVIEW + WINDOWS LIVE`. D15b live
 verdict — `PASS WITH COLLATERAL FINDING`: отдельная guard/client activity не
 переоткрывает usage work.
 

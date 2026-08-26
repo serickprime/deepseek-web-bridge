@@ -198,9 +198,14 @@ separator/case canonicalization в этот contract не входит.
 унаследовать target предыдущей mutation только при явной file-anaphora: `этот
 файл`, `этот же файл`, `that file`, `the same file` или `it`. При нескольких
 targets, другом explicit path, conflicting file action либо отсутствии
-Read-like tool Bridge не угадывает referent. Такое association синтезирует
-реальную `file_verification` obligation, поэтому успешный Write не разрешает
-final до fresh correlated Read result. Raw output вида `[调用 <allowed-tool>]
+Read-like tool Bridge не угадывает referent. Cross-context association требует
+локально affirmative executable clause: negated, explanatory, conditional,
+optional/modal и subordinate meta references не синтезируют mandatory Read.
+Gate анализирует transition между конкретными actions, а не global prompt, так
+что unrelated отрицание или explanation в предыдущем предложении не отключает
+явный `Then read it`. Такое association синтезирует реальную
+`file_verification` obligation, поэтому успешный Write не разрешает final до
+fresh correlated Read result. Raw output вида `[调用 <allowed-tool>]
 {...}` считается malformed tool intent: arguments не парсятся/исполняются,
 модель получает bounded canonical repair, а raw marker не публикуется final.
 

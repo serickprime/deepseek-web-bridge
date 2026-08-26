@@ -427,9 +427,14 @@ function looksLikeConcreteDirectoryListingRequest(content: string): boolean {
     || CONCRETE_DIRECTORY_LISTING_EN.test(content);
 }
 
+function hasIndependentFileActionAfterInformationalLead(content: string): boolean {
+  return /(?:[.!?]\s+|\n+)\s*(?:созда\S*|сделай|сохрани\S*|запиши\S*|измени\S*|отредактир\S*|удали\S*|create|make|save|write|modify|change|edit|delete|remove)(?=\s)[^.!?\r\n]{0,160}\b[\w.-]+\.(?:json|md|txt|html?|jsx?|tsx?|ya?ml|toml)\b/i.test(content);
+}
+
 function isInformationalRequest(content: string): boolean {
   const normalized = content.trim().toLowerCase().replace(/\s+/g, " ");
   if (looksLikeConcreteDirectoryListingRequest(normalized)) return false;
+  if (hasIndependentFileActionAfterInformationalLead(content)) return false;
   return INFORMATIONAL_PREFIXES.some(prefix => normalized.startsWith(prefix));
 }
 
@@ -694,6 +699,36 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
     resultLiterals: string[];
   }
 
+  const localActionPrefix = (action: FileActionMatch, priorAction?: FileActionMatch): string =>
+    content.slice(priorAction?.verbEnd ?? Math.max(0, action.start - 120), action.start).slice(-120);
+  const isLocallyNegatedAction = (action: FileActionMatch, priorAction?: FileActionMatch): boolean =>
+    /(?:\b(?:do\s+not|don't|never|not\s+need\s+to|no\s+need\s+to)\s*|(?:не\s+(?:нужно|надо)|необязательно)\s*)$/i.test(
+      localActionPrefix(action, priorAction),
+    );
+  const isExecutablePronominalVerification = (
+    action: FileActionMatch,
+    priorAction: FileActionMatch,
+  ): boolean => {
+    const localPrefix = localActionPrefix(action, priorAction);
+    if (isLocallyNegatedAction(action, priorAction)) return false;
+    if (/(?:\b(?:explain|tell\s+me|describe)\b[^.!?\r\n]{0,64}\bhow\s+to\s*|(?:объясни|расскажи|опиши)[^.!?\r\n]{0,64}как\s*)$/i.test(localPrefix)) {
+      return false;
+    }
+    if (/(?:\bif\s+(?:necessary|required|needed)\s*,?\s*|\bif\s+you\s+want\s+to\s*|(?:если\s+(?:потребуется|нужно|необходимо)|при\s+необходимости)\s*,?\s*)$/i.test(localPrefix)) {
+      return false;
+    }
+    if (/(?:\b(?:you\s+)?(?:can|may)\s*|(?:при\s+желании\s+)?можешь\s*)$/i.test(localPrefix)) {
+      return false;
+    }
+    if (/(?:\bbefore\s*|перед\s+тем\s+как\s*)$/i.test(localPrefix)) {
+      return false;
+    }
+    if (/^reading\b[^.!?\r\n]{0,80}\boptional\b/i.test(action.span)) {
+      return false;
+    }
+    return /(?:^|[.!?]\s*|\n+|,\s*)(?:(?:then|now|please)\s+|after\s+(?:creating|writing|saving)(?:\s+(?:it|the\s+file))?\s*,?\s*|(?:затем|потом|теперь|пожалуйста)\s+|после\s+(?:создания|записи|сохранения|этого)\s*,?\s*(?:обязательно\s+)?|обязательно\s+)?$/i.test(localPrefix);
+  };
+
   const distinctPaths = [...new Set(pathLiterals.map(path => path.normalize("NFC")))];
   const mutationVerb = /(?:созда\S*|сделай|сохран\S*|запиш\S*|добав\S*|дополн\S*|допис\S*|измен\S*|отредактир\S*|удал\S*|переимен\S*|перемест\S*|скопир\S*|create|make|save|write|append|add|modify|change|edit|delete|remove|rename|move|copy)/gi;
   const verifyVerb = /(?:провер\S*|прочит\S*|прочти|убедись|verify|check|inspect|read|cat\b|show|display)/gi;
@@ -754,17 +789,31 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
         .find(previous => previous.context === action.context && previous.paths.includes(implicitPath));
       if (priorSameContext && (action.sequential || fileAnaphora)) {
         action.paths = [implicitPath];
-        continue;
-      }
-      if (action.context !== "verification" || !fileAnaphora) continue;
-      const priorTargetedAction = actionMatches
-        .slice(0, index)
-        .reverse()
-        .find(previous => previous.paths.length > 0);
-      if (priorTargetedAction?.context === "mutation" && priorTargetedAction.paths.includes(implicitPath)) {
-        action.paths = [implicitPath];
       }
     }
+  }
+
+  for (let index = 1; index < actionMatches.length; index++) {
+    const action = actionMatches[index]!;
+    if (action.context !== "verification" || action.paths.length > 0) continue;
+    const fileAnaphora = /(?:эт\S*(?:\s+же)?\s+файл\S*|в\s+него|\b(?:it|that\s+file|the\s+same\s+file)\b)/i.test(action.span);
+    if (!fileAnaphora) continue;
+    const priorActions = actionMatches.slice(0, index);
+    const affirmativeMutations = priorActions.filter((candidate, candidateIndex) => (
+      candidate.context === "mutation"
+      && candidate.paths.length > 0
+      && !isLocallyNegatedAction(candidate, actionMatches[candidateIndex - 1])
+    ));
+    const candidatePaths = [...new Set(affirmativeMutations.flatMap(candidate => candidate.paths))];
+    if (candidatePaths.length !== 1) continue;
+    const priorMutation = affirmativeMutations.at(-1);
+    if (!priorMutation || !priorMutation.paths.includes(candidatePaths[0]!)) continue;
+    const priorMutationIndex = actionMatches.indexOf(priorMutation);
+    const interveningTargetedVerification = actionMatches
+      .slice(priorMutationIndex + 1, index)
+      .some(candidate => candidate.context === "verification" && candidate.paths.length > 0);
+    if (interveningTargetedVerification) continue;
+    if (isExecutablePronominalVerification(action, priorMutation)) action.paths = [candidatePaths[0]!];
   }
 
   const associatedPaths = new Set(actionMatches.flatMap(action => action.paths));

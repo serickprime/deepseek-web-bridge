@@ -3,6 +3,24 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-26 — Narrow D18 pronominal verification synthesis
+
+- Первый independent review D18 завершился `FAIL`: cross-context inheritance
+  ошибочно превращал negated, explanatory, conditional, optional и future/meta
+  упоминания `read it` в обязательный `file_verification` после mutation.
+- Follow-up добавляет локальный affirmative executable-clause gate только для
+  D18 mutation→pronominal-verification association. Gate использует transition
+  между конкретными actions, поэтому unrelated `do not`/`explain` в другой
+  clause не отключают настоящий `Then read it`; неуверенные формы fail closed
+  без синтеза mandatory Read.
+- Добавлены 22 regressions для EN/RU negation, explanation, condition,
+  optional/modal/meta wording, locality и post-Write guard behavior. Focused D18
+  suite — 48/48; полный `tools.test.ts` — 485/485. Explicit-path cases
+  `instead of b.txt` и `Do not read b.txt; read it` подтверждены A/B как
+  pre-existing limitation base `2c2e082` и оставлены collateral pending PASS A.
+  Raw `[调用 Tool]` marker behavior не менялся. D18 — `IMPLEMENTED / AWAITING
+  SECOND INDEPENDENT REVIEW + WINDOWS LIVE`, не `CLOSED`.
+
 ## 2026-08-26 — Guard pronominal file verification and raw tool markers
 
 - D18 исправляет подтверждённый pre-merge collateral L2 defect: при одном
