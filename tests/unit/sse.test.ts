@@ -4,6 +4,12 @@ import { SseAccumulator, parseSseBlock } from "../../src/deepseek/sseParser.js";
 import { anthropicSseMessageDone, toAnthropicMessage } from "../../src/server/outputAnthropic.js";
 import { ProtocolStream } from "../../src/server/protocolStream.js";
 
+function parseEventData(chunk: string): Record<string, unknown> {
+  const dataLine = chunk.split("\n").find(line => line.startsWith("data: "));
+  if (!dataLine) throw new Error("Missing SSE data line");
+  return JSON.parse(dataLine.slice("data: ".length)) as Record<string, unknown>;
+}
+
 describe("updateParser", () => {
   it("parses a streaming content chunk (old format)", () => {
     const p = new DeepSeekPatchParser();
@@ -53,6 +59,62 @@ describe("updateParser", () => {
     expect(chunk?.terminal).toBe("success");
     expect(chunk?.usage?.promptTokens).toBe(14);
     expect(chunk?.usage?.completionTokens).toBe(5);
+    expect(chunk?.usage?.totalTokens).toBe(15);
+    expect(chunk?.accumulatedTokenUsage).toBeUndefined();
+  });
+});
+
+describe("D15b V4 accumulated token usage", () => {
+  it("captures an initial response counter without presenting it as exact usage", () => {
+    const parser = new DeepSeekPatchParser();
+    const chunk = parser.apply({
+      v: { response: { fragments: [], accumulated_token_usage: 14_261 } },
+    });
+
+    expect(chunk?.accumulatedTokenUsage).toBe(14_261);
+    expect(chunk?.usage).toBeUndefined();
+  });
+
+  it("captures the live BATCH path and preserves the latest cumulative counter", () => {
+    const parser = new DeepSeekPatchParser();
+    parser.apply({ v: { response: { fragments: [], accumulated_token_usage: 14_261 } } });
+
+    const first = parser.apply({
+      p: "response",
+      o: "BATCH",
+      v: [
+        { p: "accumulated_token_usage", o: "SET", v: 14_592 },
+        { p: "accumulated_token_usage", o: "SET", v: 33_728 },
+      ],
+    });
+    const terminal = parser.apply({ p: "response/status", o: "SET", v: "FINISHED" });
+
+    expect(first?.accumulatedTokenUsage).toBe(33_728);
+    expect(first?.usage).toBeUndefined();
+    expect(terminal?.terminal).toBe("success");
+    expect(terminal?.accumulatedTokenUsage).toBe(33_728);
+    expect(terminal?.usage).toBeUndefined();
+  });
+
+  it("does not synthesize accumulated usage when the V4 response omits it", () => {
+    const parser = new DeepSeekPatchParser();
+    const chunk = parser.apply({
+      v: { response: { fragments: [{ type: "RESPONSE", content: "ok" }] } },
+    });
+
+    expect(chunk?.delta).toBe("ok");
+    expect(chunk?.accumulatedTokenUsage).toBeUndefined();
+    expect(chunk?.usage).toBeUndefined();
+  });
+
+  it("keeps INCOMPLETE terminal semantics while retaining diagnostic accumulated usage", () => {
+    const parser = new DeepSeekPatchParser();
+    parser.apply({ v: { response: { fragments: [], accumulated_token_usage: 20 } } });
+    const chunk = parser.apply({ p: "response/status", o: "SET", v: "INCOMPLETE" });
+
+    expect(chunk?.terminal).toBe("incomplete");
+    expect(chunk?.accumulatedTokenUsage).toBe(20);
+    expect(chunk?.usage).toBeUndefined();
   });
 });
 
@@ -362,6 +424,108 @@ describe("FIX2: toAnthropicMessage does not include raw JSON text when tool_call
     expect(textBlocks[0]!.text).toBe("hello world");
     expect(toolBlocks).toHaveLength(0);
     expect(msg.stop_reason).toBe("end_turn");
+  });
+});
+
+describe("D15b Anthropic non-streaming usage", () => {
+  it("reports exact split usage for text and preserves real zero values", () => {
+    const exact = toAnthropicMessage({
+      content: "ok",
+      toolCalls: [],
+      usage: { promptTokens: 12, completionTokens: 5, totalTokens: 17 },
+    }, "test-model");
+    const zero = toAnthropicMessage({
+      content: "ok",
+      toolCalls: [],
+      usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+    }, "test-model");
+
+    expect(exact.usage).toEqual({ input_tokens: 12, output_tokens: 5 });
+    expect(zero.usage).toEqual({ input_tokens: 0, output_tokens: 0 });
+  });
+
+  it("omits usage when the exact prompt/completion split is absent or partial", () => {
+    const absent = toAnthropicMessage({ content: "ok", toolCalls: [] }, "test-model");
+    const promptOnly = toAnthropicMessage({
+      content: "ok",
+      toolCalls: [],
+      usage: { promptTokens: 12, totalTokens: 17 },
+    }, "test-model");
+    const completionOnly = toAnthropicMessage({
+      content: "ok",
+      toolCalls: [],
+      usage: { completionTokens: 5, totalTokens: 17 },
+    }, "test-model");
+
+    expect(absent).not.toHaveProperty("usage");
+    expect(promptOnly).not.toHaveProperty("usage");
+    expect(completionOnly).not.toHaveProperty("usage");
+  });
+
+  it("uses the same truthful semantics for tool_use results", () => {
+    const toolCall = { id: "call_1", type: "function" as const, name: "Bash", arguments: { command: "pwd" } };
+    const exact = toAnthropicMessage({
+      content: "",
+      toolCalls: [toolCall],
+      usage: { promptTokens: 9, completionTokens: 3, totalTokens: 12 },
+    }, "test-model");
+    const unknown = toAnthropicMessage({ content: "", toolCalls: [toolCall] }, "test-model");
+
+    expect(exact.usage).toEqual({ input_tokens: 9, output_tokens: 3 });
+    expect(unknown).not.toHaveProperty("usage");
+  });
+});
+
+describe("D15b Anthropic streaming usage", () => {
+  it("starts immediately without fabricated usage and reports exact output usage at terminal", () => {
+    const chunks: string[] = [];
+    const stream = new ProtocolStream("anthropic", "test-model", chunk => chunks.push(chunk));
+    stream.start();
+    stream.push({ type: "content", text: "ok" });
+    stream.finish({ promptTokens: 12, completionTokens: 5, totalTokens: 17 });
+
+    const start = parseEventData(chunks.find(chunk => chunk.startsWith("event: message_start"))!);
+    const startMessage = start.message as Record<string, unknown>;
+    const done = parseEventData(chunks.find(chunk => chunk.startsWith("event: message_delta"))!);
+    expect(startMessage).not.toHaveProperty("usage");
+    expect(done.usage).toEqual({ output_tokens: 5 });
+    expect(chunks.filter(chunk => chunk.startsWith("event: message_delta"))).toHaveLength(1);
+    expect(chunks.filter(chunk => chunk.startsWith("event: message_stop"))).toHaveLength(1);
+  });
+
+  it("omits terminal usage when exact completion usage is unavailable", () => {
+    const chunks: string[] = [];
+    const stream = new ProtocolStream("anthropic", "test-model", chunk => chunks.push(chunk));
+    stream.start();
+    stream.push({ type: "content", text: "ok" });
+    stream.finish({ promptTokens: 12, totalTokens: 12 });
+
+    const done = parseEventData(chunks.find(chunk => chunk.startsWith("event: message_delta"))!);
+    expect(done).not.toHaveProperty("usage");
+  });
+
+  it("preserves an exact zero output count", () => {
+    const event = parseEventData(anthropicSseMessageDone("end_turn", {
+      promptTokens: 4,
+      completionTokens: 0,
+      totalTokens: 4,
+    }));
+    expect(event.usage).toEqual({ output_tokens: 0 });
+  });
+
+  it("applies the same terminal usage rule to tool streams", () => {
+    const chunks: string[] = [];
+    const stream = new ProtocolStream("anthropic", "test-model", chunk => chunks.push(chunk));
+    stream.start();
+    stream.push({
+      type: "tool_use",
+      toolCall: { id: "call_1", type: "function", name: "Bash", arguments: { command: "pwd" } },
+    });
+    stream.finish({ promptTokens: 8, completionTokens: 2, totalTokens: 10 });
+
+    const done = parseEventData(chunks.find(chunk => chunk.startsWith("event: message_delta"))!);
+    expect(done.delta).toEqual({ stop_reason: "tool_use", stop_sequence: null });
+    expect(done.usage).toEqual({ output_tokens: 2 });
   });
 });
 

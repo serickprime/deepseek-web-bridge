@@ -15,6 +15,12 @@ function parseMessageId(value: unknown): number | undefined {
   return undefined;
 }
 
+function parseAccumulatedTokenUsage(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? value
+    : undefined;
+}
+
 export interface UpdateChunk {
   index: number;
   delta: string;
@@ -27,6 +33,7 @@ export interface UpdateChunk {
     completionTokens?: number;
     totalTokens?: number;
   };
+  accumulatedTokenUsage?: number;
 }
 
 /* ── DeepSeek Patch State Machine ── */
@@ -41,6 +48,7 @@ export class DeepSeekPatchParser {
   private currentOp = "SET";
   private fragments: Fragment[] = [];
   private status: string | undefined;
+  private accumulatedTokenUsage: number | undefined;
 
   apply(raw: unknown): UpdateChunk | null {
     if (!isRecord(raw)) return null;
@@ -77,6 +85,7 @@ export class DeepSeekPatchParser {
           delta: "",
           terminal: value === "FINISHED" ? "success" : "incomplete",
           parentMessageId: null,
+          accumulatedTokenUsage: this.accumulatedTokenUsage,
         };
       }
       return null;
@@ -115,6 +124,8 @@ export class DeepSeekPatchParser {
 
   private applyInitialSnapshot(response: Record<string, unknown>): UpdateChunk {
     if (typeof response.status === "string") this.status = response.status;
+    const accumulatedTokenUsage = parseAccumulatedTokenUsage(response.accumulated_token_usage);
+    if (accumulatedTokenUsage !== undefined) this.accumulatedTokenUsage = accumulatedTokenUsage;
 
     const fragArr = response.fragments;
     if (Array.isArray(fragArr)) {
@@ -140,6 +151,7 @@ export class DeepSeekPatchParser {
             ? "incomplete"
             : null,
         parentMessageId: null,
+        accumulatedTokenUsage: this.accumulatedTokenUsage,
       };
     }
 
@@ -152,6 +164,7 @@ export class DeepSeekPatchParser {
           ? "incomplete"
           : null,
       parentMessageId: null,
+      accumulatedTokenUsage: this.accumulatedTokenUsage,
     };
   }
 
@@ -160,6 +173,7 @@ export class DeepSeekPatchParser {
     let reasoningDelta = "";
     let terminal: UpdateChunk["terminal"] = null;
     let messageId: number | undefined;
+    let accumulatedTokenUsage: number | undefined;
 
     const savedPath = this.currentPath;
     const savedOp = this.currentOp;
@@ -178,6 +192,13 @@ export class DeepSeekPatchParser {
       this.currentOp = subOp;
 
       if ("v" in item) {
+        if (fullPath === "accumulated_token_usage" || fullPath === "response/accumulated_token_usage") {
+          const parsed = parseAccumulatedTokenUsage(item.v);
+          if (parsed !== undefined) {
+            this.accumulatedTokenUsage = parsed;
+            accumulatedTokenUsage = parsed;
+          }
+        }
         const child = this.apply({ p: fullPath, o: subOp, v: item.v });
         if (child) {
           delta += child.delta;
@@ -192,7 +213,7 @@ export class DeepSeekPatchParser {
     this.currentPath = savedPath;
     this.currentOp = savedOp;
 
-    if (!delta && !reasoningDelta && !terminal) return null;
+    if (!delta && !reasoningDelta && !terminal && accumulatedTokenUsage === undefined) return null;
 
     return {
       index: 0,
@@ -201,6 +222,7 @@ export class DeepSeekPatchParser {
       messageId,
       terminal,
       parentMessageId: null,
+      accumulatedTokenUsage: accumulatedTokenUsage ?? this.accumulatedTokenUsage,
     };
   }
 

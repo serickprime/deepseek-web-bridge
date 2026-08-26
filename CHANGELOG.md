@@ -3,6 +3,28 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-26 — Make Anthropic usage reporting truthful
+
+- D15 разделён на D15a (`OPEN / CAPABILITY UNRESOLVED`) и D15b
+  (`IMPLEMENTED / VERIFYING`). Claude Code 2.1.241 действительно отправляет
+  `max_tokens=32000`, но в актуальном DeepSeek Web payload/frontend не найдено
+  подтверждённого output-limit field; guessed upstream parameter не добавлялся.
+- V4 `response.accumulated_token_usage` и его terminal BATCH update теперь
+  распознаются как отдельный cumulative parent-chain counter. Он никогда не
+  преобразуется в exact `promptTokens`/`completionTokens`/`totalTokens` и не
+  попадает в Anthropic usage. Legacy exact split остаётся без изменений.
+- Anthropic non-streaming response теперь включает usage только при наличии
+  точного input/output split. Streaming `message_start` больше не содержит
+  fabricated `0/0`; terminal `message_delta` включает exact `output_tokens`
+  только когда он известен. Явные upstream zero сохраняются, unknown usage
+  представляется отсутствием поля одинаково для text и tool-use.
+- Добавлены 13 focused regressions в `sse.test.ts` и
+  `anthropicStreamErrorLifecycle.test.ts`: V4 initial/BATCH/latest/terminal,
+  legacy exact usage, exact/zero/unknown/partial non-streaming, text/tool
+  streaming и handler propagation. Focused suites — 85/85; full baseline —
+  35 files / 904 tests. Open P2 увеличен с 2 до 3 из-за formal D15 split;
+  G7/G16 остаются PASS, production-ready — NO.
+
 ## 2026-08-26 — Close D14 after independent verification
 
 - D14 закрыт после успешного independent review rebased implementation

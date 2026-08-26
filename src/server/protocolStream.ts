@@ -1,4 +1,4 @@
-import type { CanonicalChunk, CanonicalToolCall } from "../api/canonical.js";
+import type { CanonicalChunk, CanonicalResult, CanonicalToolCall } from "../api/canonical.js";
 import type { Protocol } from "../api/normalizeByProtocol.js";
 import {
   anthropicSseError,
@@ -126,7 +126,7 @@ export class ProtocolStream {
     }
   }
 
-  finish(): void {
+  finish(usage?: CanonicalResult["usage"]): void {
     if (this.terminal !== "open") return;
     this.terminal = "success";
     if (this.protocol === "anthropic") {
@@ -134,7 +134,7 @@ export class ProtocolStream {
     }
     if (this.protocol === "openai") this.write(openaiSseDone(0));
     if (this.protocol === "anthropic") {
-      this.write(anthropicSseMessageDone(this.hadToolUse ? "tool_use" : "end_turn"));
+      this.write(anthropicSseMessageDone(this.hadToolUse ? "tool_use" : "end_turn", usage));
       this.write(anthropicSseStop());
     }
     if (this.protocol === "responses") this.write(responsesSseDone());

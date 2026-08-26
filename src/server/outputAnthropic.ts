@@ -37,7 +37,7 @@ export interface AnthropicMessageResponse {
   content: AnthropicContentBlock[];
   stop_reason: string;
   stop_sequence: null;
-  usage: {
+  usage?: {
     input_tokens: number;
     output_tokens: number;
   };
@@ -51,6 +51,12 @@ export function toAnthropicMessage(result: CanonicalResult, model: string): Anth
   const content: AnthropicContentBlock[] = [];
   if (result.content) content.push({ type: "text", text: result.content });
   for (const call of result.toolCalls) content.push(toBlock(call));
+  const exactUsage = result.usage?.promptTokens !== undefined && result.usage.completionTokens !== undefined
+    ? {
+        input_tokens: result.usage.promptTokens,
+        output_tokens: result.usage.completionTokens,
+      }
+    : undefined;
   return {
     id: `msg_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
     type: "message",
@@ -59,10 +65,7 @@ export function toAnthropicMessage(result: CanonicalResult, model: string): Anth
     content,
     stop_reason: result.toolCalls.length > 0 ? "tool_use" : (result.stopReason ?? "end_turn"),
     stop_sequence: null,
-    usage: {
-      input_tokens: result.usage?.promptTokens ?? 0,
-      output_tokens: result.usage?.completionTokens ?? 0,
-    },
+    ...(exactUsage ? { usage: exactUsage } : {}),
   };
 }
 
@@ -77,7 +80,6 @@ export function anthropicSseMessageStart(model: string, index: number): string {
       content: [],
       stop_reason: null,
       stop_sequence: null,
-      usage: { input_tokens: 0, output_tokens: 0 },
     },
   })}\n\n`;
 }
@@ -90,11 +92,15 @@ export function anthropicSseContentDelta(delta: string): string {
   })}\n\n`;
 }
 
-export function anthropicSseMessageDone(stopReason: "end_turn" | "tool_use" = "end_turn"): string {
+export function anthropicSseMessageDone(
+  stopReason: "end_turn" | "tool_use" = "end_turn",
+  usage?: CanonicalResult["usage"],
+): string {
+  const completionTokens = usage?.completionTokens;
   return `event: message_delta\ndata: ${JSON.stringify({
     type: "message_delta",
     delta: { stop_reason: stopReason, stop_sequence: null },
-    usage: { output_tokens: 0 },
+    ...(completionTokens !== undefined ? { usage: { output_tokens: completionTokens } } : {}),
   })}\n\n`;
 }
 

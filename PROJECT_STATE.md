@@ -48,8 +48,9 @@ final path через ложный `command_execution`, retries и 502.
 D14 top-level Anthropic `system` text-block arrays закрыт после deterministic
 normalization/prompt-boundary coverage и independent review; malformed или
 unsupported supplied system fail closed как `INVALID_REQUEST`/400. Отдельный
-live-test не требуется для этого deterministic boundary. Open P2 = 2; следующий
-correctness P2 — D15.
+live-test не требуется для этого deterministic boundary. D15 формально разделён:
+D15a `max_tokens` остаётся `OPEN / CAPABILITY UNRESOLVED`, а D15b truthful
+Anthropic usage реализован и имеет статус `IMPLEMENTED / VERIFYING`. Open P2 = 3.
 D1 остаётся неподтверждённой/deferred P3.
 
 Проект использует **неофициальные** внутренние маршруты веб-сайта DeepSeek
@@ -123,7 +124,7 @@ D1 остаётся неподтверждённой/deferred P3.
 **Проверки сейчас:**
 - `npm run typecheck` — ✅ без ошибок.
 - `npm run build` — ✅ собирается.
-- `npm test` — ✅ 891/891 (Windows process-lifecycle case требует разрешённый
+- `npm test` — ✅ 904/904 (Windows process-lifecycle case требует разрешённый
   `taskkill`; sandbox-only запуск отдельно воспроизводит известный D10 finding).
 - `npm run test:platform` — ✅ локально на Windows: real process/platform,
   `buildConfig`, Bridge HTTP, Unicode cwd и env propagation без DeepSeek auth.
@@ -261,6 +262,23 @@ D1 остаётся неподтверждённой/deferred P3.
   top-level system array. Возможная будущая shape telemetry не должна логировать
   content и не входит в D14. Open P2 = 2, следующий correctness P2 — D15;
   production-ready = NO.
+- D15a / P2 — `OPEN / CAPABILITY UNRESOLVED`: Anthropic `max_tokens`
+  нормализуется (Claude Code 2.1.241 live отправляет 32000), но актуальный
+  DeepSeek Web completion payload/frontend не показал подтверждённого поля
+  output limit. Bridge не добавляет guessed upstream field и не пытается
+  downstream-truncate output с риском для terminal/tool semantics.
+- D15b / P2 — `IMPLEMENTED / VERIFYING`: `CanonicalResult.usage` означает только
+  точный upstream input/output split. Legacy `data.usage` продолжает давать
+  exact prompt/completion counts, а V4 `response.accumulated_token_usage`
+  сохраняется отдельно как cumulative parent-chain telemetry и никогда не
+  выдаётся за Anthropic usage. Non-streaming Anthropic output пропускает usage,
+  если полный exact split неизвестен; streaming `message_start` не содержит
+  fabricated zero, а final `message_delta` включает `output_tokens` только при
+  точном `completionTokens`. Явный upstream zero остаётся zero. 13 focused
+  regressions покрывают parser initial/BATCH/latest/terminal, text/tool,
+  exact/zero/unknown/partial и handler propagation; focused suites — 85/85,
+  full baseline — 35 files / 904 tests. Independent review и релевантная
+  verification ещё требуются; open P2 = 3, production-ready = NO.
 - D8 PASS B передаёт уже существующий request-scoped logger явно по всей цепочке
   route → handler → DeepSeek client → PoW. Один случайный process-local salt и
   domain separation создают необратимые `client_ref`, `upstream_ref`,

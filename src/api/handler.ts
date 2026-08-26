@@ -195,7 +195,7 @@ export class CompletionHandler {
             call_ref: opaqueRef(completionLogger, "call", id),
           });
           stream.push({ type: "tool_use", toolCall: call });
-          stream.finish();
+          stream.finish(result.usage);
           return {
             result: {
               content: result.content,
@@ -206,7 +206,7 @@ export class CompletionHandler {
             streamed: true,
           };
         }
-        stream.finish();
+        stream.finish(result.usage);
         return {
           result: {
             content: result.content,

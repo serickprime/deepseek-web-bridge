@@ -2,11 +2,11 @@
 
 > **Статус:** `HARDENING IN PROGRESS`
 >
-> **Baseline:** `fix/d14-system-block-arrays` — D14 closure branch
+> **Baseline:** `fix/d15-anthropic-usage-fidelity` — D15b implementation branch
 >
-> **Offline baseline:** 35 test files, 891 tests (D14 closure branch)
+> **Offline baseline:** 35 test files, 904 tests (D15b implementation branch)
 >
-> **Открыто:** P0 — 0, P1 — 0, P2 — 2; deferred P3 — 1
+> **Открыто:** P0 — 0, P1 — 0, P2 — 3; deferred P3 — 1
 > **Production scope:** Claude Code → Anthropic-compatible Bridge → DeepSeek Web → Bridge → Claude Code
 
 Этот файл — главный источник production-hardening backlog, frozen benchmark и
@@ -89,7 +89,8 @@ transport, policy и persistence defects не объединяются в оди
 | **D12** | P2 | L2 | `CLOSED` | Nested arrays проходят existing recursive safety inspection до plain-object rejection; root arguments остаётся plain object, а dangerous keys/depth/size/allowlist/malformed controls сохранены. | `TEST`: independent review PASS; 18 focused D12 regressions в `tools.test.ts` для primitive/empty/object/nested arrays, exact CanonicalToolCall, no-retry client, Anthropic handler exposure, root-array/depth/pollution/unknown/malformed controls; D11 array-schema transport green; 35 files / 817 tests. `LIVE`: Windows, Claude Code 2.1.241, `deepseek-v4-flash`; real `AskUserQuestion` с one-object `questions` array и nested `Alpha`/`Beta` options, user selected `Alpha`, real `tool_result` continuation и final `Alpha`, без unsafe/guard-exhaustion/unexpected-502/hang failures. Exact raw arguments live не заявляются. | D11 schema contract | `e237562bfb43d782b64eeb9673e0d5eba6abdbe8` |
 | **D13** | P2 | L2 | `CLOSED` | Independent create/edit/read action-target groups получают stable per-kind instances для 1–5 targets; explicit grouped operation остаётся одной obligation, ambiguous fallback сохраняет все targets. | `TEST`: 34 D13 cases; create/edit/read 1–5, partial/failure, mixed, grouped, same-file three-step/twice, Unicode/NFC, historical/stale/informational и root client guard; 35 files / 851 tests. `LIVE`: independent review PASS; Windows получил 3 separate Write + 3 separate Read results, PowerShell подтвердил exact A/B/C markers. Verdict: PASS WITH COLLATERAL FINDING — D17 вмешался только в final path. | Existing one-to-one matcher; D9/D12 controls | `0293f4a5a128766a535d3bf285252abe65e56fd8` |
 | **D14** | P2 | L1 | `CLOSED` | Anthropic top-level `system` сохраняет string точно либо соединяет ordered text-block array одним `\n`; malformed/unsupported supplied shape fail closed как `INVALID_REQUEST`/400. | `TEST`: 17 regressions для exact string/1/3 blocks/order/whitespace/Unicode/empty/absent/metadata/malformed shapes, OpenAI control, HTTP Anthropic error envelope и captured DeepSeek prompt без raw system JSON; 35 files / 891 tests; independent review PASS. Live не требуется: deterministic normalization/serialization и exact downstream prompt boundary доказаны напрямую, а Claude Code 2.1.241 не подтверждён как sender array shape. | Нет; D15 отдельно | `1f2f17267272e97d5941741d5767cc2e6e3de760` |
-| **D15** | P2 | L1 / L4 | `CONFIRMED STATIC GAP` | `max_tokens` нормализуется, но не передаётся DeepSeek; Anthropic streaming usage всегда 0, new-format usage coverage отсутствует. | `REPO`: `CanonicalRequest.maxTokens` не используется в payload; Anthropic SSE start/done hardcode zero; usage parser есть только в legacy data path. | D3 terminal/usage semantics | — |
+| **D15a** | P2 | L1 / L4 | `OPEN / CAPABILITY UNRESOLVED` | Anthropic `max_tokens` нормализуется, но для внутреннего DeepSeek Web completion protocol не подтверждено enforceable output-limit field; guessed field запрещён. | `LIVE DIAGNOSTIC`: Claude Code 2.1.241 отправляет `max_tokens=32000`; актуальный Web payload/frontend не показал `max_tokens`, `max_new_tokens`, `max_output_tokens` или иной доказанный limit field. Downstream truncation не доказана безопасной для SSE/tool/terminal contract. | Отдельная capability verification | — |
+| **D15b** | P2 | L1 / L4 | `IMPLEMENTED / VERIFYING` | Anthropic usage имеет exact-or-unavailable semantics: exact legacy split передаётся, unknown usage omitted; V4 cumulative counter хранится отдельно и не masquerade-ит как per-request usage. | `TEST`: 13 focused regressions; V4 initial/BATCH/latest/FINISHED/INCOMPLETE, legacy split, non-stream exact/zero/unknown/partial, streaming text/tool и handler propagation; focused 85/85, full 35 files / 904 tests. `LIVE DIAGNOSTIC`: V4 `response.accumulated_token_usage` и terminal BATCH — cumulative across linked parent chain, не prompt/completion/per-request total. | D3 terminal semantics; D4 downstream lifecycle | — |
 | **D17** | P1 | L2 | `CLOSED` | Один shared narrow predicate требует explicit command wording, conservative recognizable CLI literal либо явный Bash/shell/PowerShell/terminal context; generic `Выполни ...` action/file wording не создаёт `command_execution`. | `TEST`: 23 D17 regressions; focused 436/436, full 35 files / 874 tests; independent review PASS. `LIVE`: Windows, Claude Code 2.1.241, `deepseek-v4-flash`, real 39-tool catalog; 3 Write + 3 Read results, каждый requested cycle `completion_attempt=1` / `guard_attempt=0`, immediate `D17-LIVE-PASS`, no Bash/missing command/502, external marker verification PASS. Отдельный new-lineage/empty-history/different-upstream post-final Bash не относится к D17 chain. | D13 CLOSED | `d3d57de901ba3b07afeb27aa634054b8c1092f2f` |
 
 ### 5.2 Acceptance and required evidence
@@ -110,7 +111,8 @@ transport, policy и persistence defects не объединяются в оди
 | D12 | Valid nested arrays accepted up to depth limit; unsafe keys/depth rejected; contract documented. | Exact nested array reproduction, nested object+array, depth boundary, pollution keys. | PB14–PB15 |
 | D13 | `CLOSED`: 3+ distinct actions получают separate evidence; grouped action не over-split; one result не закрывает unrelated instances. | 1–5 files, same-kind/same-file steps, partial/failure/grouped/root-guard deterministic PASS; independent review и Windows 3 Write + 3 Read live PASS WITH COLLATERAL FINDING D17. | PB06–PB07, PB09–PB10 |
 | D14 | Anthropic string and block-array system content preserve ordered text exactly or unsupported shape returns INVALID_REQUEST. | Text blocks, multiple blocks, mixed/unknown blocks, Unicode, root prompt capture. | PB14 |
-| D15 | Supported output limit reaches upstream or is explicitly rejected; usage is real/absent, never fabricated zero presented as measured. | Payload capture, streaming/non-streaming usage, missing/new/legacy usage. | PB22, PB28 |
+| D15a | Подтверждённый output limit достигает upstream либо compatibility limitation формально документирована; guessed Web field запрещён. | Shape-only protocol capture и controlled A/B только после обнаружения реального field. | — |
+| D15b | Usage real/absent, never fabricated zero; V4 cumulative chain counter не выдаётся за per-request Anthropic usage. | Legacy/V4 parser fixtures; streaming/non-streaming exact, zero и unavailable; text/tool lifecycle. | PB22, PB28 |
 | D17 | `CLOSED`: только explicit command/shell/terminal intent или консервативно распознаваемый command literal создаёт `command_execution`; generic action wording сохраняет реальные file obligations без shell requirement. | Direct classifier positives/negatives; exact D13 phrase; completed Write/Read cycle accepts final without Bash/retry; explicit command still requires fresh Bash evidence; independent review и Windows 39-tool live PASS. | PB06–PB07 |
 
 ## 6. Closed / Regression-Protected
@@ -174,13 +176,13 @@ versioned addendum; новые regressions добавляются новыми I
 | PB19 | Tool protocol | tool_result has wrong/unknown call ID. | Explicit correlation failure/new safe session policy. | Result attached to unrelated action/session. | Offline | D5,D8 |
 | PB20 | Tool protocol | 5+ sequential mixed tools. | Ordered unique IDs/results; correlated telemetry. | Missing/reordered/replayed action. | Offline + live | D7,D8 |
 | PB21 | Tool protocol | Tool returns `is_error:true`, then alternate succeeds or honest failure. | Failure preserved; bounded recovery. | Failed result counted as success; repeated identical call. | Offline + live | D2 |
-| PB22 | Transport | Normal multi-chunk DeepSeek SSE ending FINISHED with usage. | Exact assembled content; terminal observed; real/absent usage. | Truncation, FINISHED text leak, fake zero usage. | Offline | D3,D15 |
+| PB22 | Transport | Normal multi-chunk DeepSeek SSE ending FINISHED with usage. | Exact assembled content; terminal observed; real/absent usage. | Truncation, FINISHED text leak, fake zero usage. | Offline | D3,D15b |
 | PB23 | Transport | Upstream HTTP 502 fixture. | Classified retry/failure per policy; no successful completion. | Empty/fake success or guard retry. | Offline | D3,D8 |
 | PB24 | Transport | HTTP 200 + `event: hint`, `rate_limit_reached`. | `DEEPSEEK_RATE_LIMIT` HTTP 429; one generation attempt. | TOOL_CALL_REQUIRED, empty completion, retry storm. | Offline | closed rate limit |
 | PB25 | Transport | HTTP 200 with zero-byte body stream. | `STREAM_INCOMPLETE`/502 with `causeCode=empty_stream`. | Empty successful final. | Offline | D3 |
 | PB26 | Transport | Partial content then `INCOMPLETE` or EOF without FINISHED. | Explicit incomplete error; parent not accepted. | Partial final or parent advancement. | Offline | D2,D3 |
 | PB27 | Transport | Headers arrive; body stalls beyond deadline. | Abort reader/fetch within deadline; cleanup complete. | Hang or background body continuation. | Offline | D3 |
-| PB28 | Transport | Anthropic stream starts, then upstream/guard fails. | Valid downstream error/terminal contract and closed response. | Bare socket truncation/hang/double terminal. | Offline integration | D4,D8,D15 |
+| PB28 | Transport | Anthropic stream starts, then upstream/guard fails. | Valid downstream error/terminal contract and closed response. | Bare socket truncation/hang/double terminal. | Offline integration | D4,D8,D15b |
 | PB29 | Session | Two accepted completions in one upstream session. | Parent advances exactly accepted1→accepted2. | Fresh session or skipped accepted parent. | Offline + live | D2,D5 |
 | PB30 | Session | Initial output rejected; repair(s) then accepted/exhausted. | Candidate parents isolated; only accepted parent committed. | Rejected parent reused/ persisted. | Offline | D2 |
 | PB31 | Session | Persist session+lineage, restart Bridge, continue tool result. | Both shapes survive and correct upstream resumes. | Lost siblings/cross-session continuation. | Offline integration + live | D5,D6 |
@@ -200,7 +202,7 @@ versioned addendum; новые regressions добавляются новыми I
 | Gate | Pass condition | Baseline status |
 | --- | --- | --- |
 | G1 | `npm run typecheck` green | PASS (recheck each branch) |
-| G2 | `npm test` 100% green | PASS: 891/891 on D14 closure branch; full-control Windows run (recheck release commit) |
+| G2 | `npm test` 100% green | PASS: 904/904 on D15b implementation branch; full-control Windows run (recheck release commit) |
 | G3 | `npm run build` green | PASS (recheck each branch) |
 | G4 | `npm run test:platform` green | PASS on current Windows baseline |
 | G5 | CI Windows/Linux/macOS green for release commit | NEEDS RELEASE-COMMIT VERIFICATION |
@@ -282,8 +284,9 @@ green, создавать новый mechanism при подходящем су�
 9. **D17 — false command_execution obligation.** CLOSED после deterministic
    coverage, independent review и Windows 39-tool 3 Write + 3 Read live.
 10. **D14** — CLOSED после deterministic normalization/prompt-boundary coverage
-    и independent review; live не требуется для доказанного boundary. Следующий
-    correctness P2 — **D15**, по одному defect за branch.
+    и independent review; live не требуется для доказанного boundary. **D15b**
+    реализован и ожидает independent review/verification; **D15a** остаётся
+    capability-unresolved отдельным P2.
 11. **D10**, затем полный PB-v1, 30–50-tool stress, `/compact`, restart/resume.
 12. **D1** — повторный controlled A/B/C только после стабилизации остальных причин.
 
@@ -296,7 +299,7 @@ green, создавать новый mechanism при подходящем су�
 | `SESSION_LINK_TTL_MS=10m`, а `LineageStore` hardcodes 24h и не проверяет age при lookup. | D5 CLOSED: единый TTL применяется при lookup/init/mutations; PB31/PB32 и Windows persisted-lineage restart verification PASS. |
 | Документация отмечала sibling-safe только `lineage.clear()`, тогда как normal writers перезаписывали разные shapes. | D6 CLOSED: единый schema-v2 owner, deterministic tests и Windows Claude Code live restart/resume green. |
 | Tool allowlist мог содержать 39, а prompt silently описывал 32. | D7 CLOSED: count truncation удалён; deterministic catalog identity и Windows live с реальным available #33 `WebFetch` — PASS. D11 также CLOSED: полный schema transport, bounded catalog preflight, independent review и Windows WebFetch live — PASS. |
-| Anthropic system array, output limit и streaming usage не покрыты текущими normalize/lifecycle tests. | D14 CLOSED: ordered text blocks, fail-closed malformed shapes и exact downstream prompt покрыты deterministic tests и independent review; live обоснованно не требуется. Output limit и streaming usage остаются D15. |
+| Anthropic system array, output limit и streaming usage не покрыты текущими normalize/lifecycle tests. | D14 CLOSED. D15 разделён: D15b exact-or-unavailable usage `IMPLEMENTED / VERIFYING`; D15a output-limit capability остаётся unresolved без guessed Web field. |
 | D1 A/B/C evidence отсутствует в repo и доступен только как diagnostic handoff. | D1 остаётся unconfirmed/deferred. |
 
 ## 12. Current decision
@@ -304,9 +307,10 @@ green, создавать новый mechanism при подходящем су�
 Проект **не является Production Ready**. D6, D3, D4, D2, D5, D7, D8, D9, D11,
 D12, D13, D14 и D17 закрыты после требуемой deterministic coverage, independent
 review и, где это требовалось, релевантной Windows live verification. Открытых
-P0 — 0, P1 — 0, P2 — 2;
+P0 — 0, P1 — 0, P2 — 3;
 deferred P3 — 1. G6, G7 и G16 пройдены; остальные defects и release gates
-остаются открытыми. D14 имеет статус `CLOSED`; следующий correctness P2 — D15.
+остаются открытыми. D15b имеет статус `IMPLEMENTED / VERIFYING`, D15a —
+`OPEN / CAPABILITY UNRESOLVED`.
 
 D11 имеет статус `CLOSED`: implementation `cd0b335` прошла independent review,
 а Windows Claude Code 2.1.241 / `deepseek-v4-flash` live выполнил настоящий

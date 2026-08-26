@@ -309,6 +309,70 @@ describe("D4 Anthropic downstream error lifecycle", () => {
     expect(response.body).not.toContain("event: error");
   });
 
+  it("D15b: CompletionHandler propagates exact text usage only to the terminal Anthropic event", async () => {
+    const handler = new CompletionHandler({
+      deepseek: {
+        ensureSession: vi.fn(async () => {}),
+        complete: vi.fn(async () => ({
+          content: "USAGE-TEXT",
+          usage: { promptTokens: 21, completionTokens: 8, totalTokens: 29 },
+        })),
+      } as unknown as DeepSeekClient,
+      sessionStore: new SessionStore(),
+      lineage: {
+        getUpstreamKey: () => undefined,
+        record: vi.fn(async () => {}),
+        removeByUpstreamKey: vi.fn(async () => {}),
+      } as unknown as LineageStore,
+      logger: new Logger({ sinks: [() => {}] }),
+    });
+
+    const response = await request(handler.run.bind(handler));
+    const start = response.body.match(/event: message_start\ndata: ([^\n]+)/)?.[1] ?? "{}";
+    const done = response.body.match(/event: message_delta\ndata: ([^\n]+)/)?.[1] ?? "{}";
+
+    expect(JSON.parse(start).message).not.toHaveProperty("usage");
+    expect(JSON.parse(done).usage).toEqual({ output_tokens: 8 });
+    expect(response.body.match(/event: message_delta/g)).toHaveLength(1);
+    expect(response.body.match(/event: message_stop/g)).toHaveLength(1);
+  });
+
+  it("D15b: CompletionHandler applies the same exact terminal usage semantics to tool_use", async () => {
+    const handler = new CompletionHandler({
+      deepseek: {
+        ensureSession: vi.fn(async () => {}),
+        complete: vi.fn(async () => ({
+          content: "",
+          toolCall: { name: "Bash", args: { command: "pwd" } },
+          usage: { promptTokens: 18, completionTokens: 4, totalTokens: 22 },
+        })),
+      } as unknown as DeepSeekClient,
+      sessionStore: new SessionStore(),
+      lineage: {
+        getUpstreamKey: () => undefined,
+        record: vi.fn(async () => {}),
+        removeByUpstreamKey: vi.fn(async () => {}),
+      } as unknown as LineageStore,
+      logger: new Logger({ sinks: [() => {}] }),
+    });
+
+    const response = await request(handler.run.bind(handler), {
+      body: {
+        ...ANTHROPIC_BODY,
+        tools: [{ name: "Bash", description: "shell", input_schema: { type: "object" } }],
+      },
+    });
+    const done = response.body.match(/event: message_delta\ndata: ([^\n]+)/)?.[1] ?? "{}";
+
+    expect(response.body).toContain('"type":"tool_use"');
+    expect(JSON.parse(done)).toMatchObject({
+      delta: { stop_reason: "tool_use" },
+      usage: { output_tokens: 4 },
+    });
+    expect(response.body.match(/event: message_delta/g)).toHaveLength(1);
+    expect(response.body.match(/event: message_stop/g)).toHaveLength(1);
+  });
+
   it("T14: fail is idempotent", () => {
     const chunks: string[] = [];
     const stream = new ProtocolStream("anthropic", "m", chunk => chunks.push(chunk));
