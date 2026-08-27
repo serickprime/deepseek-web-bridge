@@ -3,6 +3,30 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-27 — Close D18 after Windows live acceptance
+
+- D18 закрыт после подтверждённого PASS A, production implementation
+  `2fe10373f093e319e5c0fa67a8009c46cd134d08`, четвёртого independent review
+  `PASS` и полного R2 Windows live acceptance. Deterministic evidence остаётся:
+  focused D18 126/126, historical guard selection 347/347 и full 1070/1070;
+  typecheck, test, build, test:platform и diff-check — PASS.
+- Изолированный Claude Code 2.1.241 выполнил реальную цепочку `Write tool_use` →
+  `Write tool_result` → `Read tool_use` → `Read tool_result` →
+  `PREMERGE-WRITE-READ-OK`. Независимая проверка filesystem подтвердила
+  `premerge-a.txt = PREMERGE-A-731`; correlation, shutdown sanity и auth
+  integrity — PASS, unexpected 5xx/502, hang/crash и raw marker leak отсутствовали.
+  SHA-256 auth-файла до и после совпал:
+  `6393166613A2CF928AC74DA2A7572750E42BBCF7353F7AB9F7A922EB66056DF8`.
+- R1 и R2 завершены `PASS`; D18 больше не является v1.0 release blocker.
+  Дополнительный linguistic fuzzing без нового release-blocking evidence
+  прекращён, minor/pre-existing collateral и structured obligation planner
+  остаются backlog v1.1.
+- D10 final independent review и PB39 3/3 остаются `PASS`; D10 + D18 feature
+  chain готова к integration, но merge требует отдельного explicit authorization.
+  Следующий этап — integration readiness / R3 pre-merge core acceptance.
+- Изменены только `CHANGELOG.md`, `PROJECT_STATE.md` и
+  `PRODUCTION_READINESS.md`; production code и tests не менялись.
+
 ## 2026-08-26 — Enter v1.0 release hardening mode
 
 - В `AGENTS.md` зафиксирован обязательный v1.0 scope freeze: никаких новых

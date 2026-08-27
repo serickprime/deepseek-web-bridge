@@ -1,6 +1,6 @@
 # Состояние проекта
 
-> **Актуально на:** 2026-08-26.
+> **Актуально на:** 2026-08-27.
 > Этот файл — главный источник правды о стадии проекта. Любой агент обязан
 > прочитать его перед началом работы и обновить после внесения изменений.
 > Обязательный порядок чтения перед задачей: `AGENTS.md` → `PROJECT_STATE.md`
@@ -10,15 +10,22 @@
 
 **DEVELOPMENT MODE:** `RELEASE HARDENING / SCOPE FREEZE FOR v1.0`
 
-**CURRENT BLOCKER:** D18 — `AWAITING FOURTH INDEPENDENT REVIEW + WINDOWS LIVE`.
+**CURRENT BLOCKER:** открытых P0/P1 нет; оставшиеся release gates ещё не пройдены.
 
-**NEXT:** fourth independent review D18.
+**R1:** `PASS` — fourth independent review D18.
 
-До закрытия D18 действует release-mode policy из `AGENTS.md`: новые функции,
+**R2:** `PASS` — isolated Windows Claude Code 2.1.241 Write→Read live acceptance.
+
+**D18:** `CLOSED`.
+
+**NEXT:** integration readiness / R3 pre-merge core acceptance.
+
+Release-mode policy из `AGENTS.md` сохраняет scope freeze: новые функции,
 provider/UI scope, unrelated fixes и архитектурные улучшения заморожены. После
-D18 работа переходит к последовательному release acceptance R1–R10 из
-`PRODUCTION_READINESS.md`; новый finding блокирует v1.0 только при доказанном
-release-blocker outcome в поддерживаемом Claude Code contract.
+closure D18 действует stop rule: работа переходит к последовательному release
+acceptance R3–R10 из `PRODUCTION_READINESS.md`, а новый finding блокирует v1.0
+только при доказанном release-blocker outcome в поддерживаемом Claude Code
+contract.
 
 **DeepSeek Web Bridge** — локальный HTTP-мост, который превращает вашу
 авторизованную веб-сессию `chat.deepseek.com` в локальный API, совместимый с
@@ -46,14 +53,13 @@ independent review, deterministic coverage и Windows Claude Code live tool-cycl
 D9 natural directory listing classifier закрыт после deterministic coverage и
 live verification RU typo / EN concrete listing / informational control. D17
 false `command_execution` obligation закрыт после deterministic coverage,
-independent review и Windows live 3 Write + 3 Read chain. Новый collateral D18
-реализован; три independent review последовательно выявили broad cross-context,
-suffix и conditional-mutation referent regressions. Четвёртый узкий follow-up
-использует один D18-local action classifier для verification и mutation
-candidates и добавляет fail-safe ambiguity barrier; теперь ожидаются fourth
-independent review и Windows live. Текущих открытых
-P1 — 1, G7 и G16 — FAIL. Остальные
-приоритеты и gates — в
+independent review и Windows live 3 Write + 3 Read chain. D18 закрыт после
+четвёртого independent review `PASS` и R2 Windows live `PASS`: изолированный
+Claude Code 2.1.241 выполнил реальную цепочку `Write tool_use` →
+`Write tool_result` → `Read tool_use` → `Read tool_result`, а final
+`PREMERGE-WRITE-READ-OK` был принят только после fresh verification.
+Focused D18 126/126, historical guard selection 347/347 и full 1070/1070 —
+PASS. Текущих открытых P1 — 0, G7 и G16 — PASS. Остальные приоритеты и gates — в
 `PRODUCTION_READINESS.md`. D11 full schema transport закрыт после deterministic
 offline coverage, independent review и Windows Claude Code live WebFetch. D12
 nested-array parser ordering закрыт после deterministic coverage, independent
@@ -68,17 +74,14 @@ unsupported supplied system fail closed как `INVALID_REQUEST`/400. Отдел
 live-test не требуется для этого deterministic boundary. D15 формально разделён:
 D15a `max_tokens` остаётся `OPEN / CAPABILITY UNRESOLVED`, а D15b truthful
 Anthropic usage закрыт после independent review и Windows Claude Code 2.1.246
-live verification. Open P2 = 2. D18 — новый P1 collateral L2 defect,
-подтверждённый дополнительным pre-merge acceptance: pronominal Write→Read
-терял `file_verification`, а raw `[调用 Tool]` marker мог пройти final. PASS B
-реализован узко в existing obligation/malformed-intent guard. Cross-context
-association требует affirmative executable verification clause и affirmative
-mutation referent по единой локальной классификации и не синтезирует mandatory
-Read из negation/explanation/condition/option/alternative/meta references.
-Conditional creation нового distinct target перед Read даёт ambiguity, а
-unrelated clause не заражает локальную action semantics. Статус
-`IMPLEMENTED / AWAITING FOURTH INDEPENDENT REVIEW + WINDOWS LIVE`. Поэтому open P1 =
-1, G7/G16 временно FAIL, production-ready = NO.
+live verification. Open P2 = 2. D18 production implementation
+`2fe10373f093e319e5c0fa67a8009c46cd134d08` сохраняет narrow existing
+obligation/malformed-intent guard: cross-context association требует affirmative
+executable verification clause и affirmative mutation referent, conditional
+distinct target остаётся ambiguous, а raw allowed marker не проходит final.
+R2 подтвердил точный Write→Read supported flow без unexpected 5xx/502,
+hang/crash или raw marker leak; correlation, auth integrity и shutdown sanity —
+PASS. D18 — `CLOSED`, но production-ready = NO до остальных release gates.
 D10 graceful shutdown lifecycle реализован в feature branch как единый bounded
 `app.stop()` coordinator с подтверждением завершения owned processes. Первый
 independent review выявил две blocking race; follow-up сохраняет native ownership
@@ -90,8 +93,9 @@ confirmed termination. Последний independent re-review выявил о�
 post-spawn `error` listener; текущий follow-up делает его долговечным, поэтому
 повторные failed cleanup retries остаются typed/bounded и не теряют ownership.
 Final independent re-review и Windows desktop PB39 завершены PASS; D10 и PB39
-не переоткрываются collateral D18. D10 merge operationally blocked до closure
-D18, но shutdown contract и live evidence остаются валидными.
+не переоткрывались D18. После closure D18 D10 + D18 feature chain имеет статус
+`READY FOR INTEGRATION`, но merge требует отдельного explicit authorization;
+shutdown contract и live evidence остаются валидными.
 D1 остаётся неподтверждённой/deferred P3.
 
 Проект использует **неофициальные** внутренние маршруты веб-сайта DeepSeek
@@ -1072,7 +1076,7 @@ OpenCode config не изменялся.
       исправлены (inconclusive cardinality, релевантность подсчёта, узкий
       re-binding `file_mutation`); нужен повторный live-run с exact count=1 и
       видимым final после свежих API/storage/HTTP evidence.
-- [~] **D18 pronominal verification / raw marker guard** — exact RU/EN
+- [x] **D18 pronominal verification / raw marker guard** — exact RU/EN
       Write→Read request теперь сохраняет отдельную `file_verification` для
       единственного однозначного target при `этот файл` / `этот же файл` /
       `that file` / `the same file` / `it`. Multi-target anaphora не разрешается
@@ -1087,14 +1091,16 @@ OpenCode config не изменялся.
       alternative suffixes и pollution referent set conditional mutations.
       Четвёртый follow-up вводит один narrow D18-local classifier для обоих
       action contexts и fail-safe barrier для conditional creation нового
-      target. Добавлено 45 controls; focused D18 126/126, tools 563/563,
-      full 1070/1070.
+      target. Добавлено 45 controls; focused D18 126/126, historical guard
+      selection 347/347, tools 563/563, full 1070/1070.
       Explicit-path contrast/negation cases A/B подтверждены как pre-existing
-      base limitation и оставлены отдельным collateral pending PASS A. Статус
-      `IMPLEMENTED / AWAITING FOURTH INDEPENDENT REVIEW + WINDOWS LIVE`, не
-      `CLOSED`. До closure нужен isolated Windows
-      Claude Code 2.1.241 Write→Read retest с настоящим Read `tool_use`/
-      `tool_result` и final только после fresh evidence.
+      base limitation и оставлены отдельным collateral/backlog. Fourth
+      independent review — PASS. R2 Windows live на isolated Claude Code 2.1.241
+      подтвердил `Write tool_use` → `Write tool_result` → `Read tool_use` →
+      `Read tool_result` → `PREMERGE-WRITE-READ-OK`; filesystem содержал
+      `premerge-a.txt = PREMERGE-A-731`. Unexpected 5xx/502, hang/crash и raw
+      marker leak отсутствовали; correlation, auth integrity и shutdown sanity —
+      PASS. D18 — `CLOSED` и больше не является v1.0 release blocker.
 - [~] **D10 graceful SHUTDOWN/PID lifecycle** — PASS B и independent-review
       follow-up реализованы: один bounded coordinator, confirmed target
       termination, retained native ownership при unknown PID, safe typed failure
@@ -1106,9 +1112,9 @@ OpenCode config не изменялся.
       failed retry; lifecycle listener теперь долговечен и regression доказывает
       два typed failure подряд с retained ownership и последующий cleanup.
       Final independent re-review — PASS; Windows desktop PB39 — PASS 3/3.
-      D10/PB39 не переоткрыты, но fast-forward merge operationally blocked до
-      review/live/closure collateral D18. macOS/Linux GUI lifecycle остаётся
-      отдельным platform live TODO.
+      D10/PB39 не переоткрыты. После closure D18 feature chain готова к
+      integration, но merge требует отдельного explicit authorization.
+      macOS/Linux GUI lifecycle остаётся отдельным platform live TODO.
 - [x] В `src/api/handler.ts` переменная `turn` не используется — tool-цикл
       (повтор после tool_result) не замкнут, история ведётся только в
       `SessionStore`. Продумать и реализовать полный цикл tool calling либо
