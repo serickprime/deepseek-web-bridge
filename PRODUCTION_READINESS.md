@@ -2,9 +2,9 @@
 
 > **Статус:** `HARDENING IN PROGRESS`
 >
-> **Baseline:** `fix/d23-ordered-pb06` based on `fix/d22-absence-verification` `aabf3708e4bd2e9fb2f9a284916685c2a495ba3d`
+> **Baseline:** `fix/d23-ordered-pb06` `a975d9b7fb6be47b70327bbe24e7c6cbdd00b9a9`
 >
-> **Offline baseline:** 36 test files, 1151 tests
+> **Offline baseline:** 37 test files, 1180 tests
 >
 > **Открыто:** P0 — 0, P1 — 2, P2 — 2; deferred P3 — 1
 > **Production scope:** Claude Code → Anthropic-compatible Bridge → DeepSeek Web → Bridge → Claude Code
@@ -62,9 +62,13 @@ R10 v1.0. Пройденный этап не повторяется без regre
 
 R1 — `PASS`. R2 — `PASS`. D18, D19 и D20 — `CLOSED`. D10 — `PASS`, PB39 —
 `PASS 3/3`. R3 — `PASS`: A TEXT, B WRITE/READ, C WRITE/EDIT/READ и D BASH —
-`PASS`. R4 — `BLOCKED BY PB06 / D23`: D22 re-review прошёл, но live не достигнут
-из-за D23 ordered-action blocker; D23 review follow-up завершён offline и ожидает
-independent re-review. Targeted D21 capture не подтвердил production defect:
+`PASS`. R4 — `PASS`: PB01–PB33 и offline PB39 имеют deterministic coverage;
+resumed PB07–PB33/PB39 map прошёл 28/28, полный suite — 1180/1180. Последний
+combined PB06 live классифицирован как `LIVE INCONCLUSIVE / NOT A NEW CONFIRMED
+DEFECT`: correlation прошла, unexpected 5xx/hang/crash отсутствовали, а frozen
+PB06 не требует creation именно через Write. D22/D23 mechanisms не расширяются;
+их deterministic implementation и independent re-review evidence сохраняются.
+Targeted D21 capture не подтвердил production defect:
 более раннее наблюдение двух Bash не воспроизвелось и остаётся monitoring item
 для stress testing.
 
@@ -164,8 +168,8 @@ transport, policy и persistence defects не объединяются в оди
 | **D18** | P1 | L2 / L1 | `CLOSED` | Single unambiguous mutation target переносится в последующую affirmative executable pronominal file verification (`этот файл`, `этот же файл`, `that file`, `the same file`, `it`). Один D18-local classifier отклоняет negated/explanatory/conditional/optional/alternative/meta verification и mutation candidates. Conditional creation нового distinct target непосредственно перед Read даёт fail-safe ambiguity; более поздняя mandatory mutation может восстановить однозначный referent. Raw allowed `[调用 Tool] {...}` не может стать final и требует canonical repair. | `REVIEW`: fourth independent review PASS. `TEST`: D18 focused 126/126, historical guard selection 347/347, tools 563/563, full 36 files / 1070 tests; typecheck/test/build/test:platform/diff-check PASS. `LIVE`: isolated Windows Claude Code 2.1.241 выполнил real Write result → Read → Read result → `PREMERGE-WRITE-READ-OK`; filesystem `premerge-a.txt = PREMERGE-A-731`; correlation/auth/shutdown PASS, no unexpected 5xx/502, hang/crash или raw marker leak. Minor/pre-existing collateral остаётся backlog v1.1. | D13/D17 guards; closed, do not fuzz without release-blocking evidence | `2fe10373f093e319e5c0fa67a8009c46cd134d08` |
 | **D19** | P1 | L2 | `CLOSED` | Exact R3-C create→Edit→Read inference сохраняет две distinct mutations и final verification. Tool names в filename/meta wording не создают actions; semantic admission разрешает только genuinely missing/stale obligations, поэтому новый call ID не replay-ит fulfilled Write/Edit/Read; later mutation делает verification stale и требует fresh Read. | `TEST`: 17 D19 regressions; exact inference, root client flow, redundant Write/Edit/Read rejection, stale/fresh verification, explicit repeated actions и historical guard protections; focused tools 580/580, full 36 files / 1087 tests. `REVIEW`: independent review PASS. `LIVE`: isolated Windows Claude Code 2.1.241 выполнил ровно `Write` → `Edit` → `Read` → `R3-EDIT-OK` (counts 1/1/1); filesystem exact `BETA-731`, correlation/auth/shutdown PASS, без duplicate execution, unexpected 5xx/502, hang/crash или raw marker leak. | Closed; reopen only with regression evidence | `07103f58140c6d4a2f6e9a5d49d3eab846b2b33a` |
 | **D20** | P1 | L2 | `CLOSED` | Length-preserving masking одного recognized Bash/command payload применяется ко всем стадиям natural-language file verification: broad regex, verification action groups и file-path extraction. Исходный текст остаётся для `command_execution`, а prose/targets вне payload сохраняются. Exact R3-D и command-local `stdout.write`/`fs.readFileSync`/read-like tokens не создают false file obligations. | `TEST`: 17 D20 regressions; focused 17/17, tools 597/597, full 36 files / 1104 tests; typecheck/build/Windows test:platform/diff-check PASS. `REVIEW`: independent re-review PASS. `LIVE`: exact Windows R3-D на isolated Claude Code 2.1.241 вывел только `command_execution`; один Bash, `is_error=false`, exit zero, exact stdout `R3-BASH-731`, затем exact final `R3-BASH-OK`; без guard retry, 5xx/502 или hang/crash; shutdown/auth integrity PASS. D21 targeted capture не воспроизвёл более ранний второй Bash и не установил production defect. | Closed; D19/D17 regression-protected; monitor D21 observation in R5 | `a8800ba`, `005eebb` |
-| **D22** | P1 | L2 | `IMPLEMENTED / RE-REVIEW PASS / LIVE BLOCKED BY D23` | PB06 final absence verification сохраняет `expectedFileState: "absent"`; только narrow Bash `test ! -e <exact-target>` согласованно допускается semantic admission и закрывает obligation после correlated successful result. Ordinary verification не смешивается с absence state. Review follow-up добавил exact frozen `no longer exists`, сохранив `does not exist`, `doesn't exist` и `no longer exist`. | `TEST`: 18 D22 regressions; exact frozen PB06, informational negative, matching admission/fulfillment, failed, unrelated, wrong-target, `test -e`, requested-presence, masked/structured failure и missing-file Read controls PASS. Tools 615/615, full 36 files / 1122 tests PASS. `REVIEW`: independent re-review PASS; live chain не достигнут из-за отдельного D23 ordered-admission blocker. | D23 review + exact PB06 acceptance; R4/G8 blocked | pending |
-| **D23** | P1 | L2 | `IMPLEMENTED / REVIEW FOLLOW-UP COMPLETE / AWAITING RE-REVIEW` | Exact PB06 имеет одну ordered-группу create→edit→delete→verify_absent с action identity, NFC target, ordinal, required tool и narrow command semantic. Admission разрешает только earliest executable missing step; ordered fulfillment требует правильный action и возрастающую evidence sequence. Review follow-up восстанавливает ordered Write/Save=create и ограничивает suppression command envelope, сохраняя отдельную command obligation. | `TEST`: 29 focused D23 regressions; exact four-step shape, admission at every boundary, failed/out-of-order controls, one-result-per-Bash-step, Write/Edit boundary, independent command preservation, standalone/unordered controls, genuine software tests и D20 masking. Tools 644/644; full 36 files / 1151 tests PASS. | Independent re-review, затем exact PB06 Windows acceptance; D22 live blocked | pending |
+| **D22** | P1 | L2 | `IMPLEMENTED / INDEPENDENT RE-REVIEW PASS / LIVE INCONCLUSIVE` | PB06 final absence verification сохраняет `expectedFileState: "absent"`; только narrow Bash `test ! -e <exact-target>` согласованно допускается semantic admission и закрывает obligation после correlated successful result. Ordinary verification не смешивается с absence state. Review follow-up добавил exact frozen `no longer exists`, сохранив `does not exist`, `doesn't exist` и `no longer exist`. | `TEST`: 18 D22 regressions; exact frozen PB06, informational negative, matching admission/fulfillment, failed, unrelated, wrong-target, `test -e`, requested-presence, masked/structured failure и missing-file Read controls PASS. `REVIEW`: independent re-review PASS. Последний combined PB06 live — inconclusive: correlation PASS, no unexpected 5xx/hang/crash; это не доказало новый defect и не расширяет D22. | Formal closure отдельно; R4 deterministic gate не blocked | pending |
+| **D23** | P1 | L2 | `IMPLEMENTED / INDEPENDENT RE-REVIEW PASS / LIVE INCONCLUSIVE` | Exact PB06 имеет одну ordered-группу create→edit→delete→verify_absent с action identity, NFC target, ordinal, required tool и narrow command semantic. Admission разрешает только earliest executable missing step; ordered fulfillment требует правильный action и возрастающую evidence sequence. Review follow-up восстанавливает ordered Write/Save=create и ограничивает suppression command envelope, сохраняя отдельную command obligation. | `TEST`: 29 focused D23 regressions; exact four-step shape, admission at every boundary, failed/out-of-order controls, one-result-per-Bash-step, Write/Edit boundary, independent command preservation, standalone/unordered controls, genuine software tests и D20 masking. Tools 644/644; independent re-review PASS. Последний combined PB06 live — inconclusive и не является новым confirmed defect. | Formal closure отдельно; R4 deterministic gate не blocked | pending |
 
 ### 5.2 Acceptance and required evidence
 
@@ -272,6 +276,27 @@ versioned addendum; новые regressions добавляются новыми I
 | PB38 | Platform | macOS CI with osascript/Terminal detection, no GUI claim. | Unicode runner/quoting/capabilities verified. | Fake desktop-live claim. | CI | D10 |
 | PB39 | Platform | Shutdown with one tracked and one untracked child. | Server/tracked PID exit in deadline; credentials/untracked child remain. | Orphan tracked PID or broad process kill. | Offline + desktop live | D10 |
 
+### R4 deterministic PB-v1 acceptance — PASS
+
+Executable mapping: `tests/unit/pbV1Acceptance.test.ts`. Он фиксирует exact resumed
+scope PB07–PB33 + PB39 и проверяет наличие authoritative regression anchors без
+дублирования уже эквивалентных behavioral tests.
+
+| PB range | Deterministic evidence | Result |
+| --- | --- | --- |
+| PB07–PB13 | Obligation cardinality, failed/fresh evidence, test/launch/freshness controls in `tools.test.ts` | 7/7 PASS |
+| PB14–PB21 | Schema/system/arrays, malformed syntax, catalog/correlation, long mixed flow and failed-call recovery | 8/8 PASS |
+| PB22–PB28 | Upstream/downstream terminal, HTTP/rate-limit/empty/partial/stall/SSE error lifecycle suites | 7/7 PASS |
+| PB29–PB33 | Accepted/rejected parent, persistence, TTL/current-cycle lineage and FIFO mutation suites | 5/5 PASS |
+| PB39 offline | Native/server/console shutdown lifecycle suites | 1/1 PASS |
+
+Resumed scope: 28/28 PASS; mapped behavioral run: 16 files / 982 tests PASS.
+PB01–PB06 retained their previously established deterministic evidence and were not
+reopened without regression evidence, so total frozen R4 scope PB01–PB33 + PB39 is
+34/34 PASS. Full baseline: 37 files / 1180 tests; typecheck/build/Windows
+test:platform/diff-check PASS. Production code was not changed. The last PB06 live
+run remains `LIVE INCONCLUSIVE / NOT A NEW CONFIRMED DEFECT` and does not block R4.
+
 ## 8. Definition of Production Ready
 
 Все gates бинарны. `PRODUCTION READY` запрещён при любом незакрытом gate.
@@ -279,13 +304,13 @@ versioned addendum; новые regressions добавляются новыми I
 | Gate | Pass condition | Baseline status |
 | --- | --- | --- |
 | G1 | `npm run typecheck` green | PASS (recheck each branch) |
-| G2 | `npm test` 100% green | PASS: 1151/1151 on D23 review-follow-up branch (recheck release commit) |
+| G2 | `npm test` 100% green | PASS: 1180/1180 on R4 deterministic branch state (recheck release commit) |
 | G3 | `npm run build` green | PASS (recheck each branch) |
 | G4 | `npm run test:platform` green | PASS on current Windows baseline |
 | G5 | CI Windows/Linux/macOS green for release commit | NEEDS RELEASE-COMMIT VERIFICATION |
 | G6 | Все P0 закрыты | PASS: D2/D3/D4/D6 CLOSED; open P0 = 0 |
-| G7 | Все P1 закрыты либо formally waived с owner/reason/expiry | FAIL: D22 live blocked and D23 awaiting independent re-review; open P1 = 2 |
-| G8 | 100% deterministic offline PB cases automated and green | FAIL: R4 blocked by PB06/D23 pending review + acceptance |
+| G7 | Все P1 закрыты либо formally waived с owner/reason/expiry | FAIL: D22/D23 implemented and independently reviewed, but formal closure remains pending; open P1 = 2 |
+| G8 | 100% deterministic offline PB cases automated and green | PASS: R4 PB01–PB33 + offline PB39 = 34/34; executable resumed map PB07–PB33/PB39 = 28/28 |
 | G9 | 3 последовательных clean live benchmark runs | FAIL |
 | G10 | 3 × 30–50 tool autonomous runs без fabrication/replay/duplicate/malformed leak/unexpected 502/hang | FAIL |
 | G11 | Rate limit → retryable `DEEPSEEK_RATE_LIMIT`/429 без guard storm | PASS offline; preserve in live |
@@ -293,7 +318,7 @@ versioned addendum; новые regressions добавляются новыми I
 | G13 | Restart сохраняет консистентные persistent session/lineage | PASS: deterministic PB31/PB33 green; Windows Claude Code restart сохранил session и использовал persisted lineage |
 | G14 | `/compact` после long chain проходит PB35 | NEEDS FROZEN LIVE RUNS |
 | G15 | Shutdown не оставляет orphan/stale PID и не убивает чужие процессы | PASS: D10 final independent re-review и Windows desktop PB39 PASS 3/3; D18 не относится к lifecycle |
-| G16 | Нет известных открытых P0/P1 production defects | FAIL: open P0 = 0, open P1 = 2 (D22, D23) |
+| G16 | Нет известных открытых P0/P1 production defects | FAIL: open P0 = 0, open P1 = 2 pending formal D22/D23 closure; R4 не выявил нового confirmed blocker |
 
 ## 9. Mandatory development workflow
 
@@ -373,13 +398,13 @@ green, создавать новый mechanism при подходящем су�
     re-review и exact R3-D Windows live с одним успешным Bash. R3 A/B/C/D —
     PASS. D21 duplicate-Bash observation не воспроизведён и переносится только
     в monitoring R5.
-14. **D22** — P1 `IMPLEMENTED / RE-REVIEW PASS / LIVE BLOCKED BY D23`: PB06 final
-    absence state и exact `test ! -e <target>` admission/fulfillment защищены
-    18 focused regressions, включая exact `no longer exists`.
-15. **D23** — P1 `IMPLEMENTED / REVIEW FOLLOW-UP COMPLETE / AWAITING RE-REVIEW`: exact PB06 ordered
-    four-step model, narrow `rm` delete и POSIX absence-check classification
-    дополнены Write=create и independent-command boundaries; 29 focused
-    regressions защищают contract. R4/G8 blocked до re-review и acceptance.
+14. **D22** — P1 `IMPLEMENTED / INDEPENDENT RE-REVIEW PASS / LIVE INCONCLUSIVE`:
+    PB06 final absence state и exact `test ! -e <target>` admission/fulfillment
+    защищены 18 focused regressions, включая exact `no longer exists`.
+15. **D23** — P1 `IMPLEMENTED / INDEPENDENT RE-REVIEW PASS / LIVE INCONCLUSIVE`:
+    exact PB06 ordered four-step model, narrow `rm` delete и POSIX absence-check
+    classification дополнены Write=create и independent-command boundaries; 29
+    focused regressions защищают contract. R4/G8 — PASS; formal closure отдельно.
 16. **D1** — повторный controlled A/B/C только после стабилизации остальных причин.
 
 ## 11. Repository consistency findings
@@ -399,14 +424,15 @@ green, создавать новый mechanism при подходящем су�
 Проект **не является Production Ready**. D6, D3, D4, D2, D5, D7, D8, D9, D11,
 D12, D13, D14, D15b, D17, D18, D19 и D20 закрыты после требуемой deterministic
 coverage, independent review и, где это требовалось, релевантной Windows live
-verification. D22 — P1 `IMPLEMENTED / RE-REVIEW PASS / LIVE BLOCKED BY D23`,
-D23 — P1 `IMPLEMENTED / REVIEW FOLLOW-UP COMPLETE / AWAITING RE-REVIEW`; открытых P0 — 0, P1 — 2,
-P2 — 2; deferred P3 — 1. G6 и G15 пройдены, G7/G8/G16 остаются FAIL из-за
-D22/D23. D10 final
+verification. D22 и D23 — P1 `IMPLEMENTED / INDEPENDENT RE-REVIEW PASS / LIVE
+INCONCLUSIVE`; открытых P0 — 0, P1 — 2, P2 — 2; deferred P3 — 1. Последний
+combined PB06 live не доказал новый production defect и не расширяет mechanisms.
+G6, G8 и G15 пройдены; G7/G16 остаются FAIL до formal D22/D23 closure. D10 final
 independent re-review и Windows desktop PB39 PASS 3/3; D10 + D18 fast-forward
 integration завершена. D15b имеет статус `CLOSED`, D15a — `OPEN / CAPABILITY
 UNRESOLVED`. R1, R2 и R3 — `PASS`; R3 A TEXT, B WRITE/READ,
-C WRITE/EDIT/READ и D BASH прошли. R4 — `BLOCKED BY PB06 / D23`. D19 и D20 —
+C WRITE/EDIT/READ и D BASH прошли. R4 — `PASS`: frozen deterministic PB01–PB33
+и offline PB39 = 34/34; следующий release stage — R5 stress/live acceptance. D19 и D20 —
 `CLOSED`. D21 не подтверждён как production defect: один более ранний R3-D run
 с двумя Bash не воспроизвёлся в targeted capture; successful matching Bash
 закрыл `command_execution`, второй Bash не был admitted. Наблюдение остаётся

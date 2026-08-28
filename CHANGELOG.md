@@ -3,6 +3,23 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-28 — Complete R4 PB-v1 deterministic acceptance
+
+- Применён v1.0 stop rule: последний combined PB06 live run классифицирован как
+  `LIVE INCONCLUSIVE / NOT A NEW CONFIRMED DEFECT`. Correlation прошла, unexpected
+  5xx/hang/crash отсутствовали; выбор модели выполнить initial file state через
+  Bash не диагностируется и не расширяет D22/D23 mechanisms.
+- Существующее deterministic покрытие PB07–PB33 и offline PB39 сопоставлено с
+  authoritative regression tests. Реальных GAP/PARTIAL не найдено; behavioral
+  expectations не дублировались. Добавлен executable manifest
+  `tests/unit/pbV1Acceptance.test.ts`: resumed scope 28/28, mapped suite 16 files /
+  982 tests, total frozen R4 scope PB01–PB33 + PB39 — 34/34.
+- Полный baseline: 37 files / 1180 tests; typecheck, build, Windows
+  `test:platform` и `git diff --check` — PASS. Production code не менялся.
+  R4 и G8 переведены в `PASS`; G9/G10/G14 не менялись. Следующий этап — R5
+  stress/live acceptance. D22/D23 остаются implemented/reviewed P1 до отдельного
+  formal closure.
+
 ## 2026-08-28 — Complete D23 review follow-up
 
 - Исправлена D23 action identity boundary: ordered `Write`/`Save`/`Запиши`/

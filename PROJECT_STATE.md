@@ -10,11 +10,13 @@
 
 **DEVELOPMENT MODE:** `RELEASE HARDENING / SCOPE FREEZE FOR v1.0`
 
-**CURRENT BLOCKER:** D23 — P1 `IMPLEMENTED / REVIEW FOLLOW-UP COMPLETE / AWAITING RE-REVIEW`.
-Exact PB06 теперь имеет одну ordered-группу create→edit→delete→verify_absent;
-только earliest executable missing step допускается, а один narrow Bash result
-закрывает ровно свой delete либо absence-verification action. R4 остаётся
-заблокирован до review/acceptance D23 и последующей live acceptance D22.
+**CURRENT RELEASE STAGE:** R4 — `PASS`. Frozen deterministic scope PB01–PB33 и
+offline PB39 покрыт 34/34; executable resumed map PB07–PB33/PB39 прошёл 28/28.
+Последний combined PB06 live классифицирован как `LIVE INCONCLUSIVE / NOT A NEW
+CONFIRMED DEFECT`: correlation прошла, unexpected 5xx/hang/crash отсутствовали,
+а frozen PB06 не требует creation именно через Write. D22/D23 mechanisms не
+расширяются; их deterministic implementation и independent re-review evidence
+сохраняются.
 
 **R1:** `PASS` — fourth independent review D18.
 
@@ -26,17 +28,17 @@ Exact PB06 теперь имеет одну ordered-группу create→edit�
 
 **D20:** `CLOSED`.
 
-**D22:** `IMPLEMENTED / RE-REVIEW PASS / LIVE BLOCKED BY D23`.
+**D22:** `IMPLEMENTED / INDEPENDENT RE-REVIEW PASS / LIVE INCONCLUSIVE`.
 
-**D23:** `IMPLEMENTED / REVIEW FOLLOW-UP COMPLETE / AWAITING RE-REVIEW`.
+**D23:** `IMPLEMENTED / INDEPENDENT RE-REVIEW PASS / LIVE INCONCLUSIVE`.
 
 **R3:** `PASS`: A TEXT, B WRITE/READ, C WRITE/EDIT/READ и D BASH — `PASS`.
-**R4:** `BLOCKED BY PB06 / D23`.
+**R4:** `PASS`; **G8:** `PASS`.
 
 **D10:** `PASS`; **PB39:** `PASS 3/3`.
 
-**NEXT:** independent read-only re-review D23, затем exact PB06 Windows acceptance;
-только после closure D23/D22 возобновить R4 mapping. D19/D20 не переоткрывать.
+**NEXT:** R5 stress/live acceptance. D19/D20 и PB01–PB06 не переоткрывать без
+concrete regression evidence; formal D22/D23 closure остаётся отдельным шагом.
 
 Release-mode policy из `AGENTS.md` сохраняет scope freeze: новые функции,
 provider/UI scope, unrelated fixes и архитектурные улучшения заморожены. После
@@ -82,8 +84,9 @@ D20 закрыт после узкого исправления command-payload 
 independent re-review и exact R3-D Windows live. Один recognized-payload boundary
 применяется ко всем стадиям file-verification inference: код внутри явного
 Bash/command payload не создаёт ложные natural-language file obligations, тогда
-как prose вне payload сохраняется. D22 и D23 сейчас являются двумя открытыми
-P1; G7 и G16 временно FAIL до их review/acceptance closure.
+как prose вне payload сохраняется. D22 и D23 остаются двумя формально открытыми
+P1 после implementation и independent re-review; последний PB06 live inconclusive
+не является новым confirmed defect. G7 и G16 остаются FAIL до formal closure.
 Остальные приоритеты и gates — в
 `PRODUCTION_READINESS.md`. D11 full schema transport закрыт после deterministic
 offline coverage, independent review и Windows Claude Code live WebFetch. D12
@@ -125,8 +128,8 @@ independent re-review — PASS. Exact R3-D Windows live на isolated Claude Cod
 2.1.241 вывел только `command_execution`, выполнил один успешный Bash с exit
 zero и exact stdout `R3-BASH-731`, затем final `R3-BASH-OK`, без guard retry,
 unexpected 5xx/502, hang/crash; auth integrity и shutdown — PASS. D20 —
-`CLOSED`; R3 A/B/C/D — `PASS`; R4 — `BLOCKED BY PB06 / D23`; open P0/P1 =
-0/2, G7/G16 — FAIL pending D22/D23. Один более ранний R3-D run с двумя Bash не воспроизвёлся в
+`CLOSED`; R3 A/B/C/D — `PASS`; R4/G8 — `PASS`; open P0/P1 = 0/2,
+G7/G16 — FAIL pending formal D22/D23 closure. Один более ранний R3-D run с двумя Bash не воспроизвёлся в
 targeted D21 capture: successful matching Bash закрыл obligation, второй Bash
 не был admitted. D21 не подтверждён как production defect и остаётся только
 monitoring observation для последующего stress testing. D22 PB06 absence
@@ -136,12 +139,14 @@ state, а admission и fulfillment принимают только exact target-
 `no longer exists` не распознавалось наряду с `no longer exist`; follow-up
 закрыл exact frozen wording без изменения Bash predicate semantics. 18 focused
 regressions, tools 615/615 и full 36 files / 1122 tests проходят; independent
-re-review D22 — PASS, но live не достигнут из-за D23. D23 реализует ordered
+re-review D22 — PASS. D23 реализует ordered
 create→edit→delete→verify_absent model, narrow Bash semantics и earliest-step
 admission; review follow-up восстановил Write=create boundary и независимые
 command obligations рядом с semantic Bash steps. D23 focused 29/29 и tools
-644/644 проходят. D22/D23 ещё не
-закрыты, R4/G8 остаются blocked.
+644/644 проходят; independent re-review — PASS. Combined PB06 live остаётся
+inconclusive и не доказывает новый defect. D22/D23 ещё не закрыты, но R4/G8
+прошли deterministic acceptance: resumed PB07–PB33/PB39 28/28, total frozen
+scope PB01–PB33/PB39 34/34, full 37 files / 1180 tests.
 D10 graceful shutdown lifecycle реализован в feature branch как единый bounded
 `app.stop()` coordinator с подтверждением завершения owned processes. Первый
 independent review выявил две blocking race; follow-up сохраняет native ownership
@@ -1194,18 +1199,17 @@ OpenCode config не изменялся.
       matching Bash успешно завершился, закрыл `command_execution`, второй Bash
       не был admitted, final был принят сразу. Не является v1.0 blocker;
       мониторить в R5 stress runs без speculative production fix.
-- [ ] **D22 PB06 final absence verification** — P1 `IMPLEMENTED / RE-REVIEW
-      PASS / LIVE BLOCKED BY D23`. Exact PB06 сохраняет три distinct file mutations и
+- [ ] **D22 PB06 final absence verification** — P1 `IMPLEMENTED / INDEPENDENT
+      RE-REVIEW PASS / LIVE INCONCLUSIVE`. Exact PB06 сохраняет три distinct file mutations и
       final `file_verification` с `expectedFileState: "absent"`. Semantic
       admission и fulfillment используют один narrow matcher только для
       `test ! -e <exact-target>`; unrelated/opposite/wrong-target/failed/masked
       Bash и missing-file Read не засчитываются. Review follow-up добавил exact
       frozen `no longer exists` при сохранении `does not exist`, `doesn't exist`
-      и `no longer exist`. D22 focused 18/18, tools 615/615, full 36 files /
-      1122 tests — PASS. Independent re-review — PASS; live acceptance не
-      достигнута из-за D23 ordered-admission blocker.
-- [ ] **D23 ordered PB06 obligation model** — P1 `IMPLEMENTED / REVIEW
-      FOLLOW-UP COMPLETE / AWAITING RE-REVIEW`. Exact frozen PB06 выводит четыре ordered semantic
+      и `no longer exist`. D22 focused 18/18, tools 615/615 — PASS. Independent
+      re-review — PASS; combined live inconclusive и не подтвердил новый defect.
+- [ ] **D23 ordered PB06 obligation model** — P1 `IMPLEMENTED / INDEPENDENT
+      RE-REVIEW PASS / LIVE INCONCLUSIVE`. Exact frozen PB06 выводит четыре ordered semantic
       actions create→edit→delete→verify_absent с NFC target, ordinal, required
       tool и narrow command semantic. Admission разрешает только earliest
       executable missing step, action-aware fulfillment требует возрастающую
@@ -1213,8 +1217,8 @@ OpenCode config не изменялся.
       создают duplicate `command_execution`, POSIX predicate не создаёт false
       `test_execution`. Review follow-up классифицирует ordered write/save как
       create без ослабления explicit Edit и сохраняет отдельный `git status`
-      рядом с semantic `rm`. D23 focused 29/29 и tools 644/644 — PASS; R4/G8 blocked,
-      open P0/P1 = 0/2.
+      рядом с semantic `rm`. D23 focused 29/29 и tools 644/644 — PASS; independent
+      re-review — PASS. R4/G8 — PASS; open P0/P1 = 0/2 pending formal closure.
 - [x] **D10 graceful SHUTDOWN/PID lifecycle** — PASS B и independent-review
       follow-up реализованы: один bounded coordinator, confirmed target
       termination, retained native ownership при unknown PID, safe typed failure
