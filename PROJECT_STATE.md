@@ -10,8 +10,9 @@
 
 **DEVELOPMENT MODE:** `RELEASE HARDENING / SCOPE FREEZE FOR v1.0`
 
-**CURRENT RELEASE STAGE:** R5 — `BLOCKED BY D24` pending independent review и
-visible repeat read-heavy stress run. R4 остаётся `PASS`: frozen deterministic
+**CURRENT RELEASE STAGE:** R5 — `UNBLOCKED / VISIBLE RUN 1 READY`. D24 review
+подтвердил v1.0 supported scope `<=64` targets; visible repeat read-heavy stress
+run остаётся обязательным. R4 остаётся `PASS`: frozen deterministic
 scope PB01–PB33 и offline PB39 покрыт 34/34; executable resumed map
 PB07–PB33/PB39 прошёл 28/28.
 Последний combined PB06 live классифицирован как `LIVE INCONCLUSIVE / NOT A NEW
@@ -34,15 +35,15 @@ CONFIRMED DEFECT`: correlation прошла, unexpected 5xx/hang/crash отсу�
 
 **D23:** `IMPLEMENTED / INDEPENDENT RE-REVIEW PASS / LIVE INCONCLUSIVE`.
 
-**D24:** `IMPLEMENTED / AWAITING INDEPENDENT REVIEW`.
+**D24:** `IMPLEMENTED / REVIEW PASS FOR v1.0 SUPPORTED SCOPE / LIVE READY`.
 
 **R3:** `PASS`: A TEXT, B WRITE/READ, C WRITE/EDIT/READ и D BASH — `PASS`.
 **R4:** `PASS`; **G8:** `PASS`.
 
 **D10:** `PASS`; **PB39:** `PASS 3/3`.
 
-**NEXT:** independent read-only D24 review, затем visible repeat exact R5
-read-heavy workload. D19/D20 и PB01–PB06 не переоткрывать без concrete
+**NEXT:** visible R5 Run 1 на exact 32-target read-heavy workload. D19/D20 и
+PB01–PB06 не переоткрывать без concrete
 regression evidence; formal D22/D23 closure остаётся отдельным шагом.
 
 Release-mode policy из `AGENTS.md` сохраняет scope freeze: новые функции,
@@ -134,7 +135,7 @@ independent re-review — PASS. Exact R3-D Windows live на isolated Claude Cod
 zero и exact stdout `R3-BASH-731`, затем final `R3-BASH-OK`, без guard retry,
 unexpected 5xx/502, hang/crash; auth integrity и shutdown — PASS. D20 —
 `CLOSED`; R3 A/B/C/D — `PASS`; R4/G8 — `PASS`; effective open P0/P1 = 0/3,
-G7/G16 — FAIL pending formal D22/D23 closure и D24 review/live. Один более ранний R3-D run с двумя Bash не воспроизвёлся в
+G7/G16 — FAIL pending formal D22/D23 closure и D24 live. Один более ранний R3-D run с двумя Bash не воспроизвёлся в
 targeted D21 capture: successful matching Bash закрыл obligation, второй Bash
 не был admitted. D21 не подтверждён как production defect и остаётся только
 monitoring observation для последующего stress testing. D22 PB06 absence
@@ -155,7 +156,11 @@ scope PB01–PB33/PB39 34/34. R5 read-heavy acceptance выявил D24: collect
 verification с 32 explicit targets агрегировалась в одну all-of obligation и
 дала reproducible pre-tool 502. D24 implementation создаёт bounded per-target
 unordered obligations; 18 focused cases, tools 662/662 и full 37 files / 1198
-tests проходят. D24 ожидает independent review и visible live repeat.
+tests проходят. Independent review подтвердил v1.0 supported scope `<=64` и
+exact 32-target R5 path; D24 готов к visible live repeat. Shapes `>64` не
+поддерживаются в v1.0: legacy fallback может потерять targets, поэтому это
+known limitation / P2 для v1.1, а не release-acceptance evidence. v1.1 должен
+fail-closed отклонять такой shape либо chunk-ить его безопасно. Open P2 = 3.
 D10 graceful shutdown lifecycle реализован в feature branch как единый bounded
 `app.stop()` coordinator с подтверждением завершения owned processes. Первый
 independent review выявил две blocking race; follow-up сохраняет native ownership
@@ -1228,14 +1233,18 @@ OpenCode config не изменялся.
       create без ослабления explicit Edit и сохраняет отдельный `git status`
       рядом с semantic `rm`. D23 focused 29/29 и tools 644/644 — PASS; independent
       re-review — PASS. R4/G8 — PASS; formal closure остаётся pending.
-- [ ] **D24 collective multi-file verification** — P1 `IMPLEMENTED / AWAITING
-      INDEPENDENT REVIEW`. Exact R5 read-heavy request с 32 explicitly listed
+- [ ] **D24 collective multi-file verification** — P1 `IMPLEMENTED / REVIEW
+      PASS FOR v1.0 SUPPORTED SCOPE / LIVE READY`. Exact R5 read-heavy request с 32 explicitly listed
       independent targets теперь получает 32 unordered target-bound
       `file_verification` obligations вместо одной all-of obligation с 8 paths.
       One-to-one current-cycle evidence, failed/historical/wrong-target controls,
       31/32 block, 32/32 allow и first-call DeepSeekClient exposure покрыты 18
-      regressions; tools 662/662, full 1198/1198. R5 blocked до review и visible
-      repeat; effective open P0/P1 = 0/3.
+      regressions; tools 662/662, full 1198/1198. Independent review подтвердил
+      `<=64`; R5 разблокирован для visible Run 1. Effective open P0/P1 = 0/3.
+- [ ] **D24 >64 collective targets known limitation** — P2 / v1.1. `>64`
+      explicit targets не входят в supported v1.0 contract; legacy fallback
+      может потерять часть targets, поэтому такой run запрещено использовать как
+      release-acceptance evidence. v1.1: fail closed либо safe chunking.
 - [x] **D10 graceful SHUTDOWN/PID lifecycle** — PASS B и independent-review
       follow-up реализованы: один bounded coordinator, confirmed target
       termination, retained native ownership при unknown PID, safe typed failure

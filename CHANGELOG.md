@@ -3,6 +3,21 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-28 — Document D24 v1.0 target bound
+
+- По v1.0 stop rule collective explicit multi-file verification поддерживается
+  для `<=64` targets. Independent review подтвердил exact 32-target R5 path,
+  boundaries 1/4/5/8/9/32/64, one-to-one evidence, admission/fulfillment и
+  исторические regressions.
+- `>64` targets объявлены unsupported known limitation / P2 для v1.1: legacy
+  fallback может потерять часть targets, поэтому такой run нельзя использовать
+  как release-acceptance evidence. v1.1 должен fail-closed отклонять этот shape
+  либо безопасно chunk-ить его.
+- Production code и tests не менялись. D24 переведён в `IMPLEMENTED / REVIEW
+  PASS FOR v1.0 SUPPORTED SCOPE / LIVE READY`; R5 разблокирован для visible Run
+  1. Изменены только `CHANGELOG.md`, `PROJECT_STATE.md` и
+  `PRODUCTION_READINESS.md`.
+
 ## 2026-08-28 — Fix D24 multi-file verification admission
 
 - Исправлен подтверждённый R5 L2 blocker: explicit independent collective
