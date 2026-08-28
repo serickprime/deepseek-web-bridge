@@ -392,6 +392,11 @@ export interface ToolObligation {
   requiredExactResultCount?: number;
   requiredToolName?: string;
   expectedFileState?: "absent";
+  action?: "create" | "edit" | "delete" | "verify";
+  target?: string;
+  orderedGroup?: string;
+  ordinal?: number;
+  commandSemantic?: "delete_file" | "verify_absent";
 }
 
 export interface ObligationCardinalityFailure {
@@ -454,6 +459,8 @@ const COMMAND_LITERAL_START = new RegExp(String.raw`^\s*${COMMAND_EXECUTABLE_SOU
 interface CommandPayloadSpan {
   start: number;
   end: number;
+  payload: string;
+  requiredToolName?: "Bash";
 }
 
 function explicitCommandPayloadSpans(content: string): CommandPayloadSpan[] {
@@ -470,7 +477,10 @@ function explicitCommandPayloadSpans(content: string): CommandPayloadSpan[] {
     const recognizableCommand = /(?:выполн\S*|\b(?:run|execute))[^`\r\n]{0,48}$/i.test(prefix)
       && COMMAND_LITERAL_START.test(payload);
     if (explicitCommand || commandLabel || toolThenAction || actionThenTool || recognizableCommand) {
-      spans.push({ start, end: start + match[0].length });
+      const requiredToolName = /(?:^|[^\p{L}\p{N}_])bash(?:$|[^\p{L}\p{N}_])/iu.test(prefix)
+        ? "Bash" as const
+        : undefined;
+      spans.push({ start, end: start + match[0].length, payload, requiredToolName });
     }
   }
   return spans;
@@ -655,6 +665,41 @@ function obligationDescription(
 export function inferToolObligations(content: string, allowedToolNames: string[]): ToolObligation[] {
   if (allowedToolNames.length === 0 || isInformationalRequest(content)) return [];
   const hasShell = hasToolMatching(allowedToolNames, /bash|shell|powershell|terminal|command|exec/);
+  const commandPayloads = explicitCommandPayloadSpans(content);
+  const supportedCommandActions: Array<{
+    start: number;
+    context: "mutation" | "verification";
+    action: "delete" | "verify";
+    target: string;
+    requiredToolName: "Bash";
+    commandSemantic: "delete_file" | "verify_absent";
+  }> = [];
+  for (const payload of commandPayloads) {
+    if (payload.requiredToolName !== "Bash" || !hasShell) continue;
+    const deleteTarget = supportedDeleteCommandTarget(payload.payload);
+    if (deleteTarget !== null) {
+      supportedCommandActions.push({
+        start: payload.start,
+        context: "mutation",
+        action: "delete",
+        target: deleteTarget.normalize("NFC"),
+        requiredToolName: "Bash",
+        commandSemantic: "delete_file",
+      });
+      continue;
+    }
+    const absenceTarget = supportedAbsenceCommandTarget(payload.payload);
+    if (absenceTarget !== null) {
+      supportedCommandActions.push({
+        start: payload.start,
+        context: "verification",
+        action: "verify",
+        target: absenceTarget.normalize("NFC"),
+        requiredToolName: "Bash",
+        commandSemantic: "verify_absent",
+      });
+    }
+  }
   const fileIntentText = maskExplicitCommandPayloads(content);
   const literals = extractExactUserLiterals(content);
   const fileIntentLiterals = extractExactUserLiterals(fileIntentText);
@@ -662,6 +707,11 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
   const pathLiterals = literalValues(fileIntentLiterals, ["path"]);
   const urlLiterals = literalValues(literals, ["url"]);
   const kinds = new Set<ExternalActionKind>(inferExternalActionKinds(content, allowedToolNames));
+  if (supportedCommandActions.some(action => action.context === "mutation")) kinds.add("file_mutation");
+  if (supportedCommandActions.some(action => action.context === "verification")) kinds.add("file_verification");
+  if (commandPayloads.length > 0 && supportedCommandActions.length === commandPayloads.length) {
+    kinds.delete("command_execution");
+  }
 
   const dataMutation = /(?:созда\S*|добав\S*|измен\S*|обнов\S*|create|add|update|change)[\s\S]{0,100}(?:задач|запис|данн|task|record|item)/i.test(content);
   if (hasShell && dataMutation) {
@@ -678,7 +728,8 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
     kinds.add("file_verification");
   }
 
-  const testExecution = /(?:запуст\S*|выполн\S*|прогон\S*|снова\s+запуст\S*|run|execute|rerun)[\s\S]{0,60}(?:тест|tests?|jest|vitest|pytest)|\b(?:npm\s+(?:run\s+)?test|jest|vitest|pytest)\b/i.test(content);
+  const testExecution = /(?:запуст\S*|выполн\S*|прогон\S*|снова\s+запуст\S*|run|execute|rerun)[\s\S]{0,60}(?:тест|tests?|jest|vitest|pytest)|\b(?:npm\s+(?:run\s+)?test|jest|vitest|pytest)\b/i.test(fileIntentText)
+    || commandPayloads.some(payload => isSoftwareTestExecutionCommand(payload.payload));
   if (hasShell && testExecution) kinds.add("test_execution");
 
   const serverVerification = /(?:проверь|проверить|провер\S*|убед\S*|verify|check|ensure)[\s\S]{0,100}(?:сервер|приложен|server|app)[\s\S]{0,80}(?:отвеч|работ|доступ|respond|running|reachable|health)|(?:сервер|приложен|server|app)[\s\S]{0,80}(?:отвеч|respond|reachable|health)|остав\S*[\s\S]{0,80}(?:прилож|сервер)[\s\S]{0,40}(?:работ|запущ)|leave[\s\S]{0,60}(?:app|server)[\s\S]{0,40}(?:running|up)/i.test(content);
@@ -746,15 +797,28 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
   }
   interface FileActionGroup {
     context: FileActionContext;
+    start: number;
+    sequential: boolean;
+    action: "create" | "edit" | "delete" | "verify";
     paths: string[];
     argumentLiterals: string[];
     resultLiterals: string[];
     requiredToolName?: string;
     expectedFileState?: "absent";
+    commandSemantic?: "delete_file" | "verify_absent";
+    orderedGroup?: string;
+    ordinal?: number;
   }
   type D18ActionRequirement =
     | { requirement: "mandatory" }
     | { requirement: "non_mandatory"; reason: "negation" | "explanation" | "conditional" | "optional" | "alternative" | "meta" };
+
+  const actionIdentity = (context: FileActionContext, verb: string): FileActionGroup["action"] => {
+    if (context === "verification") return "verify";
+    if (/^(?:созда|сделай|create|make)/i.test(verb)) return "create";
+    if (/^(?:удал|delete|remove)/i.test(verb)) return "delete";
+    return "edit";
+  };
 
   const localActionPrefix = (action: FileActionMatch, priorAction?: FileActionMatch): string =>
     fileIntentText.slice(priorAction?.verbEnd ?? Math.max(0, action.start - 120), action.start).slice(-120);
@@ -804,6 +868,9 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
   const mutationVerb = /(?:созда\S*|сделай|сохран\S*|запиш\S*|добав\S*|дополн\S*|допис\S*|измен\S*|замен\S*|отредактир\S*|удал\S*|переимен\S*|перемест\S*|скопир\S*|(?<![\p{L}\p{N}_.-])(?:create|make|save|write|append|add|modify|change|edit|delete|remove|rename|move|copy)(?![\p{L}\p{N}_.-]))/giu;
   const verifyVerb = /(?:провер\S*|прочит\S*|прочти|убедись|verify|check|inspect|read|cat\b|show|display)/gi;
   const actionMatches: FileActionMatch[] = [];
+  const numberedStepCount = [...content.matchAll(/(?:^|\n)\s*\d+[.)]\s+/g)].length;
+  const explicitlyNumberedOrder = numberedStepCount >= 2
+    && /строго\s+по\s+порядку|strictly\s+in\s+order/i.test(content);
   const explicitToolBefore = (start: number): string | undefined => {
     const prefix = content.slice(Math.max(0, start - 80), start).trimEnd().toLowerCase();
     return allowedToolNames.find(name => {
@@ -811,8 +878,11 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
       return [
         `с помощью ${normalized}`,
         `используя ${normalized}`,
+        `через ${normalized}`,
         `using ${normalized}`,
         `with ${normalized}`,
+        `via ${normalized}`,
+        `through ${normalized}`,
       ].some(marker => prefix.endsWith(marker));
     });
   };
@@ -820,7 +890,7 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
     const normalized = match[0].trim().toLowerCase();
     if (!allowedToolNames.some(name => name.trim().toLowerCase() === normalized)) return false;
     const prefix = content.slice(Math.max(0, match.index - 32), match.index).trimEnd();
-    return /(?:с\s+помощью|используя|using|with)$/i.test(prefix);
+    return /(?:с\s+помощью|используя|через|using|with|via|through)$/i.test(prefix);
   };
   const collectActions = (pattern: RegExp, context: FileActionContext): void => {
     pattern.lastIndex = 0;
@@ -855,7 +925,8 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
     const prefix = fileIntentText.slice(Math.max(0, action.start - 80), action.start);
     const previousVerbEnd = actionMatches[index - 1]?.verbEnd ?? action.start;
     const transition = fileIntentText.slice(previousVerbEnd, action.start);
-    action.sequential = sequenceCue.test(`${transition} ${action.span}`);
+    action.sequential = (explicitlyNumberedOrder && index > 0)
+      || sequenceCue.test(`${transition} ${action.span}`);
     action.explicitlyGrouped = groupedCue.test(`${prefix} ${action.span}`);
     action.paths = distinctPaths.filter(path => {
       let from = action.verbEnd;
@@ -873,7 +944,8 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
     for (let index = 1; index < actionMatches.length; index++) {
       const action = actionMatches[index]!;
       if (action.paths.length > 0) continue;
-      const fileAnaphora = /(?:эт\S*(?:\s+же)?\s+файл\S*|в\s+него|\b(?:it|that\s+file|the\s+same\s+file)\b)/i.test(action.span);
+      const fileAnaphora = /(?:эт\S*(?:\s+же)?\s+файл\S*|в\s+него|\b(?:it|that\s+file|the\s+same\s+file)\b)/i.test(action.span)
+        || (action.sequential && /^(?:измен\S*|замен\S*|отредактир\S*)\s+его\b/i.test(action.span));
       const priorSameContext = actionMatches
         .slice(0, index)
         .reverse()
@@ -970,6 +1042,9 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
         for (let repeat = 0; repeat < repeatCount; repeat++) {
           groups.push({
             context,
+            start: action.start,
+            sequential: action.sequential,
+            action: actionIdentity(context, action.verb),
             paths,
             argumentLiterals: context === "mutation" ? [...values, ...paths, ...localUrls] : paths,
             resultLiterals: localResult,
@@ -1027,6 +1102,10 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
         requiredExactResultCount,
         ...(group.requiredToolName ? { requiredToolName: group.requiredToolName } : {}),
         ...(group.expectedFileState ? { expectedFileState: group.expectedFileState } : {}),
+        action: group.action,
+        ...(group.paths.length === 1 ? { target: group.paths[0]!.normalize("NFC") } : {}),
+        ...(group.orderedGroup ? { orderedGroup: group.orderedGroup, ordinal: group.ordinal } : {}),
+        ...(group.commandSemantic ? { commandSemantic: group.commandSemantic } : {}),
       };
     });
     if (index < 0) inferred.push(...obligations);
@@ -1034,11 +1113,53 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
   };
 
   const mutationGroups = actionGroups("mutation");
+  const verificationGroups = actionGroups("verification");
+  for (const commandAction of supportedCommandActions) {
+    const commandGroup: FileActionGroup = {
+      context: commandAction.context,
+      start: commandAction.start,
+      sequential: explicitlyNumberedOrder,
+      action: commandAction.action,
+      paths: [commandAction.target],
+      argumentLiterals: [commandAction.target],
+      resultLiterals: [],
+      requiredToolName: commandAction.requiredToolName,
+      expectedFileState: commandAction.commandSemantic === "verify_absent" ? "absent" : undefined,
+      commandSemantic: commandAction.commandSemantic,
+    };
+    const targetGroups = commandAction.context === "mutation" ? mutationGroups : verificationGroups;
+    const existing = targetGroups.find(group => (
+      group.action === commandAction.action
+      && group.paths.length === 1
+      && group.paths[0]!.normalize("NFC") === commandAction.target
+      && (commandAction.commandSemantic !== "verify_absent" || group.expectedFileState === "absent")
+    ));
+    if (existing) {
+      existing.start = Math.min(existing.start, commandAction.start);
+      existing.requiredToolName = commandAction.requiredToolName;
+      existing.commandSemantic = commandAction.commandSemantic;
+      if (commandAction.commandSemantic === "verify_absent") existing.expectedFileState = "absent";
+    } else {
+      targetGroups.push(commandGroup);
+    }
+  }
+
+  const orderedGroups = [...mutationGroups, ...verificationGroups].sort((left, right) => left.start - right.start);
+  const orderedTargets = new Set(orderedGroups.flatMap(group => group.paths.map(path => path.normalize("NFC"))));
+  const hasExplicitOrdering = explicitlyNumberedOrder
+    || (orderedTargets.size === 1 && orderedGroups.some(group => group.sequential));
+  if (hasExplicitOrdering) {
+    orderedGroups.forEach((group, index) => {
+      group.orderedGroup = "file_actions";
+      group.ordinal = index + 1;
+    });
+  }
+
   const preservesTwoStepAdditive = inferSequentialAdditiveFinalState(content) !== null
     && mutationGroups.length === 2
     && new Set(mutationGroups.flatMap(group => group.paths)).size === 1;
   if (!preservesTwoStepAdditive) replaceKind("file_mutation", mutationGroups);
-  replaceKind("file_verification", actionGroups("verification"));
+  replaceKind("file_verification", verificationGroups);
   // Narrow same-file additive scope: exactly two sequential mutation clauses
   // about ONE path ("Создай report.txt с содержимым \"STEP-1\". Затем добавь
   // строку \"STEP-2\".") synthesize a final-state file_verification whose
@@ -1287,12 +1408,64 @@ export function isRepeatedFailedToolCall(
   ));
 }
 
+function singleShellTarget(command: string, executable: "rm" | "test_absent"): string | null {
+  const pattern = executable === "rm"
+    ? /^\s*rm\s+(?:"([^"\r\n]+)"|'([^'\r\n]+)'|([^\s;&|]+))\s*$/i
+    : /^\s*test\s+!\s+-e\s+(?:"([^"\r\n]+)"|'([^'\r\n]+)'|([^\s;&|]+))\s*$/i;
+  const match = pattern.exec(command);
+  return match?.[1] ?? match?.[2] ?? match?.[3] ?? null;
+}
+
+function supportedDeleteCommandTarget(command: string): string | null {
+  return singleShellTarget(command, "rm");
+}
+
+function supportedAbsenceCommandTarget(command: string): string | null {
+  return singleShellTarget(command, "test_absent");
+}
+
+function isSoftwareTestExecutionCommand(command: string): boolean {
+  return (/\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?test\b|\bnpx\s+(?:jest|vitest)\b|(?:^|[\s;&])(?:jest|vitest|pytest)(?:[\s;&]|$)/i.test(command)
+    && !/(?:--version|--help|--listTests|(?:^|\s)-v(?:\s|$))/i.test(command));
+}
+
 function supportedAbsencePredicateTarget(toolCall: CanonicalToolCall): string | null {
   if (toolCall.name.trim().toLowerCase() !== "bash") return null;
   const command = toolCall.arguments.command;
   if (typeof command !== "string") return null;
-  const match = /^\s*test\s+!\s+-e\s+(?:"([^"\r\n]+)"|'([^'\r\n]+)'|([^\s;&|]+))\s*$/i.exec(command);
-  return match?.[1] ?? match?.[2] ?? match?.[3] ?? null;
+  return supportedAbsenceCommandTarget(command);
+}
+
+function supportedDeletePredicateTarget(toolCall: CanonicalToolCall): string | null {
+  if (toolCall.name.trim().toLowerCase() !== "bash") return null;
+  const command = toolCall.arguments.command;
+  return typeof command === "string" ? supportedDeleteCommandTarget(command) : null;
+}
+
+function toolCallAction(toolCall: CanonicalToolCall): ToolObligation["action"] | undefined {
+  const name = toolCall.name.trim().toLowerCase();
+  if (/^(?:write|create)$/.test(name)) return "create";
+  if (name === "edit") return "edit";
+  if (/^(?:delete|remove)$/.test(name) || supportedDeletePredicateTarget(toolCall) !== null) return "delete";
+  if (/^(?:read|cat)$|read.?file/.test(name) || supportedAbsencePredicateTarget(toolCall) !== null) return "verify";
+  return undefined;
+}
+
+function toolCallMatchesCommandSemantic(obligation: ToolObligation, toolCall: CanonicalToolCall): boolean {
+  if (obligation.commandSemantic === "delete_file") {
+    const target = supportedDeletePredicateTarget(toolCall);
+    return target !== null && target.normalize("NFC") === obligation.target;
+  }
+  if (obligation.commandSemantic === "verify_absent") {
+    const target = supportedAbsencePredicateTarget(toolCall);
+    return target !== null && target.normalize("NFC") === obligation.target;
+  }
+  return true;
+}
+
+function toolCallMatchesAction(obligation: ToolObligation, toolCall: CanonicalToolCall): boolean {
+  if (!obligation.orderedGroup || !obligation.action) return true;
+  return toolCallAction(toolCall) === obligation.action;
 }
 
 function toolCallMatchesExpectedFileState(
@@ -1312,10 +1485,27 @@ function toolCallMatchesObligationIntent(
 ): boolean {
   if (obligation.requiredToolName
     && obligation.requiredToolName.toLowerCase() !== toolCall.name.toLowerCase()) return false;
+  if (!toolCallMatchesAction(obligation, toolCall)) return false;
+  if (!toolCallMatchesCommandSemantic(obligation, toolCall)) return false;
   if (!toolCallMatchesExpectedFileState(obligation, toolCall)) return false;
   if (!fulfilledKindsForTool(toolCall).includes(obligation.kind)) return false;
   const argumentStrings = collectStringValues(toolCall.arguments);
   return obligation.argumentLiterals.every(literal => containsExactUnicode(argumentStrings, literal));
+}
+
+export function nextExecutableMissingObligations(evidence: CurrentToolCycleEvidence): ToolObligation[] {
+  const nextOrdinalByGroup = new Map<string, number>();
+  for (const obligation of evidence.missingObligations) {
+    if (!obligation.orderedGroup || obligation.ordinal === undefined) continue;
+    const current = nextOrdinalByGroup.get(obligation.orderedGroup);
+    if (current === undefined || obligation.ordinal < current) {
+      nextOrdinalByGroup.set(obligation.orderedGroup, obligation.ordinal);
+    }
+  }
+  return evidence.missingObligations.filter(obligation => (
+    !obligation.orderedGroup
+    || obligation.ordinal === nextOrdinalByGroup.get(obligation.orderedGroup)
+  ));
 }
 
 export function isToolCallSemanticallyAdmissible(
@@ -1326,9 +1516,10 @@ export function isToolCallSemanticallyAdmissible(
   const candidate = toolCall as CanonicalToolCall;
   if (typeof candidate.name !== "string" || !isPlainObject(candidate.arguments)) return true;
   if (evidence.obligations.length === 0) return true;
-  if (evidence.missingObligations.some(obligation => toolCallMatchesObligationIntent(obligation, candidate))) {
+  if (nextExecutableMissingObligations(evidence).some(obligation => toolCallMatchesObligationIntent(obligation, candidate))) {
     return true;
   }
+  if (evidence.obligations.some(obligation => obligation.orderedGroup)) return false;
   if (!evidence.hasFailedCurrentToolResult) return false;
   const missingIds = new Set(evidence.missingObligations.map(obligation => obligation.id));
   return !evidence.obligations.some(obligation => (
@@ -1346,8 +1537,7 @@ function fulfilledKindsForTool(toolCall: CanonicalToolCall): ExternalActionKind[
   const isApiCommand = /\b(?:curl|wget)\b|\bfetch\s*\(|\binvoke-(?:restmethod|webrequest)\b|https?:\/\/|\/api\//i.test(command);
   const isApiMutation = isApiCommand
     && /(?:\s-X|--request|\bmethod\s*:)\s*["']?(?:POST|PUT|PATCH|DELETE)\b|\bMethod\s+(?:POST|PUT|PATCH|DELETE)\b/i.test(command);
-  const isTestExecution = /\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?test\b|\bnpx\s+(?:jest|vitest)\b|(?:^|[\s;&])(?:jest|vitest|pytest)(?:[\s;&]|$)/i.test(command)
-    && !/(?:--version|--help|--listTests|(?:^|\s)-v(?:\s|$))/i.test(command);
+  const isTestExecution = isSoftwareTestExecutionCommand(command);
 
   if (/write|edit|create|delete|remove|rename|move|copy/.test(name)) {
     kinds.add("file_mutation");
@@ -1416,6 +1606,8 @@ function fulfillsObligation(
 ): boolean {
   if (obligation.requiredToolName
     && obligation.requiredToolName.toLowerCase() !== toolCall.name.toLowerCase()) return false;
+  if (!toolCallMatchesAction(obligation, toolCall)) return false;
+  if (!toolCallMatchesCommandSemantic(obligation, toolCall)) return false;
   if (!toolCallMatchesExpectedFileState(obligation, toolCall)) return false;
   if (!fulfilledKindsForTool(toolCall).includes(obligation.kind)) return false;
   if (looksLikeStructuredToolError(resultContent)) return false;
@@ -1530,8 +1722,42 @@ export function matchObligationsToEvidence(
     return false;
   };
 
+  const orderedIndexes = new Set<number>();
+  const orderedGroups = new Map<string, number[]>();
+  obligations.forEach((obligation, index) => {
+    if (!obligation.orderedGroup || obligation.ordinal === undefined) return;
+    orderedIndexes.add(index);
+    const group = orderedGroups.get(obligation.orderedGroup) ?? [];
+    group.push(index);
+    orderedGroups.set(obligation.orderedGroup, group);
+  });
+  for (const group of orderedGroups.values()) {
+    group.sort((left, right) => obligations[left]!.ordinal! - obligations[right]!.ordinal!);
+    const usedEvidence = new Set<number>();
+    let previousSequence = -1;
+    for (let position = 0; position < group.length; position++) {
+      const obligationIndex = group[position]!;
+      const obligation = obligations[obligationIndex]!;
+      const candidates = evidence
+        .map((candidate, index) => ({ candidate, index }))
+        .filter(({ candidate, index }) => (
+          !usedEvidence.has(index)
+          && candidate.sequence > previousSequence
+          && fulfillsObligation(obligation, candidate.toolCall, candidate.resultContent)
+        ));
+      if (candidates.length === 0) break;
+      const selected = position === group.length - 1 && isFinalStateObligation(obligation)
+        ? candidates.at(-1)!
+        : candidates[0]!;
+      matches.set(obligationIndex, selected.candidate);
+      usedEvidence.add(selected.index);
+      previousSequence = selected.candidate.sequence;
+    }
+  }
+
   const kindGroups = new Map<ExternalActionKind, number[]>();
   obligations.forEach((obligation, index) => {
+    if (orderedIndexes.has(index)) return;
     const group = kindGroups.get(obligation.kind) ?? [];
     group.push(index);
     kindGroups.set(obligation.kind, group);
@@ -1621,6 +1847,9 @@ export function inspectCurrentToolCycle(
     const boundItem = boundEvidence.get(obligationIndex);
     const matchingEvidence: ObligationEvidenceRef[] = boundItem ? [boundItem] : [];
     if (matchingEvidence.some(evidence => evidence.sequence > lastInvalidation)) return true;
+    const orderedStaleEvidence = obligation.orderedGroup && matchingEvidence.length === 0
+      ? successfulEvidence.filter(evidence => fulfillsObligation(obligation, evidence.toolCall, evidence.resultContent))
+      : matchingEvidence;
 
     const freshVerificationEvidence = successfulEvidence.filter(evidence => (
       evidence.sequence > lastInvalidation
@@ -1649,7 +1878,7 @@ export function inspectCurrentToolCycle(
       }
     }
     if (isFinalStateObligation(obligation)
-      && matchingEvidence.some(evidence => evidence.sequence <= lastInvalidation)
+      && orderedStaleEvidence.some(evidence => evidence.sequence <= lastInvalidation)
       && freshVerificationEvidence.length === 0) {
       staleObligations.push(obligation);
     }

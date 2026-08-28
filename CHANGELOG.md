@@ -3,6 +3,25 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-28 — Fix D23 ordered PB06 obligations
+
+- Exact frozen PB06 теперь выводит одну ordered-группу из четырёх semantic
+  obligations: create `report.txt`, Edit, Bash `rm` delete и Bash `test ! -e`
+  absence verification. Action identity, NFC target, ordinal, tool constraint и
+  narrow command semantic используются симметрично в admission/fulfillment.
+- Narrow recognized Bash payload `rm <single-target>` создаёт delete action, а
+  POSIX `test ! -e` не считается software-test execution. Оба Bash-шага не
+  создают отдельный `command_execution`, поэтому один correlated result закрывает
+  ровно один соответствующий semantic step.
+- Retry guidance показывает только earliest executable missing ordered step;
+  unordered/multi-target flows, D19/D20/D22 semantics и genuine npm/Jest/Vitest/
+  Pytest detection сохранены. Добавлен 21 focused D23 regression; tools 636/636.
+- D23 — P1 `IMPLEMENTED / AWAITING INDEPENDENT REVIEW`; D22 — `IMPLEMENTED /
+  RE-REVIEW PASS / LIVE BLOCKED BY D23`; open P0/P1 = 0/2, R4 остаётся
+  `BLOCKED BY PB06 / D23`. Изменены `src/tools/toolParser.ts`,
+  `src/deepseek/client.ts`, `tests/unit/tools.test.ts`, `CHANGELOG.md`,
+  `PROJECT_STATE.md` и `PRODUCTION_READINESS.md`.
+
 ## 2026-08-28 — Complete D22 frozen PB06 wording support
 
 - Independent review выявил единственный blocking gap D22: узкий absence

@@ -30,6 +30,7 @@ import {
   inspectCurrentToolCycle,
   isRepeatedFailedToolCall,
   isToolCallSemanticallyAdmissible,
+  nextExecutableMissingObligations,
   type CurrentToolCycleEvidence,
   COMPLETION_GUARD_MAX_ATTEMPTS,
   buildUpstreamPrompt,
@@ -304,11 +305,12 @@ export class DeepSeekClient {
       const repeatedFailedToolName = isRepeatedFailedToolCall(toolCall, guardEvidence)
         ? toolCall?.name
         : undefined;
+      const executableMissingObligations = nextExecutableMissingObligations(guardEvidence);
       const retryInstruction = createToolRetryPrompt(allowedNames, {
         unavailableToolNames: toolCatalog.unavailableNames,
         failedToolNames: guardEvidence.failedToolNames,
-        missingActionKinds: guardEvidence.missingActionKinds,
-        missingObligations: guardEvidence.missingObligations.map(obligation => obligation.description),
+        missingActionKinds: executableMissingObligations.map(obligation => obligation.kind),
+        missingObligations: executableMissingObligations.map(obligation => obligation.description),
         fulfilledObligations: fulfilledObligationDescriptions,
         staleObligations: guardEvidence.staleObligations.map(obligation => obligation.description),
         inconclusiveObligations: guardEvidence.inconclusiveObligations.map(obligation => obligation.description),

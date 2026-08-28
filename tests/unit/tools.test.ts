@@ -4878,6 +4878,195 @@ describe("D22 PB06 final absence verification", () => {
   });
 });
 
+describe("D23 ordered PB06 obligation model", () => {
+  const toolNames = ["Write", "Edit", "Read", "Cat", "Bash"];
+  const tools = toolNames.map(name => ({
+    name,
+    description: name,
+    inputSchema: { type: "object", additionalProperties: true },
+  }));
+  const prompt = [
+    "Используя инструменты, выполни строго по порядку:",
+    "",
+    "1. Создай файл report.txt с содержимым PB06-INITIAL.",
+    "2. Через Edit замени PB06-INITIAL на PB06-EDITED.",
+    "3. Через Bash выполни `rm report.txt`.",
+    "4. Через Bash выполни `test ! -e report.txt`, чтобы проверить, что report.txt no longer exists.",
+    "",
+    "Только после успешного выполнения всех четырёх шагов ответь ровно:",
+    "PB06-OK",
+  ].join("\n");
+  const msg = (role: "user" | "assistant", parts: unknown[]): CanonicalMessage => ({ role, parts }) as CanonicalMessage;
+  const use = (id: string, name: string, args: Record<string, unknown>): CanonicalMessage => msg("assistant", [{
+    type: "tool_use",
+    toolCall: { id, type: "function", name, arguments: args },
+  }]);
+  const result = (id: string, content = "ok", isError = false): CanonicalMessage => msg("user", [{
+    type: "tool_result",
+    toolResult: { toolUseId: id, content, isError },
+  }]);
+  const write = { id: "pb06-write", type: "function" as const, name: "Write", arguments: { file_path: "report.txt", content: "PB06-INITIAL" } };
+  const edit = { id: "pb06-edit", type: "function" as const, name: "Edit", arguments: { file_path: "report.txt", old_string: "PB06-INITIAL", new_string: "PB06-EDITED" } };
+  const remove = { id: "pb06-delete", type: "function" as const, name: "Bash", arguments: { command: "rm report.txt" } };
+  const absence = { id: "pb06-absence", type: "function" as const, name: "Bash", arguments: { command: "test ! -e report.txt" } };
+  const cycle = (...messages: CanonicalMessage[]): CurrentToolCycleEvidence => inspectCurrentToolCycle([
+    msg("user", [{ type: "text", text: prompt }]),
+    ...messages,
+  ], toolNames);
+  const successful = (call: typeof write | typeof edit | typeof remove | typeof absence, content = "ok"): CanonicalMessage[] => [
+    use(call.id, call.name, call.arguments),
+    result(call.id, content),
+  ];
+
+  it("infers exactly four ordered semantic PB06 steps without duplicate generic kinds", () => {
+    expect(inferToolObligations(prompt, toolNames)).toEqual([
+      expect.objectContaining({ kind: "file_mutation", action: "create", target: "report.txt", orderedGroup: "file_actions", ordinal: 1 }),
+      expect.objectContaining({ kind: "file_mutation", action: "edit", target: "report.txt", orderedGroup: "file_actions", ordinal: 2, requiredToolName: "Edit" }),
+      expect.objectContaining({ kind: "file_mutation", action: "delete", target: "report.txt", orderedGroup: "file_actions", ordinal: 3, requiredToolName: "Bash", commandSemantic: "delete_file" }),
+      expect.objectContaining({ kind: "file_verification", action: "verify", target: "report.txt", orderedGroup: "file_actions", ordinal: 4, requiredToolName: "Bash", commandSemantic: "verify_absent", expectedFileState: "absent" }),
+    ]);
+    expect(inferToolObligations(prompt, toolNames).map(obligation => obligation.kind)).not.toContain("test_execution");
+    expect(inferToolObligations(prompt, toolNames).map(obligation => obligation.kind)).not.toContain("command_execution");
+  });
+
+  it("admits only Write before the ordered sequence begins", () => {
+    const evidence = cycle();
+    expect(isToolCallSemanticallyAdmissible(write, evidence)).toBe(true);
+    expect(isToolCallSemanticallyAdmissible(edit, evidence)).toBe(false);
+    expect(isToolCallSemanticallyAdmissible(remove, evidence)).toBe(false);
+    expect(isToolCallSemanticallyAdmissible(absence, evidence)).toBe(false);
+  });
+
+  it("admits Edit only after successful Write", () => {
+    const evidence = cycle(...successful(write));
+    expect(evidence.fulfilledObligationIds).toEqual(["file_mutation#1"]);
+    expect(isToolCallSemanticallyAdmissible(edit, evidence)).toBe(true);
+    expect(isToolCallSemanticallyAdmissible(remove, evidence)).toBe(false);
+  });
+
+  it("admits delete only after successful Write and Edit", () => {
+    const evidence = cycle(...successful(write), ...successful(edit));
+    expect(evidence.fulfilledObligationIds).toEqual(["file_mutation#1", "file_mutation#2"]);
+    expect(isToolCallSemanticallyAdmissible(remove, evidence)).toBe(true);
+    expect(isToolCallSemanticallyAdmissible(absence, evidence)).toBe(false);
+  });
+
+  it("admits absence verification only after successful delete", () => {
+    const evidence = cycle(...successful(write), ...successful(edit), ...successful(remove));
+    expect(evidence.fulfilledObligationIds).toEqual(["file_mutation#1", "file_mutation#2", "file_mutation#3"]);
+    expect(isToolCallSemanticallyAdmissible(absence, evidence)).toBe(true);
+  });
+
+  it("completes Write Edit delete verify and allows the final", () => {
+    const evidence = cycle(
+      ...successful(write), ...successful(edit), ...successful(remove), ...successful(absence, "report.txt absent"),
+    );
+    expect(evidence.fulfilledObligationIds).toEqual([
+      "file_mutation#1", "file_mutation#2", "file_mutation#3", "file_verification",
+    ]);
+    expect(evidence.missingObligations).toEqual([]);
+    expect(shouldRetry(true, null, "PB06-OK", "", toolNames, evidence)).toBe(false);
+  });
+
+  it("does not advance the sequence after a failed current step", () => {
+    const failedWrite = cycle(use(write.id, write.name, write.arguments), result(write.id, "write failed", true));
+    expect(failedWrite.fulfilledObligationIds).toEqual([]);
+    expect(failedWrite.missingObligations[0]).toMatchObject({ action: "create", ordinal: 1 });
+    expect(isToolCallSemanticallyAdmissible(edit, failedWrite)).toBe(false);
+  });
+
+  it("does not let a successful out-of-order action fulfill the current ordinal", () => {
+    const evidence = cycle(...successful(edit));
+    expect(evidence.fulfilledObligationIds).toEqual([]);
+    expect(evidence.missingObligations).toHaveLength(4);
+  });
+
+  it("uses one rm result for exactly the delete step", () => {
+    const evidence = cycle(...successful(write), ...successful(edit), ...successful(remove));
+    expect(evidence.fulfilledObligationIds).toEqual(["file_mutation#1", "file_mutation#2", "file_mutation#3"]);
+    expect(evidence.missingObligations.map(obligation => obligation.action)).toEqual(["verify"]);
+  });
+
+  it("uses one absence result for exactly the verification step with no duplicate Bash requirement", () => {
+    const evidence = cycle(
+      ...successful(write), ...successful(edit), ...successful(remove), ...successful(absence, "absent"),
+    );
+    expect(evidence.missingObligations).toEqual([]);
+    expect(evidence.obligations.filter(obligation => obligation.requiredToolName === "Bash")).toHaveLength(2);
+  });
+
+  it("keeps standalone Edit on an existing file unordered and admissible", () => {
+    const standalone = inspectCurrentToolCycle([msg("user", [{ type: "text", text: "Edit existing.txt." }])], toolNames);
+    expect(standalone.obligations[0]).toMatchObject({ action: "edit", target: "existing.txt" });
+    expect(standalone.obligations[0]?.orderedGroup).toBeUndefined();
+    expect(isToolCallSemanticallyAdmissible({ ...edit, arguments: { file_path: "existing.txt", old_string: "A", new_string: "B" } }, standalone)).toBe(true);
+  });
+
+  it("keeps independent unordered mutations free of artificial dependencies", () => {
+    const unordered = inspectCurrentToolCycle([msg("user", [{ type: "text", text: "Create a.txt and edit b.txt." }])], toolNames);
+    expect(unordered.obligations.every(obligation => obligation.orderedGroup === undefined)).toBe(true);
+    expect(isToolCallSemanticallyAdmissible({ ...edit, arguments: { file_path: "b.txt", old_string: "A", new_string: "B" } }, unordered)).toBe(true);
+  });
+
+  it.each([
+    "Run the project tests.",
+    "Через Bash выполни `npm test`.",
+    "Через Bash выполни `npx jest`.",
+    "Через Bash выполни `npx vitest`.",
+    "Через Bash выполни `pytest`.",
+  ])("preserves genuine software test execution for %s", userPrompt => {
+    expect(inferToolObligations(userPrompt, toolNames).map(obligation => obligation.kind)).toContain("test_execution");
+  });
+
+  it.each([
+    "Через Bash выполни `node -e \"fs.unlinkSync('a.txt')\"`.",
+    "Через Bash выполни `node -e \"process.stdout.write('a.txt')\"`.",
+    "Через Bash выполни `node -e \"fs.readFileSync('a.txt')\"`.",
+  ])("keeps arbitrary command-local file APIs masked for %s", userPrompt => {
+    const kinds = inferToolObligations(userPrompt, toolNames).map(obligation => obligation.kind);
+    expect(kinds).toEqual(["command_execution"]);
+  });
+
+  it("limits retry guidance to the next executable ordered step", async () => {
+    const client = new DeepSeekClient({
+      baseUrl: "https://example.com",
+      auth: { token: "test-token", cookie: "test-cookie" },
+      sessionManager: {} as never,
+      solver: {} as never,
+      logger: { info: () => {}, warn: () => {}, error: () => {} } as never,
+      redactor: { addSecret: () => {}, redactText: (text: string) => text } as never,
+      timeoutMs: 10_000,
+      maxRetries: 0,
+    });
+    const outputs = [
+      '{"tool_call":{"name":"Edit","arguments":{"file_path":"report.txt","old_string":"PB06-INITIAL","new_string":"PB06-EDITED"}}}',
+      '{"tool_call":{"name":"Write","arguments":{"file_path":"report.txt","content":"PB06-INITIAL"}}}',
+    ];
+    const runCompletion = vi.fn(async (_prompt: string) => ({
+      content: outputs.shift() ?? "",
+      reasoning: "",
+      candidateMessageId: null,
+    }));
+    Object.defineProperty(client, "runCompletion", { value: runCompletion });
+    const response = await client.complete({
+      model: "deepseek-v4-flash",
+      stream: false,
+      system: "",
+      messages: [msg("user", [{ type: "text", text: prompt }])],
+      tools,
+    }, {
+      chatSessionId: "d23-session",
+      parentMessageId: null,
+      history: [],
+      updatedAt: 0,
+    });
+    expect(response.toolCall?.name).toBe("Write");
+    expect(runCompletion).toHaveBeenCalledTimes(2);
+    expect(runCompletion.mock.calls[1]?.[0]).not.toContain("using Edit");
+    expect(runCompletion.mock.calls[1]?.[0]).not.toContain("requested file is absent");
+  });
+});
+
 describe("toolPrompt — priority rule (rule 11)", () => {
   const tools = [
     { name: "Read", description: "Read a file", inputSchema: { type: "object", properties: { file_path: { type: "string" } } } },
