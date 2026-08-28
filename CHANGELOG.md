@@ -3,6 +3,26 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-28 — Close D19 after R3-C live acceptance
+
+- D19 закрыт после подтверждённого PASS A, implementation
+  `07103f58140c6d4a2f6e9a5d49d3eab846b2b33a`, independent review `PASS` и
+  exact R3-C Windows live `PASS`. Full deterministic baseline остаётся
+  36 files / 1087 tests.
+- Изолированный Claude Code 2.1.241 выполнил ровно один `Write`, один `Edit` и
+  один `Read` в последовательности `Write tool_use/result` →
+  `Edit tool_use/result` → `Read tool_use/result` → final `R3-EDIT-OK`.
+  Filesystem содержал exact `r3-edit.txt = BETA-731`; correlation, auth
+  integrity и штатный shutdown — PASS.
+- Duplicate execution, replay fulfilled action, unexpected 5xx/502, hang/crash
+  и raw marker leak не наблюдались. Stale verification contract требует fresh
+  Read после later mutation; D19 больше не является v1.0 release blocker.
+- R3 переведён в `PARTIAL PASS`: A TEXT, B WRITE/READ и C WRITE/EDIT/READ —
+  PASS; D BASH — FAIL due отдельного D20. D20 остаётся `OPEN / v1.0 RELEASE
+  BLOCKER`, R4 — `NOT STARTED`; D18 `CLOSED`, D10 `PASS`, PB39 `PASS 3/3`.
+- Изменены только `CHANGELOG.md`, `PROJECT_STATE.md` и
+  `PRODUCTION_READINESS.md`; production code и tests не менялись.
+
 ## 2026-08-28 — Fix D19 semantic tool admission
 
 - D19 подтверждён как pre-existing L2 release blocker в R3-C: `edit` внутри

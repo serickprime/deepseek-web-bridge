@@ -10,9 +10,9 @@
 
 **DEVELOPMENT MODE:** `RELEASE HARDENING / SCOPE FREEZE FOR v1.0`
 
-**CURRENT BLOCKER:** R3 выявил два pre-existing L2 release blocker: D19
-`IMPLEMENTED / AWAITING INDEPENDENT REVIEW + R3-C LIVE RETEST`; D20 остаётся
-отдельным open defect и в D19 не изменялся.
+**CURRENT BLOCKER:** D20 — отдельный pre-existing L2 release blocker,
+обнаруженный в R3-D. D19 закрыт после independent review и exact R3-C Windows
+live acceptance.
 
 **R1:** `PASS` — fourth independent review D18.
 
@@ -20,14 +20,15 @@
 
 **D18:** `CLOSED`.
 
-**D19:** `IMPLEMENTED / AWAITING INDEPENDENT REVIEW + R3-C LIVE RETEST`.
+**D19:** `CLOSED`.
 
-**R3:** `FAIL` pending D19 + D20. **R4:** `NOT STARTED`.
+**R3:** `PARTIAL PASS`: A TEXT, B WRITE/READ и C WRITE/EDIT/READ — `PASS`;
+D BASH — `FAIL` due D20. **R4:** `NOT STARTED`.
 
 **D10:** `PASS`; **PB39:** `PASS 3/3`.
 
-**NEXT:** independent review D19, затем exact R3-C Windows live retest; D20
-остаётся отдельной задачей.
+**NEXT:** D20 PASS A diagnosis. D19 не переоткрывать без нового regression
+evidence.
 
 Release-mode policy из `AGENTS.md` сохраняет scope freeze: новые функции,
 provider/UI scope, unrelated fixes и архитектурные улучшения заморожены. После
@@ -68,7 +69,8 @@ Claude Code 2.1.241 выполнил реальную цепочку `Write tool
 `Write tool_result` → `Read tool_use` → `Read tool_result`, а final
 `PREMERGE-WRITE-READ-OK` был принят только после fresh verification.
 Focused D18 126/126, historical guard selection 347/347 и full 1070/1070 —
-PASS. После R3 текущих открытых P1 — 2 (D19, D20), G7 и G16 — FAIL до их
+PASS. D19 также закрыт после independent review и exact R3-C Windows live;
+текущий открытый P1 — один D20, поэтому G7 и G16 остаются FAIL до его
 closure/waiver. Остальные приоритеты и gates — в
 `PRODUCTION_READINESS.md`. D11 full schema transport закрыт после deterministic
 offline coverage, independent review и Windows Claude Code live WebFetch. D12
@@ -92,15 +94,18 @@ distinct target остаётся ambiguous, а raw allowed marker не прох�
 R2 подтвердил точный Write→Read supported flow без unexpected 5xx/502,
 hang/crash или raw marker leak; correlation, auth integrity и shutdown sanity —
 PASS. D18 — `CLOSED`, но production-ready = NO до остальных release gates.
-D19 исправляет подтверждённый pre-existing R3-C duplicate-execution defect:
-exact prompt теперь выводит две `file_mutation` obligations (create + required
-`Edit`) и одну final `file_verification`; completed actions не допускаются
-повторно только из-за guard retry, а stale verification после более поздней
-mutation разрешает свежий `Read`, но не replay `Write`/`Edit`. Deterministic
-baseline — 36 files / 1087 tests. D19 остаётся `IMPLEMENTED / AWAITING
-INDEPENDENT REVIEW + R3-C LIVE RETEST`; D20 не исправлялся. Поэтому R3 — `FAIL`
-pending D19 + D20, R4 — `NOT STARTED`, open release-blocking P1 = 2, G7/G16 —
-FAIL до closure/waiver этих defects.
+D19 исправил подтверждённый pre-existing R3-C duplicate-execution defect:
+exact prompt выводит две `file_mutation` obligations (create + required `Edit`)
+и одну final `file_verification`; completed actions не допускаются повторно
+только из-за guard retry, а stale verification после более поздней mutation
+разрешает свежий `Read`, но не replay `Write`/`Edit`. Deterministic baseline —
+36 files / 1087 tests; independent review — PASS. Exact Windows R3-C live на
+isolated Claude Code 2.1.241 дал ровно `Write` → `Edit` → `Read` →
+`R3-EDIT-OK` (counts 1/1/1), exact filesystem `BETA-731`, без duplicate action,
+unexpected 5xx/502, hang/crash или raw marker leak; correlation, auth integrity
+и shutdown — PASS. D19 — `CLOSED`. R3 — `PARTIAL PASS`: A/B/C прошли, D BASH
+остаётся `FAIL` due D20; R4 — `NOT STARTED`, open release-blocking P1 = 1,
+G7/G16 — FAIL до closure/waiver D20.
 D10 graceful shutdown lifecycle реализован в feature branch как единый bounded
 `app.stop()` coordinator с подтверждением завершения owned processes. Первый
 independent review выявил две blocking race; follow-up сохраняет native ownership
@@ -1119,14 +1124,18 @@ OpenCode config не изменялся.
       `premerge-a.txt = PREMERGE-A-731`. Unexpected 5xx/502, hang/crash и raw
       marker leak отсутствовали; correlation, auth integrity и shutdown sanity —
       PASS. D18 — `CLOSED` и больше не является v1.0 release blocker.
-- [~] **D19 semantic tool admission** — exact R3-C теперь выводит две mutation
+- [x] **D19 semantic tool admission** — exact R3-C выводит две mutation
       obligations (create + `Edit`) и одну final Read verification. Filename и
       `с помощью Edit` не создают ложные actions; `замени` распознаётся узко,
       bare `прочитай файл` наследует только один однозначный target. Guard не
       exposes fulfilled Write/Edit/Read повторно по новому call ID; stale Read
       допускает fresh Read, но не replay mutation. 17 regressions, tools 580/580,
-      full 1087/1087 — PASS. Статус: `IMPLEMENTED / AWAITING INDEPENDENT REVIEW
-      + R3-C LIVE RETEST`; D20 остаётся отдельным R3 blocker.
+      full 1087/1087 и independent review — PASS. Exact Windows R3-C live на
+      isolated Claude Code 2.1.241 выполнил ровно один `Write`, один `Edit` и
+      один `Read`, затем final `R3-EDIT-OK`; filesystem содержал exact
+      `BETA-731`. Correlation, auth integrity и shutdown — PASS; duplicate
+      execution, unexpected 5xx/502, hang/crash и raw marker leak отсутствовали.
+      D19 — `CLOSED`; D20 остаётся отдельным R3 blocker.
 - [x] **D10 graceful SHUTDOWN/PID lifecycle** — PASS B и independent-review
       follow-up реализованы: один bounded coordinator, confirmed target
       termination, retained native ownership при unknown PID, safe typed failure
