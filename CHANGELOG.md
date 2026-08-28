@@ -3,6 +3,25 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-28 — Fix D24 multi-file verification admission
+
+- Исправлен подтверждённый R5 L2 blocker: explicit independent collective
+  verification больше не сворачивает список файлов в одну невыполнимую all-of
+  obligation. Bounded target scan сохраняет до 64 явно перечисленных paths и
+  создаёт отдельную unordered `file_verification` для каждого target.
+- Один successful correlated Read/Cat result закрывает только свой target;
+  wrong, failed и historical results не засчитываются. Final остаётся blocked
+  после 31/32 и разрешается после 32/32. Semantic admission, retry limits,
+  DeepSeekClient и D22/D23 ordering не менялись.
+- Добавлено 18 D24 regression instances для boundaries 1/4/5/8/9/32/64/65,
+  admission, one-to-one fulfillment, history/failure controls, retry guidance и
+  root DeepSeekClient exposure. Focused D24 18/18, tools 662/662, full 37 files /
+  1198 tests; typecheck/build/Windows `test:platform`/diff-check — PASS. D24 —
+  `IMPLEMENTED / AWAITING INDEPENDENT REVIEW`; R5 остаётся blocked до review и
+  visible live repeat. Изменены `src/tools/toolParser.ts`,
+  `tests/unit/tools.test.ts`, `CHANGELOG.md`, `PROJECT_STATE.md` и
+  `PRODUCTION_READINESS.md`.
+
 ## 2026-08-28 — Complete R4 PB-v1 deterministic acceptance
 
 - Применён v1.0 stop rule: последний combined PB06 live run классифицирован как

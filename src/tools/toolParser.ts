@@ -667,6 +667,30 @@ function literalValues(literals: ExactUserLiteral[], roles: ExactLiteralRole[]):
   return literals.filter(literal => allowed.has(literal.role)).map(literal => literal.value);
 }
 
+const COLLECTIVE_FILE_TARGET_LIMIT = 64;
+
+function extractCollectiveFileVerificationTargets(content: string): string[] {
+  const collectiveRequest = /\b(?:each|every|all)\b[\s\S]{0,160}\b(?:files?|inspections?)\b/i.test(content);
+  const independentEvidence = /\bindependent(?:ly)?\b|\bone\s+file(?:\s+path)?\s+per\s+(?:tool\s+)?call\b|\b(?:each|every)\s+file\b[\s\S]{0,120}\b(?:own|separate)\s+(?:tool\s+)?call\b/i.test(content);
+  const verificationIntent = /\b(?:read|inspect|verify)\w*\b/i.test(content);
+  if (!collectiveRequest || !independentEvidence || !verificationIntent) return [];
+
+  const targets: string[] = [];
+  const seen = new Set<string>();
+  const pathPattern = new RegExp(PATH_LIKE_SOURCE, "giu");
+  let match: RegExpExecArray | null;
+  while ((match = pathPattern.exec(content))) {
+    const target = match[1];
+    if (!target) continue;
+    const normalized = target.normalize("NFC");
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    if (targets.length >= COLLECTIVE_FILE_TARGET_LIMIT) return [];
+    targets.push(target);
+  }
+  return targets;
+}
+
 function obligationDescription(
   kind: ExternalActionKind,
   argumentLiterals: string[],
@@ -749,6 +773,7 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
     ? independentCommandCandidate
     : undefined;
   const fileIntentText = maskExplicitCommandPayloads(content);
+  const collectiveVerificationTargets = extractCollectiveFileVerificationTargets(fileIntentText);
   const literals = extractExactUserLiterals(content);
   const fileIntentLiterals = extractExactUserLiterals(fileIntentText);
   const contentLiterals = literalValues(literals, ["title", "description", "content", "marker", "generic"]);
@@ -1179,7 +1204,17 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
   };
 
   const mutationGroups = actionGroups("mutation");
-  const verificationGroups = actionGroups("verification");
+  const verificationGroups = collectiveVerificationTargets.length > 0
+    ? collectiveVerificationTargets.map((target): FileActionGroup => ({
+        context: "verification",
+        start: fileIntentText.indexOf(target),
+        sequential: false,
+        action: "verify",
+        paths: [target],
+        argumentLiterals: [target],
+        resultLiterals: [],
+      }))
+    : actionGroups("verification");
   for (const commandAction of supportedCommandActions) {
     const commandGroup: FileActionGroup = {
       context: commandAction.context,

@@ -3418,6 +3418,185 @@ describe("D13 multi-target obligation fidelity", () => {
   });
 });
 
+describe("D24 collective multi-file verification", () => {
+  const toolNames = ["Read", "Cat", "Glob", "Grep", "Bash"];
+  const tools = toolNames.map(name => ({
+    name,
+    description: name,
+    inputSchema: { type: "object", additionalProperties: true },
+  }));
+  const paths = (count: number) => Array.from(
+    { length: count },
+    (_, index) => `group-${Math.floor(index / 8) + 1}/fixture-${String(index + 1).padStart(2, "0")}.txt`,
+  );
+  const prompt = (count: number) => {
+    const targets = paths(count);
+    return [
+      "Perform a read-only inventory of every fixture file listed below.",
+      "Each file must be independently inspected in its own tool call, one file path per call; any safe read-only tool is acceptable.",
+      "Do not use a bulk command that reads more than one file. Verify the unique marker in every file.",
+      ...targets.map((target, index) => `${index + 1}. ${target}`),
+      `Only after all ${count} independent inspections, reply exactly: R5-RUN1-OK`,
+    ].join("\n");
+  };
+  const user = (text: string): CanonicalMessage => ({ role: "user", parts: [{ type: "text", text }] });
+  const toolUse = (id: string, name: string, arguments_: Record<string, unknown>): CanonicalMessage => ({
+    role: "assistant",
+    parts: [{ type: "tool_use", toolCall: { id, type: "function", name, arguments: arguments_ } }],
+  });
+  const toolResult = (id: string, content = "marker", isError = false): CanonicalMessage => ({
+    role: "user",
+    parts: [{ type: "tool_result", toolResult: { toolUseId: id, content, isError } }],
+  });
+  const readCycle = (count: number, completed: number, failedIndex = -1): CanonicalMessage[] => {
+    const messages: CanonicalMessage[] = [user(prompt(count))];
+    for (const [index, target] of paths(count).slice(0, completed).entries()) {
+      const id = `read-${index + 1}`;
+      messages.push(toolUse(id, "Read", { file_path: target }));
+      messages.push(toolResult(id, `marker-${index + 1}`, index === failedIndex));
+    }
+    return messages;
+  };
+
+  it.each([1, 4, 5, 8, 9, 32])("creates one verification obligation per target at the %i-file boundary", count => {
+    const targets = paths(count);
+    const obligations = inferToolObligations(prompt(count), toolNames)
+      .filter(obligation => obligation.kind === "file_verification");
+    expect(obligations).toHaveLength(count);
+    expect(obligations.map(obligation => obligation.argumentLiterals)).toEqual(targets.map(target => [target]));
+    expect(obligations.every(obligation => obligation.orderedGroup === undefined)).toBe(true);
+    expect(obligations.every(obligation => obligation.requiredToolName === undefined)).toBe(true);
+  });
+
+  it("preserves bounded R5 headroom through 64 explicit targets", () => {
+    const obligations = inferToolObligations(prompt(64), toolNames)
+      .filter(obligation => obligation.kind === "file_verification");
+    expect(obligations).toHaveLength(64);
+    expect(obligations.every(obligation => obligation.argumentLiterals.length === 1)).toBe(true);
+  });
+
+  it("fails closed instead of silently dropping a 65th target", () => {
+    const obligations = inferToolObligations(prompt(65), toolNames)
+      .filter(obligation => obligation.kind === "file_verification");
+    expect(obligations).toHaveLength(1);
+    expect(obligations[0]?.argumentLiterals).toHaveLength(8);
+    const evidence = inspectCurrentToolCycle([user(prompt(65))], toolNames);
+    expect(isToolCallSemanticallyAdmissible({ name: "Read", arguments: { file_path: paths(65)[0]! } }, evidence)).toBe(false);
+  });
+
+  it("admits first, middle, and last still-missing Read targets", () => {
+    const targets = paths(32);
+    const evidence = inspectCurrentToolCycle([user(prompt(32))], toolNames);
+    for (const target of [targets[0]!, targets[15]!, targets[31]!]) {
+      expect(isToolCallSemanticallyAdmissible({ name: "Read", arguments: { file_path: target } }, evidence)).toBe(true);
+    }
+  });
+
+  it("does not require Read when an existing target-aware reader can prove the same target", () => {
+    const target = paths(5)[2]!;
+    const evidence = inspectCurrentToolCycle([user(prompt(5))], toolNames);
+    expect(isToolCallSemanticallyAdmissible({ name: "Cat", arguments: { file_path: target } }, evidence)).toBe(true);
+    expect(isToolCallSemanticallyAdmissible({ name: "Bash", arguments: { command: "echo unrelated" } }, evidence)).toBe(false);
+  });
+
+  it("binds one successful Read result to exactly one target obligation", () => {
+    const evidence = inspectCurrentToolCycle(readCycle(32, 1), toolNames);
+    expect(evidence.fulfilledObligationIds).toEqual(["file_verification#1"]);
+    expect(evidence.missingObligations).toHaveLength(31);
+  });
+
+  it("does not bind a Read for an unrequested target", () => {
+    const messages = [
+      user(prompt(5)),
+      toolUse("wrong", "Read", { file_path: "other/unrequested.txt" }),
+      toolResult("wrong"),
+    ];
+    const evidence = inspectCurrentToolCycle(messages, toolNames);
+    expect(evidence.fulfilledObligationIds).toEqual([]);
+    expect(evidence.missingObligations).toHaveLength(5);
+  });
+
+  it("does not count a failed target Read as fulfilled", () => {
+    const evidence = inspectCurrentToolCycle(readCycle(5, 1, 0), toolNames);
+    expect(evidence.fulfilledObligationIds).toEqual([]);
+    expect(evidence.missingObligations).toHaveLength(5);
+  });
+
+  it("does not reuse historical target evidence across the current instruction boundary", () => {
+    const target = paths(5)[0]!;
+    const evidence = inspectCurrentToolCycle([
+      user(`Read ${target}.`),
+      toolUse("historical", "Read", { file_path: target }),
+      toolResult("historical"),
+      user(prompt(5)),
+    ], toolNames);
+    expect(evidence.fulfilledObligationIds).toEqual([]);
+    expect(evidence.missingObligations).toHaveLength(5);
+  });
+
+  it("blocks final completion after 31 of 32 target results", () => {
+    const evidence = inspectCurrentToolCycle(readCycle(32, 31), toolNames);
+    expect(evidence.missingObligations).toHaveLength(1);
+    expect(shouldRetry(true, null, "R5-RUN1-OK", "", toolNames, evidence)).toBe(true);
+  });
+
+  it("allows final completion after all 32 target results", () => {
+    const evidence = inspectCurrentToolCycle(readCycle(32, 32), toolNames);
+    expect(evidence.missingObligations).toHaveLength(0);
+    expect(shouldRetry(true, null, "R5-RUN1-OK", "", toolNames, evidence)).toBe(false);
+  });
+
+  it("keeps retry guidance as separate one-target requirements", () => {
+    const evidence = inspectCurrentToolCycle(readCycle(32, 1), toolNames);
+    const descriptions = evidence.missingObligations.map(obligation => obligation.description);
+    expect(descriptions).toHaveLength(31);
+    expect(evidence.missingObligations.every(obligation => obligation.argumentLiterals.length === 1)).toBe(true);
+    const retry = createToolRetryPrompt(toolNames, {
+      missingActionKinds: evidence.missingActionKinds,
+      missingObligations: descriptions,
+    });
+    expect(retry).toContain(paths(32)[1]!);
+    expect(retry).toContain(paths(32)[31]!);
+    expect(retry).not.toContain(`with exact values ${JSON.stringify(paths(32)[1]!)}, ${JSON.stringify(paths(32)[2]!)}`);
+  });
+
+  it("exposes the first valid Read through DeepSeekClient without a guard retry", async () => {
+    const target = paths(32)[0]!;
+    const client = new DeepSeekClient({
+      baseUrl: "https://example.com",
+      auth: { token: "test-token", cookie: "test-cookie" },
+      sessionManager: {} as never,
+      solver: {} as never,
+      logger: { info: () => {}, warn: () => {}, error: () => {} } as never,
+      redactor: { addSecret: () => {}, redactText: (text: string) => text } as never,
+      timeoutMs: 10_000,
+      maxRetries: 0,
+    });
+    const runCompletion = vi.fn(async () => ({
+      content: JSON.stringify({ tool_call: { name: "Read", arguments: { file_path: target } } }),
+      reasoning: "",
+      candidateMessageId: null,
+    }));
+    Object.defineProperty(client, "runCompletion", { value: runCompletion });
+    const request: CanonicalRequest = {
+      model: "deepseek-v4-flash",
+      stream: false,
+      system: "",
+      messages: [user(prompt(32))],
+      tools,
+    };
+    const state: UpstreamSessionState = {
+      chatSessionId: "d24-session",
+      parentMessageId: null,
+      history: [],
+      updatedAt: 0,
+    };
+    const response = await client.complete(request, state);
+    expect(response.toolCall).toEqual({ name: "Read", args: { file_path: target } });
+    expect(runCompletion).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("pronominal file verification completion guard", () => {
   const tools = ["Bash", "Read", "Write"];
   const canonicalTools = [
