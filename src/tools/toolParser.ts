@@ -975,7 +975,7 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
             resultLiterals: localResult,
             requiredToolName: action.requiredToolName,
             expectedFileState: context === "verification"
-              && /\b(?:(?:does\s+not|doesn't|no\s+longer)\s+exist|(?:is\s+)?absent)\b/i.test(action.span)
+              && /\b(?:(?:does\s+not|doesn't)\s+exist|no\s+longer\s+exists?|(?:is\s+)?absent)\b/i.test(action.span)
               ? "absent"
               : undefined,
           });

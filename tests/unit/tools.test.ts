@@ -4724,6 +4724,7 @@ describe("DeepSeekClient prompt construction — stale action replay prevention"
 describe("D22 PB06 final absence verification", () => {
   const tools = ["Write", "Edit", "Read", "Cat", "Bash"];
   const prompt = "Create report.txt. Then edit the same file. Then delete the same file. Finally verify that report.txt does not exist.";
+  const frozenPrompt = "Create report.txt. Then edit the same file. Then delete the same file. Finally verify that report.txt no longer exists.";
   const msg = (role: "user" | "assistant", parts: unknown[]): CanonicalMessage =>
     ({ role, parts }) as CanonicalMessage;
   const use = (id: string, name: string, argumentsValue: Record<string, unknown>): CanonicalMessage =>
@@ -4736,8 +4737,8 @@ describe("D22 PB06 final absence verification", () => {
     name: "Bash",
     arguments: { command: `test ! -e ${target}` },
   });
-  const beforeAbsence = (): CanonicalMessage[] => [
-    msg("user", [{ type: "text", text: prompt }]),
+  const beforeAbsence = (userPrompt = prompt): CanonicalMessage[] => [
+    msg("user", [{ type: "text", text: userPrompt }]),
     use("d22-write", "Write", { file_path: "report.txt", content: "ALPHA" }),
     result("d22-write", "report.txt created"),
     use("d22-edit", "Edit", { file_path: "report.txt", old_string: "ALPHA", new_string: "BETA" }),
@@ -4745,9 +4746,14 @@ describe("D22 PB06 final absence verification", () => {
     use("d22-delete", "Bash", { command: "rm report.txt" }),
     result("d22-delete", "report.txt deleted"),
   ];
-  const withBashResult = (command: string, content: string, isError = false): CurrentToolCycleEvidence =>
+  const withBashResult = (
+    command: string,
+    content: string,
+    isError = false,
+    userPrompt = prompt,
+  ): CurrentToolCycleEvidence =>
     inspectCurrentToolCycle([
-      ...beforeAbsence(),
+      ...beforeAbsence(userPrompt),
       use("d22-verify", "Bash", { command }),
       result("d22-verify", content, isError),
     ], tools);
@@ -4759,6 +4765,36 @@ describe("D22 PB06 final absence verification", () => {
       argumentLiterals: ["report.txt"],
       expectedFileState: "absent",
     });
+  });
+
+  it.each([
+    "Verify that report.txt does not exist.",
+    "Verify that report.txt doesn't exist.",
+    "Verify that report.txt no longer exists.",
+    "Verify that report.txt no longer exist.",
+  ])("marks supported absence wording in %s", userPrompt => {
+    expect(inferToolObligations(userPrompt, tools)).toContainEqual(expect.objectContaining({
+      kind: "file_verification",
+      argumentLiterals: ["report.txt"],
+      expectedFileState: "absent",
+    }));
+  });
+
+  it("does not create absence state for unrelated informational wording", () => {
+    expect(inferToolObligations("Explain what 'report.txt no longer exists' means.", tools))
+      .not.toContainEqual(expect.objectContaining({ expectedFileState: "absent" }));
+  });
+
+  it("completes the exact frozen PB06 no-longer-exists cycle", () => {
+    const evidence = withBashResult("test ! -e report.txt", "report.txt absent", false, frozenPrompt);
+    expect(evidence.fulfilledObligationIds).toEqual([
+      "file_mutation#1",
+      "file_mutation#2",
+      "file_mutation#3",
+      "file_verification",
+    ]);
+    expect(evidence.missingObligations).toEqual([]);
+    expect(shouldRetry(true, null, "PB06-OK", "", tools, evidence)).toBe(false);
   });
 
   it("admits the exact target-matching absence predicate", () => {

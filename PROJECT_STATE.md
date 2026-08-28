@@ -10,10 +10,12 @@
 
 **DEVELOPMENT MODE:** `RELEASE HARDENING / SCOPE FREEZE FOR v1.0`
 
-**CURRENT BLOCKER:** D22 — P1 `IMPLEMENTED / AWAITING INDEPENDENT REVIEW`.
+**CURRENT BLOCKER:** D22 — P1 `IMPLEMENTED / FOLLOW-UP COMPLETE / AWAITING
+RE-REVIEW`.
 PB06 выявил pre-existing L2 gap: успешный target-matching Bash absence predicate
 не закрывал final `file_verification`. Узкий state-aware admission/fulfillment
-fix реализован offline; R4 остаётся заблокирован до review и acceptance D22.
+fix реализован offline; follow-up после review FAIL добавил exact frozen wording
+`no longer exists`. R4 остаётся заблокирован до re-review и acceptance D22.
 
 **R1:** `PASS` — fourth independent review D18.
 
@@ -25,14 +27,14 @@ fix реализован offline; R4 остаётся заблокирован �
 
 **D20:** `CLOSED`.
 
-**D22:** `IMPLEMENTED / AWAITING INDEPENDENT REVIEW`.
+**D22:** `IMPLEMENTED / FOLLOW-UP COMPLETE / AWAITING RE-REVIEW`.
 
 **R3:** `PASS`: A TEXT, B WRITE/READ, C WRITE/EDIT/READ и D BASH — `PASS`.
 **R4:** `BLOCKED BY D22 / PB06`.
 
 **D10:** `PASS`; **PB39:** `PASS 3/3`.
 
-**NEXT:** independent read-only review D22, затем требуемая acceptance; только
+**NEXT:** independent read-only re-review D22, затем требуемая acceptance; только
 после closure D22 возобновить R4 mapping. D19/D20 не переоткрывать.
 
 Release-mode policy из `AGENTS.md` сохраняет scope freeze: новые функции,
@@ -129,8 +131,11 @@ targeted D21 capture: successful matching Bash закрыл obligation, втор
 monitoring observation для последующего stress testing. D22 PB06 absence
 verification реализован узко: `file_verification` может хранить expected absent
 state, а admission и fulfillment принимают только exact target-matching
-`test ! -e <target>` с successful correlated result. 12 focused regressions и
-full 36 files / 1116 tests проходят; D22 ещё не закрыт, R4/G8 остаются blocked.
+`test ! -e <target>` с successful correlated result. Review FAIL обнаружил, что
+`no longer exists` не распознавалось наряду с `no longer exist`; follow-up
+закрыл exact frozen wording без изменения Bash predicate semantics. 18 focused
+regressions, tools 615/615 и full 36 files / 1122 tests проходят; D22 ещё не
+закрыт, R4/G8 остаются blocked.
 D10 graceful shutdown lifecycle реализован в feature branch как единый bounded
 `app.stop()` coordinator с подтверждением завершения owned processes. Первый
 independent review выявил две blocking race; follow-up сохраняет native ownership
@@ -1183,14 +1188,16 @@ OpenCode config не изменялся.
       matching Bash успешно завершился, закрыл `command_execution`, второй Bash
       не был admitted, final был принят сразу. Не является v1.0 blocker;
       мониторить в R5 stress runs без speculative production fix.
-- [ ] **D22 PB06 final absence verification** — P1 `IMPLEMENTED / AWAITING
-      INDEPENDENT REVIEW`. Exact PB06 сохраняет три distinct file mutations и
+- [ ] **D22 PB06 final absence verification** — P1 `IMPLEMENTED / FOLLOW-UP
+      COMPLETE / AWAITING RE-REVIEW`. Exact PB06 сохраняет три distinct file mutations и
       final `file_verification` с `expectedFileState: "absent"`. Semantic
       admission и fulfillment используют один narrow matcher только для
       `test ! -e <exact-target>`; unrelated/opposite/wrong-target/failed/masked
-      Bash и missing-file Read не засчитываются. D22 focused 12/12, D19/D20
-      controls 161/161, tools 609/609, full 36 files / 1116 tests — PASS. R4/G8
-      остаются blocked до independent review и acceptance; open P0/P1 = 0/1.
+      Bash и missing-file Read не засчитываются. Review follow-up добавил exact
+      frozen `no longer exists` при сохранении `does not exist`, `doesn't exist`
+      и `no longer exist`. D22 focused 18/18, tools 615/615, full 36 files /
+      1122 tests — PASS. R4/G8 остаются blocked до independent re-review и
+      acceptance; open P0/P1 = 0/1.
 - [x] **D10 graceful SHUTDOWN/PID lifecycle** — PASS B и independent-review
       follow-up реализованы: один bounded coordinator, confirmed target
       termination, retained native ownership при unknown PID, safe typed failure

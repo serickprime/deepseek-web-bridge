@@ -3,6 +3,23 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-28 — Complete D22 frozen PB06 wording support
+
+- Independent review выявил единственный blocking gap D22: узкий absence
+  matcher принимал `no longer exist`, но не грамматическое frozen PB06 wording
+  `no longer exists`, поэтому final verification не получала
+  `expectedFileState: "absent"`.
+- Matcher расширен только на `no longer exists` с сохранением прежних
+  `does not exist`, `doesn't exist` и `no longer exist`; Bash predicate,
+  target binding и admission/fulfillment semantics не менялись.
+- Добавлены 6 regressions: четыре поддержанных absence wording controls,
+  informational negative и полный exact PB06 цикл с `no longer exists`. D22
+  focused 18/18, tools 615/615 и full suite 36 files / 1122 tests — PASS.
+- D22 остаётся P1 `IMPLEMENTED / FOLLOW-UP COMPLETE / AWAITING RE-REVIEW`;
+  open P0/P1 = 0/1, R4 — `BLOCKED BY D22 / PB06`. Изменены
+  `src/tools/toolParser.ts`, `tests/unit/tools.test.ts`, `CHANGELOG.md`,
+  `PROJECT_STATE.md` и `PRODUCTION_READINESS.md`.
+
 ## 2026-08-28 — Fix D22 absence verification evidence
 
 - D22 исправляет подтверждённый pre-existing L2 blocker PB06: финальная
