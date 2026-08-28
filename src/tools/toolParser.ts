@@ -391,6 +391,7 @@ export interface ToolObligation {
   resultLiterals: string[];
   requiredExactResultCount?: number;
   requiredToolName?: string;
+  expectedFileState?: "absent";
 }
 
 export interface ObligationCardinalityFailure {
@@ -626,7 +627,12 @@ function literalValues(literals: ExactUserLiteral[], roles: ExactLiteralRole[]):
   return literals.filter(literal => allowed.has(literal.role)).map(literal => literal.value);
 }
 
-function obligationDescription(kind: ExternalActionKind, argumentLiterals: string[], resultLiterals: string[]): string {
+function obligationDescription(
+  kind: ExternalActionKind,
+  argumentLiterals: string[],
+  resultLiterals: string[],
+  expectedFileState?: "absent",
+): string {
   const exact = [...argumentLiterals, ...resultLiterals]
     .filter((value, index, values) => values.indexOf(value) === index)
     .map(value => JSON.stringify(value));
@@ -636,7 +642,9 @@ function obligationDescription(kind: ExternalActionKind, argumentLiterals: strin
     case "data_mutation": return `create or update the requested data${suffix}`;
     case "command_execution": return `execute the requested command${suffix}`;
     case "api_verification": return `verify the result through the API${suffix}`;
-    case "file_verification": return `read and verify the requested storage/file${suffix}`;
+    case "file_verification": return expectedFileState === "absent"
+      ? `verify that the requested file is absent${suffix}`
+      : `read and verify the requested storage/file${suffix}`;
     case "test_execution": return `run the requested test suite${suffix}`;
     case "launch": return "launch or leave the requested application/server running";
     case "server_verification": return "verify that the application/server is responding";
@@ -742,6 +750,7 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
     argumentLiterals: string[];
     resultLiterals: string[];
     requiredToolName?: string;
+    expectedFileState?: "absent";
   }
   type D18ActionRequirement =
     | { requirement: "mandatory" }
@@ -965,6 +974,10 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
             argumentLiterals: context === "mutation" ? [...values, ...paths, ...localUrls] : paths,
             resultLiterals: localResult,
             requiredToolName: action.requiredToolName,
+            expectedFileState: context === "verification"
+              && /\b(?:(?:does\s+not|doesn't|no\s+longer)\s+exist|(?:is\s+)?absent)\b/i.test(action.span)
+              ? "absent"
+              : undefined,
           });
         }
         previousSignature = signature;
@@ -987,7 +1000,12 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
       existing.argumentLiterals = kind === "file_mutation"
         ? [...contentLiterals, ...distinctPaths, ...urlLiterals]
         : distinctPaths;
-      existing.description = obligationDescription(kind, existing.argumentLiterals, existing.resultLiterals)
+      existing.description = obligationDescription(
+        kind,
+        existing.argumentLiterals,
+        existing.resultLiterals,
+        existing.expectedFileState,
+      )
         + (existing.requiredExactResultCount === 1 ? " occurring exactly once in the final state" : "");
       return;
     }
@@ -1001,13 +1019,14 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
       return {
         id,
         kind,
-        description: obligationDescription(kind, group.argumentLiterals, group.resultLiterals)
+        description: obligationDescription(kind, group.argumentLiterals, group.resultLiterals, group.expectedFileState)
           + (group.requiredToolName ? ` using ${group.requiredToolName}` : "")
           + (requiredExactResultCount === 1 ? " occurring exactly once in the final state" : ""),
         argumentLiterals: group.argumentLiterals,
         resultLiterals: group.resultLiterals,
         requiredExactResultCount,
         ...(group.requiredToolName ? { requiredToolName: group.requiredToolName } : {}),
+        ...(group.expectedFileState ? { expectedFileState: group.expectedFileState } : {}),
       };
     });
     if (index < 0) inferred.push(...obligations);
@@ -1268,12 +1287,32 @@ export function isRepeatedFailedToolCall(
   ));
 }
 
+function supportedAbsencePredicateTarget(toolCall: CanonicalToolCall): string | null {
+  if (toolCall.name.trim().toLowerCase() !== "bash") return null;
+  const command = toolCall.arguments.command;
+  if (typeof command !== "string") return null;
+  const match = /^\s*test\s+!\s+-e\s+(?:"([^"\r\n]+)"|'([^'\r\n]+)'|([^\s;&|]+))\s*$/i.exec(command);
+  return match?.[1] ?? match?.[2] ?? match?.[3] ?? null;
+}
+
+function toolCallMatchesExpectedFileState(
+  obligation: ToolObligation,
+  toolCall: CanonicalToolCall,
+): boolean {
+  if (obligation.kind !== "file_verification") return true;
+  const absenceTarget = supportedAbsencePredicateTarget(toolCall);
+  if (obligation.expectedFileState !== "absent") return absenceTarget === null;
+  if (absenceTarget === null || obligation.argumentLiterals.length !== 1) return false;
+  return absenceTarget.normalize("NFC") === obligation.argumentLiterals[0]!.normalize("NFC");
+}
+
 function toolCallMatchesObligationIntent(
   obligation: ToolObligation,
   toolCall: CanonicalToolCall,
 ): boolean {
   if (obligation.requiredToolName
     && obligation.requiredToolName.toLowerCase() !== toolCall.name.toLowerCase()) return false;
+  if (!toolCallMatchesExpectedFileState(obligation, toolCall)) return false;
   if (!fulfilledKindsForTool(toolCall).includes(obligation.kind)) return false;
   const argumentStrings = collectStringValues(toolCall.arguments);
   return obligation.argumentLiterals.every(literal => containsExactUnicode(argumentStrings, literal));
@@ -1332,6 +1371,7 @@ function fulfilledKindsForTool(toolCall: CanonicalToolCall): ExternalActionKind[
     }
     if (isApiMutation) kinds.add("data_mutation");
     if (isApiCommand && !isApiMutation) kinds.add("api_verification");
+    if (supportedAbsencePredicateTarget(toolCall) !== null) kinds.add("file_verification");
     if (/\b(?:cat|type|get-content|read-file)\b[^\r\n]*(?:\.json\b|storage|data[\\/])/i.test(command)) {
       kinds.add("file_verification");
     }
@@ -1376,6 +1416,7 @@ function fulfillsObligation(
 ): boolean {
   if (obligation.requiredToolName
     && obligation.requiredToolName.toLowerCase() !== toolCall.name.toLowerCase()) return false;
+  if (!toolCallMatchesExpectedFileState(obligation, toolCall)) return false;
   if (!fulfilledKindsForTool(toolCall).includes(obligation.kind)) return false;
   if (looksLikeStructuredToolError(resultContent)) return false;
   if (looksLikeFailedObligationOutput(obligation.kind, resultContent)) return false;

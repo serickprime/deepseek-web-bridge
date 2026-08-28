@@ -2,11 +2,11 @@
 
 > **Статус:** `HARDENING IN PROGRESS`
 >
-> **Baseline:** `fix/d20-command-payload-classification` based on D19 closure `ed64c1b842fb06f64496b28ec509660dd989e018`
+> **Baseline:** `fix/d22-absence-verification` based on master `748ec2af2cfb2fa18855293854087ba3c47524f5`
 >
-> **Offline baseline:** 36 test files, 1104 tests
+> **Offline baseline:** 36 test files, 1116 tests
 >
-> **Открыто:** P0 — 0, P1 — 0, P2 — 2; deferred P3 — 1
+> **Открыто:** P0 — 0, P1 — 1, P2 — 2; deferred P3 — 1
 > **Production scope:** Claude Code → Anthropic-compatible Bridge → DeepSeek Web → Bridge → Claude Code
 
 Этот файл — главный источник production-hardening backlog, frozen benchmark и
@@ -62,9 +62,10 @@ R10 v1.0. Пройденный этап не повторяется без regre
 
 R1 — `PASS`. R2 — `PASS`. D18, D19 и D20 — `CLOSED`. D10 — `PASS`, PB39 —
 `PASS 3/3`. R3 — `PASS`: A TEXT, B WRITE/READ, C WRITE/EDIT/READ и D BASH —
-`PASS`. R4 — `READY / NOT STARTED`. Targeted D21 capture не подтвердил
-production defect: более раннее наблюдение двух Bash не воспроизвелось и
-остаётся monitoring item для stress testing.
+`PASS`. R4 — `BLOCKED BY D22 / PB06`: D22 реализован offline и ожидает
+independent review. Targeted D21 capture не подтвердил production defect:
+более раннее наблюдение двух Bash не воспроизвелось и остаётся monitoring item
+для stress testing.
 
 ### v1.0 RC exit criteria
 
@@ -162,6 +163,7 @@ transport, policy и persistence defects не объединяются в оди
 | **D18** | P1 | L2 / L1 | `CLOSED` | Single unambiguous mutation target переносится в последующую affirmative executable pronominal file verification (`этот файл`, `этот же файл`, `that file`, `the same file`, `it`). Один D18-local classifier отклоняет negated/explanatory/conditional/optional/alternative/meta verification и mutation candidates. Conditional creation нового distinct target непосредственно перед Read даёт fail-safe ambiguity; более поздняя mandatory mutation может восстановить однозначный referent. Raw allowed `[调用 Tool] {...}` не может стать final и требует canonical repair. | `REVIEW`: fourth independent review PASS. `TEST`: D18 focused 126/126, historical guard selection 347/347, tools 563/563, full 36 files / 1070 tests; typecheck/test/build/test:platform/diff-check PASS. `LIVE`: isolated Windows Claude Code 2.1.241 выполнил real Write result → Read → Read result → `PREMERGE-WRITE-READ-OK`; filesystem `premerge-a.txt = PREMERGE-A-731`; correlation/auth/shutdown PASS, no unexpected 5xx/502, hang/crash или raw marker leak. Minor/pre-existing collateral остаётся backlog v1.1. | D13/D17 guards; closed, do not fuzz without release-blocking evidence | `2fe10373f093e319e5c0fa67a8009c46cd134d08` |
 | **D19** | P1 | L2 | `CLOSED` | Exact R3-C create→Edit→Read inference сохраняет две distinct mutations и final verification. Tool names в filename/meta wording не создают actions; semantic admission разрешает только genuinely missing/stale obligations, поэтому новый call ID не replay-ит fulfilled Write/Edit/Read; later mutation делает verification stale и требует fresh Read. | `TEST`: 17 D19 regressions; exact inference, root client flow, redundant Write/Edit/Read rejection, stale/fresh verification, explicit repeated actions и historical guard protections; focused tools 580/580, full 36 files / 1087 tests. `REVIEW`: independent review PASS. `LIVE`: isolated Windows Claude Code 2.1.241 выполнил ровно `Write` → `Edit` → `Read` → `R3-EDIT-OK` (counts 1/1/1); filesystem exact `BETA-731`, correlation/auth/shutdown PASS, без duplicate execution, unexpected 5xx/502, hang/crash или raw marker leak. | Closed; reopen only with regression evidence | `07103f58140c6d4a2f6e9a5d49d3eab846b2b33a` |
 | **D20** | P1 | L2 | `CLOSED` | Length-preserving masking одного recognized Bash/command payload применяется ко всем стадиям natural-language file verification: broad regex, verification action groups и file-path extraction. Исходный текст остаётся для `command_execution`, а prose/targets вне payload сохраняются. Exact R3-D и command-local `stdout.write`/`fs.readFileSync`/read-like tokens не создают false file obligations. | `TEST`: 17 D20 regressions; focused 17/17, tools 597/597, full 36 files / 1104 tests; typecheck/build/Windows test:platform/diff-check PASS. `REVIEW`: independent re-review PASS. `LIVE`: exact Windows R3-D на isolated Claude Code 2.1.241 вывел только `command_execution`; один Bash, `is_error=false`, exit zero, exact stdout `R3-BASH-731`, затем exact final `R3-BASH-OK`; без guard retry, 5xx/502 или hang/crash; shutdown/auth integrity PASS. D21 targeted capture не воспроизвёл более ранний второй Bash и не установил production defect. | Closed; D19/D17 regression-protected; monitor D21 observation in R5 | `a8800ba`, `005eebb` |
+| **D22** | P1 | L2 | `IMPLEMENTED / AWAITING INDEPENDENT REVIEW` | PB06 final absence verification сохраняет `expectedFileState: "absent"`; только narrow Bash `test ! -e <exact-target>` согласованно допускается semantic admission и закрывает obligation после correlated successful result. Ordinary verification не смешивается с absence state. | `TEST`: 12 D22 regressions; matching admission/fulfillment и full PB06 PASS; failed, unrelated, wrong-target, `test -e`, requested-presence, masked/structured failure и missing-file Read controls PASS. D19/D20/D18/freshness controls 161/161, tools 609/609, full 36 files / 1116 tests PASS. | Independent review и acceptance; R4/G8 blocked | pending |
 
 ### 5.2 Acceptance and required evidence
 
@@ -233,7 +235,7 @@ versioned addendum; новые regressions добавляются новыми I
 | PB03 | Read/env | Nested fixture; ask Glob/project structure. | Glob/list tool and exact fixture structure. | Generic prose structure. | Offline + live | D7,D9 |
 | PB04 | Read/env | Known file + missing file; ask content/existence. | Read/Glob evidence; exact content and true/false. | Fabricated content/existence. | Offline + live | D9 |
 | PB05 | Read/env | Ask `что такое директория?`, `what does current directory mean?`, `как работает cd?`. | No tool; accurate text. | Unnecessary tool/TOOL_CALL_REQUIRED. | Offline | D9 |
-| PB06 | Mutation | Create, edit, then delete one temp file. | Three correlated mutations; final absence verified. | Skipped step or success after failure. | Offline + live | D2,D13 |
+| PB06 | Mutation | Create, edit, then delete one temp file. | Three correlated mutations; final absence verified. | Skipped step or success after failure. | Offline + live | D2,D13,D22 |
 | PB07 | Mutation | Mutate 2–5 distinct files with exact markers. | Separate evidence per target. | One result closes several; cross-file write. | Offline + live | D13 |
 | PB08 | Mutation | Two additive clauses on same file, then verify. | Mutation(s) + fresh Read containing both markers. | Destructive false-positive; stale Read. | Offline + live | closed guard, D18 |
 | PB09 | Mutation | Two obligations of same kind with distinct targets/values. | One-to-one evidence binding. | Evidence reuse across instances. | Offline | D13 |
@@ -275,13 +277,13 @@ versioned addendum; новые regressions добавляются новыми I
 | Gate | Pass condition | Baseline status |
 | --- | --- | --- |
 | G1 | `npm run typecheck` green | PASS (recheck each branch) |
-| G2 | `npm test` 100% green | PASS: 1104/1104 on D20 follow-up branch (recheck release commit) |
+| G2 | `npm test` 100% green | PASS: 1116/1116 on D22 implementation branch (recheck release commit) |
 | G3 | `npm run build` green | PASS (recheck each branch) |
 | G4 | `npm run test:platform` green | PASS on current Windows baseline |
 | G5 | CI Windows/Linux/macOS green for release commit | NEEDS RELEASE-COMMIT VERIFICATION |
 | G6 | Все P0 закрыты | PASS: D2/D3/D4/D6 CLOSED; open P0 = 0 |
-| G7 | Все P1 закрыты либо formally waived с owner/reason/expiry | PASS: D20 CLOSED; open P1 = 0 |
-| G8 | 100% deterministic offline PB cases automated and green | FAIL: PB-v1 пока specification |
+| G7 | Все P1 закрыты либо formally waived с owner/reason/expiry | FAIL: D22 IMPLEMENTED / AWAITING INDEPENDENT REVIEW; open P1 = 1 |
+| G8 | 100% deterministic offline PB cases automated and green | FAIL: R4 blocked by D22/PB06 pending review + acceptance |
 | G9 | 3 последовательных clean live benchmark runs | FAIL |
 | G10 | 3 × 30–50 tool autonomous runs без fabrication/replay/duplicate/malformed leak/unexpected 502/hang | FAIL |
 | G11 | Rate limit → retryable `DEEPSEEK_RATE_LIMIT`/429 без guard storm | PASS offline; preserve in live |
@@ -289,7 +291,7 @@ versioned addendum; новые regressions добавляются новыми I
 | G13 | Restart сохраняет консистентные persistent session/lineage | PASS: deterministic PB31/PB33 green; Windows Claude Code restart сохранил session и использовал persisted lineage |
 | G14 | `/compact` после long chain проходит PB35 | NEEDS FROZEN LIVE RUNS |
 | G15 | Shutdown не оставляет orphan/stale PID и не убивает чужие процессы | PASS: D10 final independent re-review и Windows desktop PB39 PASS 3/3; D18 не относится к lifecycle |
-| G16 | Нет известных открытых P0/P1 production defects | PASS: open P0 = 0, open P1 = 0 |
+| G16 | Нет известных открытых P0/P1 production defects | FAIL: open P0 = 0, open P1 = 1 (D22) |
 
 ## 9. Mandatory development workflow
 
@@ -367,9 +369,12 @@ green, создавать новый mechanism при подходящем су�
 13. **D19** — CLOSED после independent review и exact R3-C Windows live с
     единственной цепочкой Write→Edit→Read. **D20** — CLOSED после independent
     re-review и exact R3-D Windows live с одним успешным Bash. R3 A/B/C/D —
-    PASS; R4 готов к запуску. D21 duplicate-Bash observation не воспроизведён и
-    переносится только в monitoring R5.
-14. **D1** — повторный controlled A/B/C только после стабилизации остальных причин.
+    PASS. D21 duplicate-Bash observation не воспроизведён и переносится только
+    в monitoring R5.
+14. **D22** — P1 `IMPLEMENTED / AWAITING INDEPENDENT REVIEW`: PB06 final
+    absence state и exact `test ! -e <target>` admission/fulfillment защищены
+    12 focused regressions; R4/G8 blocked до review и acceptance.
+15. **D1** — повторный controlled A/B/C только после стабилизации остальных причин.
 
 ## 11. Repository consistency findings
 
@@ -388,12 +393,13 @@ green, создавать новый mechanism при подходящем су�
 Проект **не является Production Ready**. D6, D3, D4, D2, D5, D7, D8, D9, D11,
 D12, D13, D14, D15b, D17, D18, D19 и D20 закрыты после требуемой deterministic
 coverage, independent review и, где это требовалось, релевантной Windows live
-verification. Открытых P0 — 0, P1 — 0, P2 — 2; deferred P3 — 1. G6, G7, G15
-и G16 пройдены; остальные release gates остаются открытыми. D10 final
+verification. D22 — P1 `IMPLEMENTED / AWAITING INDEPENDENT REVIEW`; открытых
+P0 — 0, P1 — 1, P2 — 2; deferred P3 — 1. G6 и G15 пройдены, G7/G8/G16
+остаются FAIL из-за D22. D10 final
 independent re-review и Windows desktop PB39 PASS 3/3; D10 + D18 fast-forward
 integration завершена. D15b имеет статус `CLOSED`, D15a — `OPEN / CAPABILITY
 UNRESOLVED`. R1, R2 и R3 — `PASS`; R3 A TEXT, B WRITE/READ,
-C WRITE/EDIT/READ и D BASH прошли. R4 — `READY / NOT STARTED`. D19 и D20 —
+C WRITE/EDIT/READ и D BASH прошли. R4 — `BLOCKED BY D22 / PB06`. D19 и D20 —
 `CLOSED`. D21 не подтверждён как production defect: один более ранний R3-D run
 с двумя Bash не воспроизвёлся в targeted capture; successful matching Bash
 закрыл `command_execution`, второй Bash не был admitted. Наблюдение остаётся

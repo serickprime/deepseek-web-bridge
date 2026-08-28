@@ -10,10 +10,10 @@
 
 **DEVELOPMENT MODE:** `RELEASE HARDENING / SCOPE FREEZE FOR v1.0`
 
-**CURRENT BLOCKER:** открытых P0/P1 нет. D20 закрыт после independent re-review
-и exact R3-D Windows live; D19 ранее закрыт после independent review и exact
-R3-C Windows live acceptance. Проект переходит к R4 PB-v1 deterministic
-acceptance, но ещё не объявляется production-ready.
+**CURRENT BLOCKER:** D22 — P1 `IMPLEMENTED / AWAITING INDEPENDENT REVIEW`.
+PB06 выявил pre-existing L2 gap: успешный target-matching Bash absence predicate
+не закрывал final `file_verification`. Узкий state-aware admission/fulfillment
+fix реализован offline; R4 остаётся заблокирован до review и acceptance D22.
 
 **R1:** `PASS` — fourth independent review D18.
 
@@ -25,13 +25,15 @@ acceptance, но ещё не объявляется production-ready.
 
 **D20:** `CLOSED`.
 
+**D22:** `IMPLEMENTED / AWAITING INDEPENDENT REVIEW`.
+
 **R3:** `PASS`: A TEXT, B WRITE/READ, C WRITE/EDIT/READ и D BASH — `PASS`.
-**R4:** `READY / NOT STARTED`.
+**R4:** `BLOCKED BY D22 / PB06`.
 
 **D10:** `PASS`; **PB39:** `PASS 3/3`.
 
-**NEXT:** R4 PB-v1 deterministic acceptance. D19/D20 не переоткрывать без
-нового regression evidence.
+**NEXT:** independent read-only review D22, затем требуемая acceptance; только
+после closure D22 возобновить R4 mapping. D19/D20 не переоткрывать.
 
 Release-mode policy из `AGENTS.md` сохраняет scope freeze: новые функции,
 provider/UI scope, unrelated fixes и архитектурные улучшения заморожены. После
@@ -77,7 +79,8 @@ D20 закрыт после узкого исправления command-payload 
 independent re-review и exact R3-D Windows live. Один recognized-payload boundary
 применяется ко всем стадиям file-verification inference: код внутри явного
 Bash/command payload не создаёт ложные natural-language file obligations, тогда
-как prose вне payload сохраняется. Открытых P0/P1 нет; G7 и G16 — PASS.
+как prose вне payload сохраняется. D22 сейчас является единственным открытым
+P1; G7 и G16 временно FAIL до его review/acceptance closure.
 Остальные приоритеты и gates — в
 `PRODUCTION_READINESS.md`. D11 full schema transport закрыт после deterministic
 offline coverage, independent review и Windows Claude Code live WebFetch. D12
@@ -119,11 +122,15 @@ independent re-review — PASS. Exact R3-D Windows live на isolated Claude Cod
 2.1.241 вывел только `command_execution`, выполнил один успешный Bash с exit
 zero и exact stdout `R3-BASH-731`, затем final `R3-BASH-OK`, без guard retry,
 unexpected 5xx/502, hang/crash; auth integrity и shutdown — PASS. D20 —
-`CLOSED`; R3 A/B/C/D — `PASS`; R4 — `READY / NOT STARTED`; open P0/P1 = 0,
-G7/G16 — PASS. Один более ранний R3-D run с двумя Bash не воспроизвёлся в
+`CLOSED`; R3 A/B/C/D — `PASS`; R4 — `BLOCKED BY D22 / PB06`; open P0/P1 =
+0/1, G7/G16 — FAIL pending D22. Один более ранний R3-D run с двумя Bash не воспроизвёлся в
 targeted D21 capture: successful matching Bash закрыл obligation, второй Bash
 не был admitted. D21 не подтверждён как production defect и остаётся только
-monitoring observation для последующего stress testing.
+monitoring observation для последующего stress testing. D22 PB06 absence
+verification реализован узко: `file_verification` может хранить expected absent
+state, а admission и fulfillment принимают только exact target-matching
+`test ! -e <target>` с successful correlated result. 12 focused regressions и
+full 36 files / 1116 tests проходят; D22 ещё не закрыт, R4/G8 остаются blocked.
 D10 graceful shutdown lifecycle реализован в feature branch как единый bounded
 `app.stop()` coordinator с подтверждением завершения owned processes. Первый
 independent review выявил две blocking race; follow-up сохраняет native ownership
@@ -1176,6 +1183,14 @@ OpenCode config не изменялся.
       matching Bash успешно завершился, закрыл `command_execution`, второй Bash
       не был admitted, final был принят сразу. Не является v1.0 blocker;
       мониторить в R5 stress runs без speculative production fix.
+- [ ] **D22 PB06 final absence verification** — P1 `IMPLEMENTED / AWAITING
+      INDEPENDENT REVIEW`. Exact PB06 сохраняет три distinct file mutations и
+      final `file_verification` с `expectedFileState: "absent"`. Semantic
+      admission и fulfillment используют один narrow matcher только для
+      `test ! -e <exact-target>`; unrelated/opposite/wrong-target/failed/masked
+      Bash и missing-file Read не засчитываются. D22 focused 12/12, D19/D20
+      controls 161/161, tools 609/609, full 36 files / 1116 tests — PASS. R4/G8
+      остаются blocked до independent review и acceptance; open P0/P1 = 0/1.
 - [x] **D10 graceful SHUTDOWN/PID lifecycle** — PASS B и independent-review
       follow-up реализованы: один bounded coordinator, confirmed target
       termination, retained native ownership при unknown PID, safe typed failure

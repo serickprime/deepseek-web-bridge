@@ -3,6 +3,23 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-28 — Fix D22 absence verification evidence
+
+- D22 исправляет подтверждённый pre-existing L2 blocker PB06: финальная
+  проверка отсутствия файла теперь сохраняет узкое obligation-состояние
+  `expectedFileState: "absent"` и принимает только exact target-matching Bash
+  predicate `test ! -e <target>`.
+- Один и тот же state-aware matcher применяется к semantic admission и evidence
+  fulfillment. Успешный unrelated Bash, wrong target, `test -e`, failed или
+  masked/structured result и missing-file Read не закрывают verification;
+  обычные Read/Cat semantics не изменены.
+- Добавлено 12 D22/PB06 regressions; D22 focused 12/12, D19/D20/D18/freshness
+  controls 161/161, tools 609/609 и full suite 36 files / 1116 tests — PASS.
+- D22 переведён в `IMPLEMENTED / AWAITING INDEPENDENT REVIEW`; open P0/P1 =
+  0/1. R4 остаётся `BLOCKED BY D22 / PB06`, G8 не закрыт. Изменены
+  `src/tools/toolParser.ts`, `tests/unit/tools.test.ts`, `CHANGELOG.md`,
+  `PROJECT_STATE.md` и `PRODUCTION_READINESS.md`.
+
 ## 2026-08-28 — Close D20 and R3 after Bash live acceptance
 
 - D20 закрыт после подтверждённого pre-existing L2 diagnosis, implementation

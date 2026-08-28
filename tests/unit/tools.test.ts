@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { parseToolInvocation, hasToolTag, createToolRetryPrompt, historicalToolInvocationText, sanitizedToolInvocationText, toolResultText, looksLikeToolIntentText, looksLikeFakeToolTrace, looksLikeEnvironmentDataRequest, looksLikeExternalActionRequest, looksLikeActionSuccessClaim, inspectCurrentToolCycle, inferToolObligations, inspectToolCallFromOutput, looksLikeMalformedToolIntent, matchObligationsToEvidence, toolCallFingerprint, isRepeatedFailedToolCall, COMPLETION_GUARD_MAX_ATTEMPTS, buildUpstreamPrompt } from "../../src/tools/toolParser.js";
-import type { ToolObligation } from "../../src/tools/toolParser.js";
+import { parseToolInvocation, hasToolTag, createToolRetryPrompt, historicalToolInvocationText, sanitizedToolInvocationText, toolResultText, looksLikeToolIntentText, looksLikeFakeToolTrace, looksLikeEnvironmentDataRequest, looksLikeExternalActionRequest, looksLikeActionSuccessClaim, inspectCurrentToolCycle, inferToolObligations, inspectToolCallFromOutput, looksLikeMalformedToolIntent, matchObligationsToEvidence, toolCallFingerprint, isRepeatedFailedToolCall, isToolCallSemanticallyAdmissible, COMPLETION_GUARD_MAX_ATTEMPTS, buildUpstreamPrompt } from "../../src/tools/toolParser.js";
+import type { CurrentToolCycleEvidence, ToolObligation } from "../../src/tools/toolParser.js";
 import { buildToolPrompt, selectBridgeTools } from "../../src/tools/toolPrompt.js";
 import { ToolRetryTracker } from "../../src/tools/toolRetry.js";
 import { DeepSeekClient, shouldRetry, buildToolUseIdMap } from "../../src/deepseek/client.js";
@@ -4718,6 +4718,127 @@ describe("DeepSeekClient prompt construction — stale action replay prevention"
     } finally {
       globalThis.fetch = originalFetch;
     }
+  });
+});
+
+describe("D22 PB06 final absence verification", () => {
+  const tools = ["Write", "Edit", "Read", "Cat", "Bash"];
+  const prompt = "Create report.txt. Then edit the same file. Then delete the same file. Finally verify that report.txt does not exist.";
+  const msg = (role: "user" | "assistant", parts: unknown[]): CanonicalMessage =>
+    ({ role, parts }) as CanonicalMessage;
+  const use = (id: string, name: string, argumentsValue: Record<string, unknown>): CanonicalMessage =>
+    msg("assistant", [{ type: "tool_use", toolCall: { id, type: "function", name, arguments: argumentsValue } }]);
+  const result = (id: string, content: string, isError = false): CanonicalMessage =>
+    msg("user", [{ type: "tool_result", toolResult: { toolUseId: id, content, isError } }]);
+  const absenceCall = (target = "report.txt") => ({
+    id: "d22-verify",
+    type: "function" as const,
+    name: "Bash",
+    arguments: { command: `test ! -e ${target}` },
+  });
+  const beforeAbsence = (): CanonicalMessage[] => [
+    msg("user", [{ type: "text", text: prompt }]),
+    use("d22-write", "Write", { file_path: "report.txt", content: "ALPHA" }),
+    result("d22-write", "report.txt created"),
+    use("d22-edit", "Edit", { file_path: "report.txt", old_string: "ALPHA", new_string: "BETA" }),
+    result("d22-edit", "report.txt edited"),
+    use("d22-delete", "Bash", { command: "rm report.txt" }),
+    result("d22-delete", "report.txt deleted"),
+  ];
+  const withBashResult = (command: string, content: string, isError = false): CurrentToolCycleEvidence =>
+    inspectCurrentToolCycle([
+      ...beforeAbsence(),
+      use("d22-verify", "Bash", { command }),
+      result("d22-verify", content, isError),
+    ], tools);
+
+  it("keeps three mutations separate and marks final verification as expected absent", () => {
+    const obligations = inferToolObligations(prompt, tools);
+    expect(obligations.filter(obligation => obligation.kind === "file_mutation")).toHaveLength(3);
+    expect(obligations.find(obligation => obligation.kind === "file_verification")).toMatchObject({
+      argumentLiterals: ["report.txt"],
+      expectedFileState: "absent",
+    });
+  });
+
+  it("admits the exact target-matching absence predicate", () => {
+    const evidence = inspectCurrentToolCycle(beforeAbsence(), tools);
+    expect(isToolCallSemanticallyAdmissible(absenceCall(), evidence)).toBe(true);
+  });
+
+  it("fulfills PB06 and allows final only after the successful absence result", () => {
+    const evidence = withBashResult("test ! -e report.txt", "report.txt absent");
+    expect(evidence.fulfilledObligationIds).toEqual([
+      "file_mutation#1",
+      "file_mutation#2",
+      "file_mutation#3",
+      "file_verification",
+    ]);
+    expect(evidence.missingObligations).toEqual([]);
+    expect(shouldRetry(true, null, "PB06-OK", "", tools, evidence)).toBe(false);
+  });
+
+  it("does not fulfill absence verification after a failed predicate", () => {
+    const evidence = withBashResult("test ! -e report.txt", "report.txt still exists", true);
+    expect(evidence.missingObligations.map(obligation => obligation.id)).toContain("file_verification");
+  });
+
+  it("does not fulfill absence verification with unrelated successful Bash", () => {
+    const evidence = withBashResult("echo OK", "OK");
+    expect(evidence.missingObligations.map(obligation => obligation.id)).toContain("file_verification");
+  });
+
+  it("requires an exact absence target rather than a substring match", () => {
+    const evidence = withBashResult("test ! -e other-report.txt", "other-report.txt absent");
+    expect(evidence.missingObligations.map(obligation => obligation.id)).toContain("file_verification");
+    expect(isToolCallSemanticallyAdmissible(absenceCall("other-report.txt"), inspectCurrentToolCycle(beforeAbsence(), tools)))
+      .toBe(false);
+  });
+
+  it("does not accept the opposite-state test -e predicate", () => {
+    const evidence = withBashResult("test -e report.txt", "report.txt exists");
+    expect(evidence.missingObligations.map(obligation => obligation.id)).toContain("file_verification");
+  });
+
+  it("does not let an absence predicate prove a requested presence", () => {
+    const presencePrompt = "Verify that report.txt exists.";
+    const messages = [
+      msg("user", [{ type: "text", text: presencePrompt }]),
+      use("presence", "Bash", { command: "test ! -e report.txt" }),
+      result("presence", "report.txt absent"),
+    ];
+    const evidence = inspectCurrentToolCycle(messages, tools);
+    expect(evidence.obligations.find(obligation => obligation.kind === "file_verification")?.expectedFileState)
+      .toBeUndefined();
+    expect(evidence.missingObligations.map(obligation => obligation.id)).toContain("file_verification");
+    expect(isToolCallSemanticallyAdmissible(absenceCall(), inspectCurrentToolCycle(messages.slice(0, 1), tools)))
+      .toBe(false);
+  });
+
+  it("keeps a missing-file Read as failed evidence", () => {
+    const evidence = inspectCurrentToolCycle([
+      ...beforeAbsence(),
+      use("missing-read", "Read", { file_path: "report.txt" }),
+      result("missing-read", "File not found: report.txt", true),
+    ], tools);
+    expect(evidence.missingObligations.map(obligation => obligation.id)).toContain("file_verification");
+  });
+
+  it("keeps masked and structured failure signals from fulfilling absence", () => {
+    const masked = withBashResult("test ! -e report.txt", "File not found: report.txt");
+    const structured = withBashResult("test ! -e report.txt", JSON.stringify({ error: "probe failed" }));
+    expect(masked.missingObligations.map(obligation => obligation.id)).toContain("file_verification");
+    expect(structured.missingObligations.map(obligation => obligation.id)).toContain("file_verification");
+  });
+
+  it.each(["Read", "Cat"])("preserves ordinary %s verification behavior", toolName => {
+    const ordinaryPrompt = "Read and verify report.txt.";
+    const evidence = inspectCurrentToolCycle([
+      msg("user", [{ type: "text", text: ordinaryPrompt }]),
+      use("ordinary-read", toolName, { file_path: "report.txt" }),
+      result("ordinary-read", "report.txt contents"),
+    ], tools);
+    expect(evidence.fulfilledObligationIds).toContain("file_verification");
   });
 });
 
