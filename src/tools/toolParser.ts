@@ -450,6 +450,44 @@ const DIRECT_COMMAND_REQUEST = new RegExp(
 );
 const COMMAND_LITERAL_START = new RegExp(String.raw`^\s*${COMMAND_EXECUTABLE_SOURCE}(?:\s|$)`, "i");
 
+interface CommandPayloadSpan {
+  start: number;
+  end: number;
+}
+
+function explicitCommandPayloadSpans(content: string): CommandPayloadSpan[] {
+  const spans: CommandPayloadSpan[] = [];
+  for (const match of content.matchAll(/`([^`\r\n]+)`/g)) {
+    const start = match.index ?? -1;
+    const payload = match[1] ?? "";
+    if (start < 0 || !payload) continue;
+    const prefix = content.slice(Math.max(0, start - 120), start);
+    const explicitCommand = /(?:выполн\S*|запуст\S*)\s+(?:(?:эту|следующ\S*)\s+)?команд\S*[^`\r\n]{0,24}$|\b(?:run|execute)\s+(?:(?:the|this|following)\s+)?command\b[^`\r\n]{0,24}$/i.test(prefix);
+    const commandLabel = /(?:^|\n)\s*(?:команд\S*|command|bash|shell|powershell|pwsh|terminal|терминал\S*)\s*:\s*$/i.test(prefix);
+    const toolThenAction = /(?:с\s+помощью|через|в)\s+(?:bash|shell|powershell|pwsh|терминал\S*)[^`\r\n]{0,48}(?:выполн\S*|запуст\S*)\s*$|\b(?:with|via|through|in)\s+(?:bash|shell|powershell|pwsh|(?:the\s+)?terminal)[^`\r\n]{0,48}\b(?:run|execute)\s*$/i.test(prefix);
+    const actionThenTool = /(?:выполн\S*|запуст\S*)\s+(?:(?:в|через|с\s+помощью)\s+)(?:bash|shell|powershell|pwsh|терминал\S*)\s*$|\b(?:run|execute)\s+(?:(?:in|with|via|through)\s+)(?:bash|shell|powershell|pwsh|(?:the\s+)?terminal)\s*$/i.test(prefix);
+    const recognizableCommand = /(?:выполн\S*|\b(?:run|execute))[^`\r\n]{0,48}$/i.test(prefix)
+      && COMMAND_LITERAL_START.test(payload);
+    if (explicitCommand || commandLabel || toolThenAction || actionThenTool || recognizableCommand) {
+      spans.push({ start, end: start + match[0].length });
+    }
+  }
+  return spans;
+}
+
+function maskExplicitCommandPayloads(content: string): string {
+  const spans = explicitCommandPayloadSpans(content);
+  if (spans.length === 0) return content;
+  let masked = "";
+  let cursor = 0;
+  for (const span of spans) {
+    masked += content.slice(cursor, span.start);
+    masked += " ".repeat(span.end - span.start);
+    cursor = span.end;
+  }
+  return masked + content.slice(cursor);
+}
+
 function looksLikeExplicitCommandExecutionRequest(content: string): boolean {
   if (/(?:выполн\S*|запуст\S*)\s+(?:(?:эту|следующ\S*)\s+)?команд\S*|\b(?:run|execute)\s+(?:(?:the|this|following)\s+)?command\b/i.test(content)) {
     return true;
@@ -458,6 +496,7 @@ function looksLikeExplicitCommandExecutionRequest(content: string): boolean {
     return true;
   }
   if (DIRECT_COMMAND_REQUEST.test(content)) return true;
+  if (explicitCommandPayloadSpans(content).length > 0) return true;
 
   const backticked = /(?:выполн\S*|\b(?:run|execute))[^`\r\n]{0,48}`([^`\r\n]{1,256})`/i.exec(content);
   if (backticked?.[1] && COMMAND_LITERAL_START.test(backticked[1])) return true;
@@ -503,9 +542,10 @@ function inferExternalActionKinds(content: string, allowedToolNames: string[]): 
     || hasShell;
   const hasLauncher = hasShell || hasToolMatching(allowedToolNames, /browser|open|launch/);
   const kinds = new Set<ExternalActionKind>();
+  const fileIntentText = maskExplicitCommandPayloads(trimmed);
 
-  const externalTarget = /файл|папк|каталог|проект|лендинг|сайт|страниц|програм|скрипт|конфиг|документ|зависимост|пакет|\b[\w.-]+\.[a-z0-9_-]{1,16}\b|file|folder|directory|project|landing|website|site|page|program|script|config|document|dependency|package/i.test(trimmed);
-  const fileMutation = /созда\S*|сделай|сохран\S*|запиш\S*|измен\S*|отредактир\S*|удал\S*|переимен\S*|перемест\S*|скопир\S*|create|make|build|save|write|modify|change|edit|delete|remove|rename|move|copy/i.test(trimmed);
+  const externalTarget = /файл|папк|каталог|проект|лендинг|сайт|страниц|програм|скрипт|конфиг|документ|зависимост|пакет|\b[\w.-]+\.[a-z0-9_-]{1,16}\b|file|folder|directory|project|landing|website|site|page|program|script|config|document|dependency|package/i.test(fileIntentText);
+  const fileMutation = /созда\S*|сделай|сохран\S*|запиш\S*|измен\S*|отредактир\S*|удал\S*|переимен\S*|перемест\S*|скопир\S*|create|make|build|save|write|modify|change|edit|delete|remove|rename|move|copy/i.test(fileIntentText);
   if (hasFileWriter && externalTarget && fileMutation) kinds.add("file_mutation");
 
   const install = /установ\S*|добав\S*\s+(?:зависимост|пакет)|install|add (?:the )?(?:dependency|package)/i.test(trimmed);

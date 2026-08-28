@@ -1354,6 +1354,107 @@ describe("D17 explicit command execution classification", () => {
   });
 });
 
+describe("D20 explicit command payload classification", () => {
+  const tools = ["Bash", "Write", "Edit", "Read"];
+  const r3Prompt = "С помощью Bash выполни команду `node -e \"process.stdout.write('R3-BASH-731')\"` и только после успешного выполнения ответь R3-BASH-OK.";
+  const kinds = (prompt: string) => inferToolObligations(prompt, tools).map(obligation => obligation.kind);
+
+  it("infers only command execution for the exact R3-D prompt", () => {
+    expect(kinds(r3Prompt)).toEqual(["command_execution"]);
+  });
+
+  it("does not treat stdout.write inside an explicit Bash payload as file mutation", () => {
+    expect(kinds("С помощью Bash выполни `node -e \"process.stdout.write('X')\"`")).toEqual(["command_execution"]);
+  });
+
+  it("keeps console.log Bash code command-only", () => {
+    expect(kinds("С помощью Bash выполни `node -e \"console.log('X')\"`")).toEqual(["command_execution"]);
+  });
+
+  it.each(["read", "write", "edit"])("does not infer file obligations from %s inside command code", token => {
+    expect(kinds(`С помощью Bash выполни \`node -e \"object.${token}('X')\"\``)).toEqual(["command_execution"]);
+  });
+
+  it("recognizes a backticked echo command through the explicit Bash envelope", () => {
+    expect(kinds("С помощью Bash выполни `echo X`")).toEqual(["command_execution"]);
+  });
+
+  it("keeps ordinary backticked file content visible outside a command envelope", () => {
+    expect(kinds("Создай файл a.txt с содержимым `write`")).toEqual(["file_mutation"]);
+  });
+
+  it("keeps a pure redirection command command-only", () => {
+    expect(kinds("Выполни команду `echo X > a.txt`")).toEqual(["command_execution"]);
+  });
+
+  it("preserves explicit file mutation prose outside the Bash payload", () => {
+    expect(kinds("Создай файл a.txt и затем с помощью Bash выполни `node script.js`")).toEqual([
+      "file_mutation",
+      "command_execution",
+    ]);
+  });
+
+  it("accepts the final after one successful R3-D Bash result without guard retry", async () => {
+    const messages: CanonicalMessage[] = [
+      { role: "user", parts: [{ type: "text", text: r3Prompt }] },
+      { role: "assistant", parts: [{
+        type: "tool_use",
+        toolCall: {
+          id: "d20-bash",
+          type: "function",
+          name: "Bash",
+          arguments: { command: "node -e \"process.stdout.write('R3-BASH-731')\"" },
+        },
+      }] },
+      { role: "user", parts: [{
+        type: "tool_result",
+        toolResult: { toolUseId: "d20-bash", content: "R3-BASH-731", isError: false },
+      }] },
+    ];
+    const evidence = inspectCurrentToolCycle(messages, tools);
+    expect(evidence.requiredActionKinds).toEqual(["command_execution"]);
+    expect(evidence.missingObligations).toEqual([]);
+    expect(shouldRetry(true, null, "R3-BASH-OK", "", tools, evidence)).toBe(false);
+
+    const client = new DeepSeekClient({
+      baseUrl: "https://example.com",
+      auth: { token: "test-token", cookie: "test-cookie" },
+      sessionManager: {} as never,
+      solver: {} as never,
+      logger: { info: () => {}, warn: () => {}, error: () => {} } as never,
+      redactor: { addSecret: () => {}, redactText: (text: string) => text } as never,
+      timeoutMs: 10_000,
+      maxRetries: 0,
+    });
+    const runCompletion = vi.fn(async () => ({
+      content: "R3-BASH-OK",
+      reasoning: "",
+      candidateMessageId: null,
+    }));
+    Object.defineProperty(client, "runCompletion", { value: runCompletion });
+    const response = await client.complete({
+      model: "deepseek-v4-flash",
+      stream: false,
+      system: "",
+      messages,
+      tools: [
+        { name: "Bash", description: "Run a command", inputSchema: { type: "object", properties: { command: { type: "string" } } } },
+        { name: "Write", description: "Write a file", inputSchema: { type: "object", properties: { file_path: { type: "string" } } } },
+        { name: "Edit", description: "Edit a file", inputSchema: { type: "object", properties: { file_path: { type: "string" } } } },
+        { name: "Read", description: "Read a file", inputSchema: { type: "object", properties: { file_path: { type: "string" } } } },
+      ],
+    }, {
+      chatSessionId: "d20-session",
+      parentMessageId: null,
+      history: [],
+      updatedAt: 0,
+    });
+    expect(response.content).toBe("R3-BASH-OK");
+    expect(response.toolCall).toBeUndefined();
+    expect(runCompletion).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("external action completion integrity", () => {
   const tools = ["Skill", "Write", "Edit", "Bash"];
 

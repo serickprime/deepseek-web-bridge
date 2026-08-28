@@ -3,6 +3,28 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-28 — Fix D20 command payload classification
+
+- D20 подтверждён как pre-existing L2 release blocker: natural-language
+  obligation inference анализировал содержимое явного Bash payload и принимал
+  `process.stdout.write(...)` за отдельный запрос изменить файл. После успешного
+  Bash result ложная `file_mutation` оставалась missing и приводила к bounded
+  `TOOL_CALL_REQUIRED`/502.
+- `src/tools/toolParser.ts` теперь маскирует только payload распознанного
+  explicit Bash/command envelope для file-intent inference, сохраняя исходный
+  текст для `command_execution`. Backticks вне такого envelope не игнорируются,
+  а prose вне payload продолжает создавать реальные file obligations.
+- Exact R3-D, `stdout.write`, `console.log`, command-local `read/write/edit`,
+  `echo` и redirection дают только `command_execution`; явная file mutation
+  рядом с Bash сохраняет обе obligations. Успешный current-cycle Bash result
+  разрешает final без guard retry/502.
+- Добавлено 11 D20 regressions. Focused D17/D19/D20 — 50/50,
+  `tools.test.ts` — 591/591, full suite — 36 files / 1098 tests; typecheck,
+  build, Windows `test:platform` и `git diff --check` — PASS.
+- D20 переведён в `IMPLEMENTED / AWAITING INDEPENDENT REVIEW + R3-D LIVE RETEST`.
+  R3 остаётся `PARTIAL PASS`: A/B/C — PASS, D BASH pending D20; R4 —
+  `NOT STARTED`. D17 и D19 не изменялись.
+
 ## 2026-08-28 — Close D19 after R3-C live acceptance
 
 - D19 закрыт после подтверждённого PASS A, implementation
