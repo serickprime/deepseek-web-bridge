@@ -3,6 +3,24 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-28 — Complete D20 command payload masking
+
+- Independent review первого D20 implementation выявил оставшийся same-boundary
+  gap: broad mutation inference уже использовал masked command payload, но
+  `file_verification` regex, verification action groups и file-path extraction
+  продолжали видеть raw Bash code. Поэтому `fs.readFileSync('a.txt')` создавал
+  ложную `file_verification` после корректной `command_execution`.
+- `src/tools/toolParser.ts` теперь применяет то же length-preserving masked
+  представление ко всем стадиям file-verification inference. Исходный текст
+  остаётся доступен command detection; verification prose и targets вне payload
+  сохраняются, arbitrary backticks глобально не игнорируются.
+- Добавлено 6 follow-up regressions для `fs.readFileSync`, `readFile`, `read`,
+  `readText`, внешнего verification prose и combined verification+Bash с другим
+  file-like token внутри payload. D20 focused — 17/17, tools — 597/597, full
+  suite — 36 files / 1104 tests; mandatory checks — PASS.
+- D20 имеет статус `IMPLEMENTED / FOLLOW-UP COMPLETE / AWAITING RE-REVIEW + R3-D LIVE`.
+  R3 остаётся `PARTIAL PASS`: A/B/C — PASS, D pending D20; R4 — `NOT STARTED`.
+
 ## 2026-08-28 — Fix D20 command payload classification
 
 - D20 подтверждён как pre-existing L2 release blocker: natural-language

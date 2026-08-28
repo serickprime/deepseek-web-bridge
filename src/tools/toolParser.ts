@@ -647,9 +647,11 @@ function obligationDescription(kind: ExternalActionKind, argumentLiterals: strin
 export function inferToolObligations(content: string, allowedToolNames: string[]): ToolObligation[] {
   if (allowedToolNames.length === 0 || isInformationalRequest(content)) return [];
   const hasShell = hasToolMatching(allowedToolNames, /bash|shell|powershell|terminal|command|exec/);
+  const fileIntentText = maskExplicitCommandPayloads(content);
   const literals = extractExactUserLiterals(content);
+  const fileIntentLiterals = extractExactUserLiterals(fileIntentText);
   const contentLiterals = literalValues(literals, ["title", "description", "content", "marker", "generic"]);
-  const pathLiterals = literalValues(literals, ["path"]);
+  const pathLiterals = literalValues(fileIntentLiterals, ["path"]);
   const urlLiterals = literalValues(literals, ["url"]);
   const kinds = new Set<ExternalActionKind>(inferExternalActionKinds(content, allowedToolNames));
 
@@ -663,7 +665,7 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
   const apiVerification = /(?:проверь|проверить|провер\S*|убед\S*|verify|check|inspect)[\s\S]{0,100}(?:через\s+api|\bapi\b|endpoint)|(?:через\s+api|via\s+(?:the\s+)?api)[\s\S]{0,80}(?:проверь|verify|check)?/i.test(content);
   if (hasShell && apiVerification) kinds.add("api_verification");
 
-  const fileVerification = /(?:проверь|проверить|провер\S*|прочитай|прочесть|убед\S*|verify|check|read|inspect)[\s\S]{0,100}(?:файл\S*\s+хранен|storage\s+(?:file|json)|json[- ]?файл|\b[\w.-]+\.json\b|\b[\w.-]+\.(?:md|txt|html?|jsx?|tsx?)\b)/i.test(content);
+  const fileVerification = /(?:проверь|проверить|провер\S*|прочитай|прочесть|убед\S*|verify|check|read|inspect)[\s\S]{0,100}(?:файл\S*\s+хранен|storage\s+(?:file|json)|json[- ]?файл|\b[\w.-]+\.json\b|\b[\w.-]+\.(?:md|txt|html?|jsx?|tsx?)\b)/i.test(fileIntentText);
   if (fileVerification && hasToolMatching(allowedToolNames, /read|cat|bash|shell|powershell|command|exec/)) {
     kinds.add("file_verification");
   }
@@ -746,9 +748,9 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
     | { requirement: "non_mandatory"; reason: "negation" | "explanation" | "conditional" | "optional" | "alternative" | "meta" };
 
   const localActionPrefix = (action: FileActionMatch, priorAction?: FileActionMatch): string =>
-    content.slice(priorAction?.verbEnd ?? Math.max(0, action.start - 120), action.start).slice(-120);
+    fileIntentText.slice(priorAction?.verbEnd ?? Math.max(0, action.start - 120), action.start).slice(-120);
   const localActionSuffix = (action: FileActionMatch): string => {
-    const suffix = content.slice(action.verbEnd, action.end).slice(0, 240);
+    const suffix = fileIntentText.slice(action.verbEnd, action.end).slice(0, 240);
     const boundary = suffix.search(/\.(?=\s|$)|[!?\r\n]/);
     return boundary < 0 ? suffix : suffix.slice(0, boundary);
   };
@@ -814,7 +816,7 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
   const collectActions = (pattern: RegExp, context: FileActionContext): void => {
     pattern.lastIndex = 0;
     let match: RegExpExecArray | null;
-    while ((match = pattern.exec(content))) {
+    while ((match = pattern.exec(fileIntentText))) {
       if (isMetaToolMention(match)) continue;
       actionMatches.push({
         context,
@@ -840,10 +842,10 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
   for (let index = 0; index < actionMatches.length; index++) {
     const action = actionMatches[index]!;
     action.end = actionMatches[index + 1]?.start ?? content.length;
-    action.span = content.slice(action.start, action.end);
-    const prefix = content.slice(Math.max(0, action.start - 80), action.start);
+    action.span = fileIntentText.slice(action.start, action.end);
+    const prefix = fileIntentText.slice(Math.max(0, action.start - 80), action.start);
     const previousVerbEnd = actionMatches[index - 1]?.verbEnd ?? action.start;
-    const transition = content.slice(previousVerbEnd, action.start);
+    const transition = fileIntentText.slice(previousVerbEnd, action.start);
     action.sequential = sequenceCue.test(`${transition} ${action.span}`);
     action.explicitlyGrouped = groupedCue.test(`${prefix} ${action.span}`);
     action.paths = distinctPaths.filter(path => {

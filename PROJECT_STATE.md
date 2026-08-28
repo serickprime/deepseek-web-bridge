@@ -11,9 +11,10 @@
 **DEVELOPMENT MODE:** `RELEASE HARDENING / SCOPE FREEZE FOR v1.0`
 
 **CURRENT BLOCKER:** D20 — отдельный pre-existing L2 release blocker,
-обнаруженный в R3-D; narrow command-payload classification fix реализован и
-ожидает independent review + exact R3-D Windows live retest. D19 закрыт после
-independent review и exact R3-C Windows live acceptance.
+обнаруженный в R3-D; review follow-up завершил consistent command-payload
+masking для file-verification inference и ожидает independent re-review + exact
+R3-D Windows live. D19 закрыт после independent review и exact R3-C Windows
+live acceptance.
 
 **R1:** `PASS` — fourth independent review D18.
 
@@ -23,14 +24,14 @@ independent review и exact R3-C Windows live acceptance.
 
 **D19:** `CLOSED`.
 
-**D20:** `IMPLEMENTED / AWAITING INDEPENDENT REVIEW + R3-D LIVE RETEST`.
+**D20:** `IMPLEMENTED / FOLLOW-UP COMPLETE / AWAITING RE-REVIEW + R3-D LIVE`.
 
 **R3:** `PARTIAL PASS`: A TEXT, B WRITE/READ и C WRITE/EDIT/READ — `PASS`;
 D BASH — pending D20 review/live retest. **R4:** `NOT STARTED`.
 
 **D10:** `PASS`; **PB39:** `PASS 3/3`.
 
-**NEXT:** independent read-only review D20, затем exact R3-D Windows live retest.
+**NEXT:** independent read-only re-review D20, затем exact R3-D Windows live.
 D19 не переоткрывать без нового regression evidence.
 
 Release-mode policy из `AGENTS.md` сохраняет scope freeze: новые функции,
@@ -73,11 +74,13 @@ Claude Code 2.1.241 выполнил реальную цепочку `Write tool
 `PREMERGE-WRITE-READ-OK` был принят только после fresh verification.
 Focused D18 126/126, historical guard selection 347/347 и full 1070/1070 —
 PASS. D19 также закрыт после independent review и exact R3-C Windows live.
-D20 реализован узким исправлением command-payload classification: код внутри
-явного Bash/command payload больше не создаёт ложные natural-language file
-obligations, тогда как prose вне payload сохраняется. Текущий открытый P1 —
-один D20, поэтому G7 и G16 остаются FAIL до его independent review, live
-acceptance и closure/waiver. Остальные приоритеты и gates — в
+D20 реализован узким исправлением command-payload classification; после review
+FAIL follow-up применяет один recognized-payload boundary ко всем стадиям
+file-verification inference. Код внутри явного Bash/command payload больше не
+создаёт ложные natural-language file obligations, тогда как prose вне payload
+сохраняется. Текущий открытый P1 — один D20, поэтому G7 и G16 остаются FAIL до
+его independent re-review, live acceptance и closure/waiver. Остальные
+приоритеты и gates — в
 `PRODUCTION_READINESS.md`. D11 full schema transport закрыт после deterministic
 offline coverage, independent review и Windows Claude Code live WebFetch. D12
 nested-array parser ordering закрыт после deterministic coverage, independent
@@ -111,7 +114,9 @@ isolated Claude Code 2.1.241 дал ровно `Write` → `Edit` → `Read` →
 unexpected 5xx/502, hang/crash или raw marker leak; correlation, auth integrity
 и shutdown — PASS. D19 — `CLOSED`. D20 deterministic implementation отделяет
 explicit Bash payload от file-intent inference: exact R3-D теперь даёт только
-`command_execution`; 11 новых regressions, full 36 files / 1098 tests. R3 —
+`command_execution`; review follow-up также исключает `fs.readFileSync` и
+аналогичные file-like read tokens из verification inference, сохраняя внешний
+verification prose. Всего 17 D20 regressions, full 36 files / 1104 tests. R3 —
 `PARTIAL PASS`: A/B/C прошли, D BASH pending D20 review/live; R4 — `NOT STARTED`,
 open release-blocking P1 = 1, G7/G16 — FAIL до closure/waiver D20.
 D10 graceful shutdown lifecycle реализован в feature branch как единый bounded
@@ -193,14 +198,14 @@ D1 остаётся неподтверждённой/deferred P3.
 | 7. DeepSeek | pow (WASM), sseParser, updateParser, client | ✅ готово |
 | 8. Server | middleware, output-адаптеры, protocolStream, routes, server | ✅ готово |
 | 9. Entrypoint | app.ts, index.ts, start.ts | ✅ готово |
-| 10. Тесты | 36 файлов, 1098 тестов | ✅ готово |
+| 10. Тесты | 36 файлов, 1104 теста | ✅ готово |
 | 11. Скрипты | desktopStart, cdp, auth, doctor, launcher, live, real-OS platform smoke | ✅ live-часть работает |
 | 12. Веб-интерфейс | Bridge Console на `GET /` (Mileo dark theme, two-panel, diagnostics, model picker) | ✅ готово |
 
 **Проверки сейчас:**
 - `npm run typecheck` — ✅ без ошибок.
 - `npm run build` — ✅ собирается.
-- `npm test` — ✅ 1098/1098; D10 process-lifecycle outcomes проверяются
+- `npm test` — ✅ 1104/1104; D10 process-lifecycle outcomes проверяются
   deterministic injected helpers без broad/real process kill.
 - `npm run test:platform` — ✅ локально на Windows: real process/platform,
   `buildConfig`, Bridge HTTP, Unicode cwd и env propagation без DeepSeek auth.
@@ -1145,16 +1150,17 @@ OpenCode config не изменялся.
       execution, unexpected 5xx/502, hang/crash и raw marker leak отсутствовали.
       D19 — `CLOSED`; D20 остаётся отдельным R3 blocker.
 - [~] **D20 command payload classification** — pre-existing R3-D L2 defect
-      исправлен узко внутри existing classifier: только payload распознанного
-      explicit Bash/command envelope маскируется для natural-language file-intent
-      inference, исходный текст остаётся доступен `command_execution`, а prose
-      вне payload не теряется. Exact R3-D теперь выводит только
-      `command_execution`; `stdout.write`, `console.log`, command-local
-      `read/write/edit`, `echo` и redirection не создают ложную `file_mutation`,
-      explicit file outcome + Bash сохраняет обе obligations. 11 regressions;
-      focused D17/D19/D20 50/50, tools 591/591, full 36 files / 1098 tests;
+      исправлен узко внутри existing classifier. Первый implementation маскировал
+      recognized Bash/command payload для broad file mutation, но review выявил,
+      что verification regex/action groups/path extraction ещё читали raw code.
+      Follow-up применяет то же length-preserving masked представление ко всем
+      стадиям file-verification inference, сохраняя original command detection и
+      prose вне payload. Exact R3-D, `stdout.write`, `fs.readFileSync`,
+      `readFile`/`read`/`readText`, `echo` и redirection дают только требуемую
+      command obligation; explicit file verification + Bash сохраняет обе.
+      D20 focused 17/17, tools 597/597, full 36 files / 1104 tests;
       typecheck/build/Windows test:platform/diff-check — PASS. Статус:
-      `IMPLEMENTED / AWAITING INDEPENDENT REVIEW + R3-D LIVE RETEST`.
+      `IMPLEMENTED / FOLLOW-UP COMPLETE / AWAITING RE-REVIEW + R3-D LIVE`.
 - [x] **D10 graceful SHUTDOWN/PID lifecycle** — PASS B и independent-review
       follow-up реализованы: один bounded coordinator, confirmed target
       termination, retained native ownership при unknown PID, safe typed failure

@@ -1375,6 +1375,14 @@ describe("D20 explicit command payload classification", () => {
     expect(kinds(`С помощью Bash выполни \`node -e \"object.${token}('X')\"\``)).toEqual(["command_execution"]);
   });
 
+  it("does not infer file verification from fs.readFileSync with a file target inside Bash", () => {
+    expect(kinds("С помощью Bash выполни `node -e \"fs.readFileSync('a.txt')\"`")).toEqual(["command_execution"]);
+  });
+
+  it.each(["readFile", "read", "readText"])("does not infer verification from command-local %s with a file target", token => {
+    expect(kinds(`С помощью Bash выполни \`node -e \"reader.${token}('a.txt')\"\``)).toEqual(["command_execution"]);
+  });
+
   it("recognizes a backticked echo command through the explicit Bash envelope", () => {
     expect(kinds("С помощью Bash выполни `echo X`")).toEqual(["command_execution"]);
   });
@@ -1392,6 +1400,32 @@ describe("D20 explicit command payload classification", () => {
       "file_mutation",
       "command_execution",
     ]);
+  });
+
+  it("keeps explicit verification prose outside the Bash payload visible", () => {
+    const obligations = inferToolObligations(
+      "Прочитай a.txt, затем с помощью Bash выполни `node script.js`",
+      tools,
+    );
+    expect(obligations.map(obligation => obligation.kind)).toEqual([
+      "command_execution",
+      "file_verification",
+    ]);
+    expect(obligations.find(obligation => obligation.kind === "file_verification")?.argumentLiterals)
+      .toContain("a.txt");
+  });
+
+  it("keeps only the outside verification target when the Bash payload reads another file", () => {
+    const obligations = inferToolObligations(
+      "Прочитай a.txt, затем с помощью Bash выполни `node -e \"fs.readFileSync('b.txt')\"`",
+      tools,
+    );
+    expect(obligations.map(obligation => obligation.kind)).toEqual([
+      "command_execution",
+      "file_verification",
+    ]);
+    expect(obligations.find(obligation => obligation.kind === "file_verification")?.argumentLiterals)
+      .toEqual(["a.txt"]);
   });
 
   it("accepts the final after one successful R3-D Bash result without guard retry", async () => {

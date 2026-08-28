@@ -4,7 +4,7 @@
 >
 > **Baseline:** `fix/d20-command-payload-classification` based on D19 closure `ed64c1b842fb06f64496b28ec509660dd989e018`
 >
-> **Offline baseline:** 36 test files, 1098 tests
+> **Offline baseline:** 36 test files, 1104 tests
 >
 > **Открыто:** P0 — 0, P1 — 1 (D20), P2 — 2; deferred P3 — 1
 > **Production scope:** Claude Code → Anthropic-compatible Bridge → DeepSeek Web → Bridge → Claude Code
@@ -62,9 +62,9 @@ R10 v1.0. Пройденный этап не повторяется без regre
 
 R1 — `PASS`. R2 — `PASS`. D18 и D19 — `CLOSED`. D10 — `PASS`, PB39 —
 `PASS 3/3`. R3 — `PARTIAL PASS`: A TEXT, B WRITE/READ и C WRITE/EDIT/READ —
-`PASS`; D BASH pending D20 independent review + exact live retest. R4 —
-`NOT STARTED`. D20 реализован, но остаётся open v1.0 release blocker до
-обязательной review/live цепочки.
+`PASS`; D BASH pending D20 independent re-review + exact live retest. R4 —
+`NOT STARTED`. D20 follow-up завершён, но defect остаётся open v1.0 release
+blocker до обязательной re-review/live цепочки.
 
 ### v1.0 RC exit criteria
 
@@ -161,7 +161,7 @@ transport, policy и persistence defects не объединяются в оди
 | **D17** | P1 | L2 | `CLOSED` | Один shared narrow predicate требует explicit command wording, conservative recognizable CLI literal либо явный Bash/shell/PowerShell/terminal context; generic `Выполни ...` action/file wording не создаёт `command_execution`. | `TEST`: 23 D17 regressions; focused 436/436, full 35 files / 874 tests; independent review PASS. `LIVE`: Windows, Claude Code 2.1.241, `deepseek-v4-flash`, real 39-tool catalog; 3 Write + 3 Read results, каждый requested cycle `completion_attempt=1` / `guard_attempt=0`, immediate `D17-LIVE-PASS`, no Bash/missing command/502, external marker verification PASS. Отдельный new-lineage/empty-history/different-upstream post-final Bash не относится к D17 chain. | D13 CLOSED | `d3d57de901ba3b07afeb27aa634054b8c1092f2f` |
 | **D18** | P1 | L2 / L1 | `CLOSED` | Single unambiguous mutation target переносится в последующую affirmative executable pronominal file verification (`этот файл`, `этот же файл`, `that file`, `the same file`, `it`). Один D18-local classifier отклоняет negated/explanatory/conditional/optional/alternative/meta verification и mutation candidates. Conditional creation нового distinct target непосредственно перед Read даёт fail-safe ambiguity; более поздняя mandatory mutation может восстановить однозначный referent. Raw allowed `[调用 Tool] {...}` не может стать final и требует canonical repair. | `REVIEW`: fourth independent review PASS. `TEST`: D18 focused 126/126, historical guard selection 347/347, tools 563/563, full 36 files / 1070 tests; typecheck/test/build/test:platform/diff-check PASS. `LIVE`: isolated Windows Claude Code 2.1.241 выполнил real Write result → Read → Read result → `PREMERGE-WRITE-READ-OK`; filesystem `premerge-a.txt = PREMERGE-A-731`; correlation/auth/shutdown PASS, no unexpected 5xx/502, hang/crash или raw marker leak. Minor/pre-existing collateral остаётся backlog v1.1. | D13/D17 guards; closed, do not fuzz without release-blocking evidence | `2fe10373f093e319e5c0fa67a8009c46cd134d08` |
 | **D19** | P1 | L2 | `CLOSED` | Exact R3-C create→Edit→Read inference сохраняет две distinct mutations и final verification. Tool names в filename/meta wording не создают actions; semantic admission разрешает только genuinely missing/stale obligations, поэтому новый call ID не replay-ит fulfilled Write/Edit/Read; later mutation делает verification stale и требует fresh Read. | `TEST`: 17 D19 regressions; exact inference, root client flow, redundant Write/Edit/Read rejection, stale/fresh verification, explicit repeated actions и historical guard protections; focused tools 580/580, full 36 files / 1087 tests. `REVIEW`: independent review PASS. `LIVE`: isolated Windows Claude Code 2.1.241 выполнил ровно `Write` → `Edit` → `Read` → `R3-EDIT-OK` (counts 1/1/1); filesystem exact `BETA-731`, correlation/auth/shutdown PASS, без duplicate execution, unexpected 5xx/502, hang/crash или raw marker leak. | Closed; reopen only with regression evidence | `07103f58140c6d4a2f6e9a5d49d3eab846b2b33a` |
-| **D20** | P1 | L2 | `IMPLEMENTED / AWAITING INDEPENDENT REVIEW + R3-D LIVE RETEST` | Только payload распознанного explicit Bash/command envelope маскируется для natural-language file-intent inference; исходный текст остаётся для `command_execution`, а prose вне payload сохраняет file obligations. Exact R3-D даёт только `command_execution`, поэтому `stdout.write`/command-local `read/write/edit` не создают false mutation. | `TEST`: 11 D20 regressions; focused D17/D19/D20 50/50, tools 591/591, full 36 files / 1098 tests; typecheck/build/Windows test:platform/diff-check PASS. Independent review и exact R3-D Windows live ещё обязательны. | D19 regression protection; D17 command classifier unchanged | — |
+| **D20** | P1 | L2 | `IMPLEMENTED / FOLLOW-UP COMPLETE / AWAITING RE-REVIEW + R3-D LIVE` | Length-preserving masking одного recognized Bash/command payload применяется ко всем стадиям natural-language file verification: broad regex, verification action groups и file-path extraction. Исходный текст остаётся для `command_execution`, а prose/targets вне payload сохраняются. Exact R3-D и command-local `stdout.write`/`fs.readFileSync`/read-like tokens не создают false file obligations. | `TEST`: 17 D20 regressions; focused 17/17, tools 597/597, full 36 files / 1104 tests; typecheck/build/Windows test:platform/diff-check PASS. Первый independent review FAIL подтвердил verification gap; follow-up ожидает re-review и exact R3-D Windows live. | D19 regression protection; D17 command classifier unchanged | initial `a8800ba`; follow-up implementation |
 
 ### 5.2 Acceptance and required evidence
 
@@ -275,12 +275,12 @@ versioned addendum; новые regressions добавляются новыми I
 | Gate | Pass condition | Baseline status |
 | --- | --- | --- |
 | G1 | `npm run typecheck` green | PASS (recheck each branch) |
-| G2 | `npm test` 100% green | PASS: 1098/1098 on D20 implementation branch (recheck release commit) |
+| G2 | `npm test` 100% green | PASS: 1104/1104 on D20 follow-up branch (recheck release commit) |
 | G3 | `npm run build` green | PASS (recheck each branch) |
 | G4 | `npm run test:platform` green | PASS on current Windows baseline |
 | G5 | CI Windows/Linux/macOS green for release commit | NEEDS RELEASE-COMMIT VERIFICATION |
 | G6 | Все P0 закрыты | PASS: D2/D3/D4/D6 CLOSED; open P0 = 0 |
-| G7 | Все P1 закрыты либо formally waived с owner/reason/expiry | FAIL: D20 implemented but awaiting independent review/live closure; open P1 = 1 |
+| G7 | Все P1 закрыты либо formally waived с owner/reason/expiry | FAIL: D20 follow-up awaits independent re-review/live closure; open P1 = 1 |
 | G8 | 100% deterministic offline PB cases automated and green | FAIL: PB-v1 пока specification |
 | G9 | 3 последовательных clean live benchmark runs | FAIL |
 | G10 | 3 × 30–50 tool autonomous runs без fabrication/replay/duplicate/malformed leak/unexpected 502/hang | FAIL |
@@ -289,7 +289,7 @@ versioned addendum; новые regressions добавляются новыми I
 | G13 | Restart сохраняет консистентные persistent session/lineage | PASS: deterministic PB31/PB33 green; Windows Claude Code restart сохранил session и использовал persisted lineage |
 | G14 | `/compact` после long chain проходит PB35 | NEEDS FROZEN LIVE RUNS |
 | G15 | Shutdown не оставляет orphan/stale PID и не убивает чужие процессы | PASS: D10 final independent re-review и Windows desktop PB39 PASS 3/3; D18 не относится к lifecycle |
-| G16 | Нет известных открытых P0/P1 production defects | FAIL: open P0 = 0, open P1 = 1 (D20 awaiting review/live) |
+| G16 | Нет известных открытых P0/P1 production defects | FAIL: open P0 = 0, open P1 = 1 (D20 awaiting re-review/live) |
 
 ## 9. Mandatory development workflow
 
@@ -366,8 +366,8 @@ green, создавать новый mechanism при подходящем су�
     остаются PASS. R3 выявил D19 и отдельный D20.
 13. **D19** — CLOSED после independent review и exact R3-C Windows live с
     единственной цепочкой Write→Edit→Read. R3 — PARTIAL PASS: A/B/C прошли.
-    **D20** реализован узким command-payload classifier fix и ожидает independent
-    review + exact R3-D Windows live; R4 не начат.
+    **D20** review follow-up завершил consistent file-verification masking и
+    ожидает independent re-review + exact R3-D Windows live; R4 не начат.
 14. **D1** — повторный controlled A/B/C только после стабилизации остальных причин.
 
 ## 11. Repository consistency findings
@@ -392,9 +392,9 @@ independent review и, где это требовалось, релевантн�
 independent re-review и Windows desktop PB39 PASS 3/3; D10 + D18 fast-forward
 integration завершена. D15b имеет статус `CLOSED`, D15a — `OPEN / CAPABILITY
 UNRESOLVED`. R1 и R2 — `PASS`; R3 — `PARTIAL PASS`: A/B/C — PASS, D BASH
-pending D20 independent review/live; R4 — `NOT STARTED`. D19 — `CLOSED`, D20
+pending D20 independent re-review/live; R4 — `NOT STARTED`. D19 — `CLOSED`, D20
 остаётся open v1.0 release blocker со статусом
-`IMPLEMENTED / AWAITING INDEPENDENT REVIEW + R3-D LIVE RETEST`. D15b live
+`IMPLEMENTED / FOLLOW-UP COMPLETE / AWAITING RE-REVIEW + R3-D LIVE`. D15b live
 verdict — `PASS WITH COLLATERAL FINDING`: отдельная guard/client activity не
 переоткрывает usage work.
 
@@ -448,14 +448,16 @@ unexpected 5xx/502, hang/crash и raw marker leak отсутствовали; co
 auth integrity и shutdown — PASS. D19 больше не блокирует v1.0; D20 остаётся
 отдельным open R3-D blocker.
 
-D20 / P1 — `IMPLEMENTED / AWAITING INDEPENDENT REVIEW + R3-D LIVE RETEST`:
+D20 / P1 — `IMPLEMENTED / FOLLOW-UP COMPLETE / AWAITING RE-REVIEW + R3-D LIVE`:
 PASS A подтвердил pre-existing L2 defect, где `process.stdout.write` внутри
 explicit Bash payload ошибочно создавал `file_mutation`. Узкий fix маскирует
 только распознанный command payload для file-intent inference, не скрывая prose
 вне него и не меняя command detection. Exact R3-D теперь выводит одну
 `command_execution`; successful Bash-result root control принимает final без
-guard retry/502. 11 regressions; full baseline 1098/1098. D17/D19 contracts
-остаются regression-protected; live/review closure ещё не заявляется.
+guard retry/502. Первый independent review выявил, что verification regex/action
+groups/path extraction ещё видели raw payload; follow-up применяет тот же masked
+boundary и к ним. 17 D20 regressions; full baseline 1104/1104. D17/D19 contracts
+остаются regression-protected; live/re-review closure ещё не заявляется.
 
 D9 live verification выполнялась с реальным 39-tool Claude catalog и подтвердила
 PB02/PB05 scope. Во второй части наблюдались upstream `DEEPSEEK_RATE_LIMIT`, один
