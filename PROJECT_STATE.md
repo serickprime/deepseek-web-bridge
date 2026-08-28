@@ -10,7 +10,7 @@
 
 **DEVELOPMENT MODE:** `RELEASE HARDENING / SCOPE FREEZE FOR v1.0`
 
-**CURRENT BLOCKER:** D23 — P1 `IMPLEMENTED / AWAITING INDEPENDENT REVIEW`.
+**CURRENT BLOCKER:** D23 — P1 `IMPLEMENTED / REVIEW FOLLOW-UP COMPLETE / AWAITING RE-REVIEW`.
 Exact PB06 теперь имеет одну ordered-группу create→edit→delete→verify_absent;
 только earliest executable missing step допускается, а один narrow Bash result
 закрывает ровно свой delete либо absence-verification action. R4 остаётся
@@ -28,14 +28,14 @@ Exact PB06 теперь имеет одну ordered-группу create→edit�
 
 **D22:** `IMPLEMENTED / RE-REVIEW PASS / LIVE BLOCKED BY D23`.
 
-**D23:** `IMPLEMENTED / AWAITING INDEPENDENT REVIEW`.
+**D23:** `IMPLEMENTED / REVIEW FOLLOW-UP COMPLETE / AWAITING RE-REVIEW`.
 
 **R3:** `PASS`: A TEXT, B WRITE/READ, C WRITE/EDIT/READ и D BASH — `PASS`.
 **R4:** `BLOCKED BY PB06 / D23`.
 
 **D10:** `PASS`; **PB39:** `PASS 3/3`.
 
-**NEXT:** independent read-only review D23, затем exact PB06 Windows acceptance;
+**NEXT:** independent read-only re-review D23, затем exact PB06 Windows acceptance;
 только после closure D23/D22 возобновить R4 mapping. D19/D20 не переоткрывать.
 
 Release-mode policy из `AGENTS.md` сохраняет scope freeze: новые функции,
@@ -138,7 +138,9 @@ state, а admission и fulfillment принимают только exact target-
 regressions, tools 615/615 и full 36 files / 1122 tests проходят; independent
 re-review D22 — PASS, но live не достигнут из-за D23. D23 реализует ordered
 create→edit→delete→verify_absent model, narrow Bash semantics и earliest-step
-admission; 21 focused regression и tools 636/636 проходят. D22/D23 ещё не
+admission; review follow-up восстановил Write=create boundary и независимые
+command obligations рядом с semantic Bash steps. D23 focused 29/29 и tools
+644/644 проходят. D22/D23 ещё не
 закрыты, R4/G8 остаются blocked.
 D10 graceful shutdown lifecycle реализован в feature branch как единый bounded
 `app.stop()` coordinator с подтверждением завершения owned processes. Первый
@@ -1202,14 +1204,16 @@ OpenCode config не изменялся.
       и `no longer exist`. D22 focused 18/18, tools 615/615, full 36 files /
       1122 tests — PASS. Independent re-review — PASS; live acceptance не
       достигнута из-за D23 ordered-admission blocker.
-- [ ] **D23 ordered PB06 obligation model** — P1 `IMPLEMENTED / AWAITING
-      INDEPENDENT REVIEW`. Exact frozen PB06 выводит четыре ordered semantic
+- [ ] **D23 ordered PB06 obligation model** — P1 `IMPLEMENTED / REVIEW
+      FOLLOW-UP COMPLETE / AWAITING RE-REVIEW`. Exact frozen PB06 выводит четыре ordered semantic
       actions create→edit→delete→verify_absent с NFC target, ordinal, required
       tool и narrow command semantic. Admission разрешает только earliest
       executable missing step, action-aware fulfillment требует возрастающую
       evidence sequence; `rm <single-target>` и `test ! -e <single-target>` не
       создают duplicate `command_execution`, POSIX predicate не создаёт false
-      `test_execution`. D23 focused 21/21 и tools 636/636 — PASS; R4/G8 blocked,
+      `test_execution`. Review follow-up классифицирует ordered write/save как
+      create без ослабления explicit Edit и сохраняет отдельный `git status`
+      рядом с semantic `rm`. D23 focused 29/29 и tools 644/644 — PASS; R4/G8 blocked,
       open P0/P1 = 0/2.
 - [x] **D10 graceful SHUTDOWN/PID lifecycle** — PASS B и independent-review
       follow-up реализованы: один bounded coordinator, confirmed target

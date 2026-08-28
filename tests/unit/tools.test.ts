@@ -5008,6 +5008,90 @@ describe("D23 ordered PB06 obligation model", () => {
     expect(isToolCallSemanticallyAdmissible({ ...edit, arguments: { file_path: "b.txt", old_string: "A", new_string: "B" } }, unordered)).toBe(true);
   });
 
+  it("maps ordered Write then Read to create and admits Write", () => {
+    const userPrompt = "Write a.txt with X. Then read a.txt.";
+    const evidence = inspectCurrentToolCycle([msg("user", [{ type: "text", text: userPrompt }])], toolNames);
+    expect(evidence.obligations).toEqual([
+      expect.objectContaining({ kind: "file_mutation", action: "create", target: "a.txt", ordinal: 1 }),
+      expect.objectContaining({ kind: "file_verification", action: "verify", target: "a.txt", ordinal: 2 }),
+    ]);
+    expect(isToolCallSemanticallyAdmissible({
+      ...write,
+      arguments: { file_path: "a.txt", content: "X" },
+    }, evidence)).toBe(true);
+  });
+
+  it.each([
+    "Запиши файл a.txt с содержимым X. Затем прочитай a.txt.",
+    "Сохрани файл a.txt с содержимым X. Затем прочитай a.txt.",
+  ])("maps supported ordered RU write/save wording to create: %s", userPrompt => {
+    const evidence = inspectCurrentToolCycle([msg("user", [{ type: "text", text: userPrompt }])], toolNames);
+    expect(evidence.obligations[0]).toMatchObject({ kind: "file_mutation", action: "create", target: "a.txt", ordinal: 1 });
+    expect(isToolCallSemanticallyAdmissible({
+      ...write,
+      arguments: { file_path: "a.txt", content: "X" },
+    }, evidence)).toBe(true);
+  });
+
+  it("keeps explicit Edit and clearly existing-file Write semantics as edit", () => {
+    for (const userPrompt of [
+      "Edit existing a.txt. Then read a.txt.",
+      "Write changes to existing a.txt. Then read a.txt.",
+    ]) {
+      const evidence = inspectCurrentToolCycle([msg("user", [{ type: "text", text: userPrompt }])], toolNames);
+      expect(evidence.obligations[0]).toMatchObject({ kind: "file_mutation", action: "edit", target: "a.txt", ordinal: 1 });
+      expect(isToolCallSemanticallyAdmissible({
+        ...edit,
+        arguments: { file_path: "a.txt", old_string: "A", new_string: "B" },
+      }, evidence)).toBe(true);
+    }
+  });
+
+  it("preserves an independent command next to semantic rm", () => {
+    const userPrompt = "Execute the command git status. Then via Bash execute `rm report.txt`.";
+    const obligations = inferToolObligations(userPrompt, toolNames);
+    expect(obligations).toEqual([
+      expect.objectContaining({ kind: "command_execution", argumentLiterals: ["git status"] }),
+      expect.objectContaining({ kind: "file_mutation", action: "delete", target: "report.txt", commandSemantic: "delete_file" }),
+    ]);
+  });
+
+  it("does not let rm skip an independent git status command", () => {
+    const userPrompt = "Execute the command git status. Then via Bash execute `rm report.txt`.";
+    const afterRemove = inspectCurrentToolCycle([
+      msg("user", [{ type: "text", text: userPrompt }]),
+      use("mixed-rm", "Bash", { command: "rm report.txt" }),
+      result("mixed-rm"),
+    ], toolNames);
+    expect(afterRemove.fulfilledObligationIds).toEqual(["file_mutation"]);
+    expect(afterRemove.missingObligations).toEqual([
+      expect.objectContaining({ kind: "command_execution", argumentLiterals: ["git status"] }),
+    ]);
+    expect(isToolCallSemanticallyAdmissible({
+      id: "mixed-git",
+      type: "function",
+      name: "Bash",
+      arguments: { command: "git status" },
+    }, afterRemove)).toBe(true);
+  });
+
+  it("keeps semantic Bash steps free of duplicate generic command obligations", () => {
+    expect(inferToolObligations("Via Bash execute `rm report.txt`.", toolNames).map(obligation => obligation.kind))
+      .toEqual(["file_mutation"]);
+    expect(inferToolObligations(
+      "Via Bash execute `test ! -e report.txt` to verify report.txt no longer exists.",
+      toolNames,
+    ).map(obligation => obligation.kind)).toEqual(["file_verification"]);
+    expect(inferToolObligations(prompt, toolNames).map(obligation => obligation.kind))
+      .toEqual(["file_mutation", "file_mutation", "file_mutation", "file_verification"]);
+  });
+
+  it("keeps a standalone command-only request", () => {
+    expect(inferToolObligations("Run git status.", toolNames).map(obligation => obligation.kind)).toEqual([
+      "command_execution",
+    ]);
+  });
+
   it.each([
     "Run the project tests.",
     "Через Bash выполни `npm test`.",
@@ -5015,7 +5099,9 @@ describe("D23 ordered PB06 obligation model", () => {
     "Через Bash выполни `npx vitest`.",
     "Через Bash выполни `pytest`.",
   ])("preserves genuine software test execution for %s", userPrompt => {
-    expect(inferToolObligations(userPrompt, toolNames).map(obligation => obligation.kind)).toContain("test_execution");
+    const kinds = inferToolObligations(userPrompt, toolNames).map(obligation => obligation.kind);
+    expect(kinds).toContain("test_execution");
+    expect(kinds).not.toContain("command_execution");
   });
 
   it.each([

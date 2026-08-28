@@ -4,7 +4,7 @@
 >
 > **Baseline:** `fix/d23-ordered-pb06` based on `fix/d22-absence-verification` `aabf3708e4bd2e9fb2f9a284916685c2a495ba3d`
 >
-> **Offline baseline:** 36 test files, 1143 tests
+> **Offline baseline:** 36 test files, 1151 tests
 >
 > **Открыто:** P0 — 0, P1 — 2, P2 — 2; deferred P3 — 1
 > **Production scope:** Claude Code → Anthropic-compatible Bridge → DeepSeek Web → Bridge → Claude Code
@@ -63,8 +63,8 @@ R10 v1.0. Пройденный этап не повторяется без regre
 R1 — `PASS`. R2 — `PASS`. D18, D19 и D20 — `CLOSED`. D10 — `PASS`, PB39 —
 `PASS 3/3`. R3 — `PASS`: A TEXT, B WRITE/READ, C WRITE/EDIT/READ и D BASH —
 `PASS`. R4 — `BLOCKED BY PB06 / D23`: D22 re-review прошёл, но live не достигнут
-из-за D23 ordered-action blocker; D23 реализован offline и ожидает independent
-review. Targeted D21 capture не подтвердил production defect:
+из-за D23 ordered-action blocker; D23 review follow-up завершён offline и ожидает
+independent re-review. Targeted D21 capture не подтвердил production defect:
 более раннее наблюдение двух Bash не воспроизвелось и остаётся monitoring item
 для stress testing.
 
@@ -165,7 +165,7 @@ transport, policy и persistence defects не объединяются в оди
 | **D19** | P1 | L2 | `CLOSED` | Exact R3-C create→Edit→Read inference сохраняет две distinct mutations и final verification. Tool names в filename/meta wording не создают actions; semantic admission разрешает только genuinely missing/stale obligations, поэтому новый call ID не replay-ит fulfilled Write/Edit/Read; later mutation делает verification stale и требует fresh Read. | `TEST`: 17 D19 regressions; exact inference, root client flow, redundant Write/Edit/Read rejection, stale/fresh verification, explicit repeated actions и historical guard protections; focused tools 580/580, full 36 files / 1087 tests. `REVIEW`: independent review PASS. `LIVE`: isolated Windows Claude Code 2.1.241 выполнил ровно `Write` → `Edit` → `Read` → `R3-EDIT-OK` (counts 1/1/1); filesystem exact `BETA-731`, correlation/auth/shutdown PASS, без duplicate execution, unexpected 5xx/502, hang/crash или raw marker leak. | Closed; reopen only with regression evidence | `07103f58140c6d4a2f6e9a5d49d3eab846b2b33a` |
 | **D20** | P1 | L2 | `CLOSED` | Length-preserving masking одного recognized Bash/command payload применяется ко всем стадиям natural-language file verification: broad regex, verification action groups и file-path extraction. Исходный текст остаётся для `command_execution`, а prose/targets вне payload сохраняются. Exact R3-D и command-local `stdout.write`/`fs.readFileSync`/read-like tokens не создают false file obligations. | `TEST`: 17 D20 regressions; focused 17/17, tools 597/597, full 36 files / 1104 tests; typecheck/build/Windows test:platform/diff-check PASS. `REVIEW`: independent re-review PASS. `LIVE`: exact Windows R3-D на isolated Claude Code 2.1.241 вывел только `command_execution`; один Bash, `is_error=false`, exit zero, exact stdout `R3-BASH-731`, затем exact final `R3-BASH-OK`; без guard retry, 5xx/502 или hang/crash; shutdown/auth integrity PASS. D21 targeted capture не воспроизвёл более ранний второй Bash и не установил production defect. | Closed; D19/D17 regression-protected; monitor D21 observation in R5 | `a8800ba`, `005eebb` |
 | **D22** | P1 | L2 | `IMPLEMENTED / RE-REVIEW PASS / LIVE BLOCKED BY D23` | PB06 final absence verification сохраняет `expectedFileState: "absent"`; только narrow Bash `test ! -e <exact-target>` согласованно допускается semantic admission и закрывает obligation после correlated successful result. Ordinary verification не смешивается с absence state. Review follow-up добавил exact frozen `no longer exists`, сохранив `does not exist`, `doesn't exist` и `no longer exist`. | `TEST`: 18 D22 regressions; exact frozen PB06, informational negative, matching admission/fulfillment, failed, unrelated, wrong-target, `test -e`, requested-presence, masked/structured failure и missing-file Read controls PASS. Tools 615/615, full 36 files / 1122 tests PASS. `REVIEW`: independent re-review PASS; live chain не достигнут из-за отдельного D23 ordered-admission blocker. | D23 review + exact PB06 acceptance; R4/G8 blocked | pending |
-| **D23** | P1 | L2 | `IMPLEMENTED / AWAITING INDEPENDENT REVIEW` | Exact PB06 имеет одну ordered-группу create→edit→delete→verify_absent с action identity, NFC target, ordinal, required tool и narrow command semantic. Admission разрешает только earliest executable missing step; ordered fulfillment требует правильный action и возрастающую evidence sequence. | `TEST`: 21 focused D23 regressions; exact four-step shape, admission at every boundary, failed/out-of-order controls, one-result-per-Bash-step, standalone/unordered controls, genuine software tests и D20 masking. Tools 636/636; full 36 files / 1143 tests PASS. | Independent review, затем exact PB06 Windows acceptance; D22 live blocked | pending |
+| **D23** | P1 | L2 | `IMPLEMENTED / REVIEW FOLLOW-UP COMPLETE / AWAITING RE-REVIEW` | Exact PB06 имеет одну ordered-группу create→edit→delete→verify_absent с action identity, NFC target, ordinal, required tool и narrow command semantic. Admission разрешает только earliest executable missing step; ordered fulfillment требует правильный action и возрастающую evidence sequence. Review follow-up восстанавливает ordered Write/Save=create и ограничивает suppression command envelope, сохраняя отдельную command obligation. | `TEST`: 29 focused D23 regressions; exact four-step shape, admission at every boundary, failed/out-of-order controls, one-result-per-Bash-step, Write/Edit boundary, independent command preservation, standalone/unordered controls, genuine software tests и D20 masking. Tools 644/644; full 36 files / 1151 tests PASS. | Independent re-review, затем exact PB06 Windows acceptance; D22 live blocked | pending |
 
 ### 5.2 Acceptance and required evidence
 
@@ -279,12 +279,12 @@ versioned addendum; новые regressions добавляются новыми I
 | Gate | Pass condition | Baseline status |
 | --- | --- | --- |
 | G1 | `npm run typecheck` green | PASS (recheck each branch) |
-| G2 | `npm test` 100% green | PASS: 1143/1143 on D23 implementation branch (recheck release commit) |
+| G2 | `npm test` 100% green | PASS: 1151/1151 on D23 review-follow-up branch (recheck release commit) |
 | G3 | `npm run build` green | PASS (recheck each branch) |
 | G4 | `npm run test:platform` green | PASS on current Windows baseline |
 | G5 | CI Windows/Linux/macOS green for release commit | NEEDS RELEASE-COMMIT VERIFICATION |
 | G6 | Все P0 закрыты | PASS: D2/D3/D4/D6 CLOSED; open P0 = 0 |
-| G7 | Все P1 закрыты либо formally waived с owner/reason/expiry | FAIL: D22 live blocked and D23 awaiting independent review; open P1 = 2 |
+| G7 | Все P1 закрыты либо formally waived с owner/reason/expiry | FAIL: D22 live blocked and D23 awaiting independent re-review; open P1 = 2 |
 | G8 | 100% deterministic offline PB cases automated and green | FAIL: R4 blocked by PB06/D23 pending review + acceptance |
 | G9 | 3 последовательных clean live benchmark runs | FAIL |
 | G10 | 3 × 30–50 tool autonomous runs без fabrication/replay/duplicate/malformed leak/unexpected 502/hang | FAIL |
@@ -376,9 +376,10 @@ green, создавать новый mechanism при подходящем су�
 14. **D22** — P1 `IMPLEMENTED / RE-REVIEW PASS / LIVE BLOCKED BY D23`: PB06 final
     absence state и exact `test ! -e <target>` admission/fulfillment защищены
     18 focused regressions, включая exact `no longer exists`.
-15. **D23** — P1 `IMPLEMENTED / AWAITING INDEPENDENT REVIEW`: exact PB06 ordered
+15. **D23** — P1 `IMPLEMENTED / REVIEW FOLLOW-UP COMPLETE / AWAITING RE-REVIEW`: exact PB06 ordered
     four-step model, narrow `rm` delete и POSIX absence-check classification
-    защищены 21 focused regression; R4/G8 blocked до review и acceptance.
+    дополнены Write=create и independent-command boundaries; 29 focused
+    regressions защищают contract. R4/G8 blocked до re-review и acceptance.
 16. **D1** — повторный controlled A/B/C только после стабилизации остальных причин.
 
 ## 11. Repository consistency findings
@@ -399,7 +400,7 @@ green, создавать новый mechanism при подходящем су�
 D12, D13, D14, D15b, D17, D18, D19 и D20 закрыты после требуемой deterministic
 coverage, independent review и, где это требовалось, релевантной Windows live
 verification. D22 — P1 `IMPLEMENTED / RE-REVIEW PASS / LIVE BLOCKED BY D23`,
-D23 — P1 `IMPLEMENTED / AWAITING INDEPENDENT REVIEW`; открытых P0 — 0, P1 — 2,
+D23 — P1 `IMPLEMENTED / REVIEW FOLLOW-UP COMPLETE / AWAITING RE-REVIEW`; открытых P0 — 0, P1 — 2,
 P2 — 2; deferred P3 — 1. G6 и G15 пройдены, G7/G8/G16 остаются FAIL из-за
 D22/D23. D10 final
 independent re-review и Windows desktop PB39 PASS 3/3; D10 + D18 fast-forward

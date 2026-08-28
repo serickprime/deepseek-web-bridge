@@ -459,6 +459,7 @@ const COMMAND_LITERAL_START = new RegExp(String.raw`^\s*${COMMAND_EXECUTABLE_SOU
 interface CommandPayloadSpan {
   start: number;
   end: number;
+  envelopeStart: number;
   payload: string;
   requiredToolName?: "Bash";
 }
@@ -470,17 +471,22 @@ function explicitCommandPayloadSpans(content: string): CommandPayloadSpan[] {
     const payload = match[1] ?? "";
     if (start < 0 || !payload) continue;
     const prefix = content.slice(Math.max(0, start - 120), start);
-    const explicitCommand = /(?:выполн\S*|запуст\S*)\s+(?:(?:эту|следующ\S*)\s+)?команд\S*[^`\r\n]{0,24}$|\b(?:run|execute)\s+(?:(?:the|this|following)\s+)?command\b[^`\r\n]{0,24}$/i.test(prefix);
-    const commandLabel = /(?:^|\n)\s*(?:команд\S*|command|bash|shell|powershell|pwsh|terminal|терминал\S*)\s*:\s*$/i.test(prefix);
-    const toolThenAction = /(?:с\s+помощью|через|в)\s+(?:bash|shell|powershell|pwsh|терминал\S*)[^`\r\n]{0,48}(?:выполн\S*|запуст\S*)\s*$|\b(?:with|via|through|in)\s+(?:bash|shell|powershell|pwsh|(?:the\s+)?terminal)[^`\r\n]{0,48}\b(?:run|execute)\s*$/i.test(prefix);
-    const actionThenTool = /(?:выполн\S*|запуст\S*)\s+(?:(?:в|через|с\s+помощью)\s+)(?:bash|shell|powershell|pwsh|терминал\S*)\s*$|\b(?:run|execute)\s+(?:(?:in|with|via|through)\s+)(?:bash|shell|powershell|pwsh|(?:the\s+)?terminal)\s*$/i.test(prefix);
-    const recognizableCommand = /(?:выполн\S*|\b(?:run|execute))[^`\r\n]{0,48}$/i.test(prefix)
-      && COMMAND_LITERAL_START.test(payload);
-    if (explicitCommand || commandLabel || toolThenAction || actionThenTool || recognizableCommand) {
+    const explicitCommand = /(?:выполн\S*|запуст\S*)\s+(?:(?:эту|следующ\S*)\s+)?команд\S*[^`\r\n]{0,24}$|\b(?:run|execute)\s+(?:(?:the|this|following)\s+)?command\b[^`\r\n]{0,24}$/i.exec(prefix);
+    const commandLabel = /(?:^|\n)\s*(?:команд\S*|command|bash|shell|powershell|pwsh|terminal|терминал\S*)\s*:\s*$/i.exec(prefix);
+    const toolThenAction = /(?:с\s+помощью|через|в)\s+(?:bash|shell|powershell|pwsh|терминал\S*)[^`\r\n]{0,48}(?:выполн\S*|запуст\S*)\s*$|\b(?:with|via|through|in)\s+(?:bash|shell|powershell|pwsh|(?:the\s+)?terminal)[^`\r\n]{0,48}\b(?:run|execute)\s*$/i.exec(prefix);
+    const actionThenTool = /(?:выполн\S*|запуст\S*)\s+(?:(?:в|через|с\s+помощью)\s+)(?:bash|shell|powershell|pwsh|терминал\S*)\s*$|\b(?:run|execute)\s+(?:(?:in|with|via|through)\s+)(?:bash|shell|powershell|pwsh|(?:the\s+)?terminal)\s*$/i.exec(prefix);
+    const recognizableCommand = COMMAND_LITERAL_START.test(payload)
+      ? /(?:выполн\S*|\b(?:run|execute))[^`\r\n]{0,48}$/i.exec(prefix)
+      : null;
+    const envelopeMatches = [explicitCommand, commandLabel, toolThenAction, actionThenTool, recognizableCommand]
+      .filter((candidate): candidate is RegExpExecArray => candidate !== null);
+    if (envelopeMatches.length > 0) {
       const requiredToolName = /(?:^|[^\p{L}\p{N}_])bash(?:$|[^\p{L}\p{N}_])/iu.test(prefix)
         ? "Bash" as const
         : undefined;
-      spans.push({ start, end: start + match[0].length, payload, requiredToolName });
+      const prefixStart = Math.max(0, start - 120);
+      const envelopeStart = prefixStart + Math.min(...envelopeMatches.map(candidate => candidate.index));
+      spans.push({ start, end: start + match[0].length, envelopeStart, payload, requiredToolName });
     }
   }
   return spans;
@@ -497,6 +503,30 @@ function maskExplicitCommandPayloads(content: string): string {
     cursor = span.end;
   }
   return masked + content.slice(cursor);
+}
+
+function maskCommandEnvelopes(content: string, spans: CommandPayloadSpan[]): string {
+  if (spans.length === 0) return content;
+  let masked = "";
+  let cursor = 0;
+  for (const span of [...spans].sort((left, right) => left.envelopeStart - right.envelopeStart)) {
+    const start = Math.max(cursor, span.envelopeStart);
+    if (span.end <= cursor) continue;
+    masked += content.slice(cursor, start);
+    masked += " ".repeat(span.end - start);
+    cursor = span.end;
+  }
+  return masked + content.slice(cursor);
+}
+
+function extractExplicitCommandLiteral(content: string): string | undefined {
+  const payload = explicitCommandPayloadSpans(content)[0]?.payload.trim();
+  if (payload) return payload;
+  const direct = new RegExp(
+    String.raw`(?:выполн\S*|запуст\S*|\b(?:run|execute))\s+(?:(?:the|this|following|эту|следующ\S*)\s+)?(?:(?:команд\S*|command)\s+)?(${COMMAND_EXECUTABLE_SOURCE}(?:[ \t]+(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s\x60]+))?)`,
+    "i",
+  ).exec(content)?.[1];
+  return direct?.replace(/[.,!?]+$/, "").trim() || undefined;
 }
 
 function looksLikeExplicitCommandExecutionRequest(content: string): boolean {
@@ -700,6 +730,24 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
       });
     }
   }
+  const representedCommandStarts = new Set([
+    ...supportedCommandActions.map(action => action.start),
+    ...commandPayloads
+      .filter(payload => isSoftwareTestExecutionCommand(payload.payload))
+      .map(payload => payload.start),
+  ]);
+  const independentCommandText = maskCommandEnvelopes(
+    content,
+    commandPayloads.filter(payload => representedCommandStarts.has(payload.start)),
+  );
+  const hasIndependentCommandIntent = looksLikeExplicitCommandExecutionRequest(independentCommandText);
+  const hasExplicitIndependentCommandLabel = /(?:выполн\S*|запуст\S*)\s+(?:(?:эту|следующ\S*)\s+)?команд\S*|\b(?:run|execute)\s+(?:(?:the|this|following)\s+)?command\b|(?:^|\n)\s*(?:команд\S*|command)\s*:/im.test(independentCommandText);
+  const independentCommandCandidate = hasIndependentCommandIntent
+    ? extractExplicitCommandLiteral(independentCommandText)
+    : undefined;
+  const independentCommandLiteral = supportedCommandActions.length > 0
+    ? independentCommandCandidate
+    : undefined;
   const fileIntentText = maskExplicitCommandPayloads(content);
   const literals = extractExactUserLiterals(content);
   const fileIntentLiterals = extractExactUserLiterals(fileIntentText);
@@ -709,7 +757,7 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
   const kinds = new Set<ExternalActionKind>(inferExternalActionKinds(content, allowedToolNames));
   if (supportedCommandActions.some(action => action.context === "mutation")) kinds.add("file_mutation");
   if (supportedCommandActions.some(action => action.context === "verification")) kinds.add("file_verification");
-  if (commandPayloads.length > 0 && supportedCommandActions.length === commandPayloads.length) {
+  if (supportedCommandActions.length > 0 && !hasIndependentCommandIntent) {
     kinds.delete("command_execution");
   }
 
@@ -730,7 +778,13 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
 
   const testExecution = /(?:запуст\S*|выполн\S*|прогон\S*|снова\s+запуст\S*|run|execute|rerun)[\s\S]{0,60}(?:тест|tests?|jest|vitest|pytest)|\b(?:npm\s+(?:run\s+)?test|jest|vitest|pytest)\b/i.test(fileIntentText)
     || commandPayloads.some(payload => isSoftwareTestExecutionCommand(payload.payload));
-  if (hasShell && testExecution) kinds.add("test_execution");
+  if (hasShell && testExecution) {
+    kinds.add("test_execution");
+    if ((!independentCommandCandidate || isSoftwareTestExecutionCommand(independentCommandCandidate))
+      && !hasExplicitIndependentCommandLabel) {
+      kinds.delete("command_execution");
+    }
+  }
 
   const serverVerification = /(?:проверь|проверить|провер\S*|убед\S*|verify|check|ensure)[\s\S]{0,100}(?:сервер|приложен|server|app)[\s\S]{0,80}(?:отвеч|работ|доступ|respond|running|reachable|health)|(?:сервер|приложен|server|app)[\s\S]{0,80}(?:отвеч|respond|reachable|health)|остав\S*[\s\S]{0,80}(?:прилож|сервер)[\s\S]{0,40}(?:работ|запущ)|leave[\s\S]{0,60}(?:app|server)[\s\S]{0,40}(?:running|up)/i.test(content);
   if (hasShell && serverVerification) kinds.add("server_verification");
@@ -750,8 +804,14 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
         ? contentLiterals.filter(value => !titleDescriptionLiterals.has(value.normalize("NFC")))
         : contentLiterals;
       argumentLiterals = [...fileContentLiterals, ...pathLiterals.slice(0, 1), ...urlLiterals];
-    } else if (kind === "data_mutation" || kind === "command_execution") {
+    } else if (kind === "data_mutation") {
       argumentLiterals = [...contentLiterals, ...urlLiterals];
+    } else if (kind === "command_execution") {
+      argumentLiterals = [
+        ...contentLiterals,
+        ...urlLiterals,
+        ...(independentCommandLiteral ? [independentCommandLiteral] : []),
+      ];
     } else if (kind === "api_verification") {
       argumentLiterals = urlLiterals;
       resultLiterals = contentLiterals;
@@ -813,10 +873,16 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
     | { requirement: "mandatory" }
     | { requirement: "non_mandatory"; reason: "negation" | "explanation" | "conditional" | "optional" | "alternative" | "meta" };
 
-  const actionIdentity = (context: FileActionContext, verb: string): FileActionGroup["action"] => {
-    if (context === "verification") return "verify";
-    if (/^(?:созда|сделай|create|make)/i.test(verb)) return "create";
-    if (/^(?:удал|delete|remove)/i.test(verb)) return "delete";
+  const actionIdentity = (action: FileActionMatch): FileActionGroup["action"] => {
+    if (action.context === "verification") return "verify";
+    if (/^(?:удал|delete|remove)/i.test(action.verb)) return "delete";
+    if (/^(?:созда|сделай|create|make)/i.test(action.verb)) return "create";
+    if (/^(?:сохран|запиш|save|write)/i.test(action.verb)) {
+      const requiredTool = action.requiredToolName?.trim().toLowerCase();
+      const explicitModification = requiredTool === "edit"
+        || /(?:\b(?:existing|current)\s+(?:file\b)?|существующ\S*(?:\s+файл\S*)?|текущ\S*\s+файл\S*|\b(?:changes?|updates?)\b|изменени\S*)/i.test(action.span);
+      return explicitModification ? "edit" : "create";
+    }
     return "edit";
   };
 
@@ -1044,7 +1110,7 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
             context,
             start: action.start,
             sequential: action.sequential,
-            action: actionIdentity(context, action.verb),
+            action: actionIdentity(action),
             paths,
             argumentLiterals: context === "mutation" ? [...values, ...paths, ...localUrls] : paths,
             resultLiterals: localResult,

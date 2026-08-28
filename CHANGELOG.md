@@ -3,6 +3,24 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-28 — Complete D23 review follow-up
+
+- Исправлена D23 action identity boundary: ordered `Write`/`Save`/`Запиши`/
+  `Сохрани` для нового файла дают `action=create` и допускают настоящий `Write`,
+  тогда как explicit `Edit`, replace/change/modify и явно существующий файл
+  сохраняют `action=edit`.
+- Suppression generic `command_execution` теперь ограничена тем же recognized
+  command envelope, который уже представлен semantic `rm`/absence/test action.
+  Отдельный `git status` рядом с Bash `rm report.txt` остаётся собственной
+  target-bound obligation и не может быть пропущен, а exact PB06 по-прежнему не
+  получает duplicate command obligations.
+- Добавлены 8 focused regression instances; D23 focused 29/29, D19 17/17,
+  D20 17/17, D22 18/18 и tools 644/644 проходят. D23 — P1 `IMPLEMENTED /
+  REVIEW FOLLOW-UP COMPLETE / AWAITING RE-REVIEW`; D22 и R4 не изменены.
+  Изменены `src/tools/toolParser.ts`, `tests/unit/tools.test.ts`, `CHANGELOG.md`,
+  `PROJECT_STATE.md` и `PRODUCTION_READINESS.md`; `src/deepseek/client.ts` в
+  follow-up не менялся.
+
 ## 2026-08-28 — Fix D23 ordered PB06 obligations
 
 - Exact frozen PB06 теперь выводит одну ordered-группу из четырёх semantic
