@@ -1,6 +1,6 @@
 # Состояние проекта
 
-> **Актуально на:** 2026-08-27.
+> **Актуально на:** 2026-08-28.
 > Этот файл — главный источник правды о стадии проекта. Любой агент обязан
 > прочитать его перед началом работы и обновить после внесения изменений.
 > Обязательный порядок чтения перед задачей: `AGENTS.md` → `PROJECT_STATE.md`
@@ -10,7 +10,9 @@
 
 **DEVELOPMENT MODE:** `RELEASE HARDENING / SCOPE FREEZE FOR v1.0`
 
-**CURRENT BLOCKER:** открытых P0/P1 нет; оставшиеся release gates ещё не пройдены.
+**CURRENT BLOCKER:** R3 выявил два pre-existing L2 release blocker: D19
+`IMPLEMENTED / AWAITING INDEPENDENT REVIEW + R3-C LIVE RETEST`; D20 остаётся
+отдельным open defect и в D19 не изменялся.
 
 **R1:** `PASS` — fourth independent review D18.
 
@@ -18,7 +20,14 @@
 
 **D18:** `CLOSED`.
 
-**NEXT:** integration readiness / R3 pre-merge core acceptance.
+**D19:** `IMPLEMENTED / AWAITING INDEPENDENT REVIEW + R3-C LIVE RETEST`.
+
+**R3:** `FAIL` pending D19 + D20. **R4:** `NOT STARTED`.
+
+**D10:** `PASS`; **PB39:** `PASS 3/3`.
+
+**NEXT:** independent review D19, затем exact R3-C Windows live retest; D20
+остаётся отдельной задачей.
 
 Release-mode policy из `AGENTS.md` сохраняет scope freeze: новые функции,
 provider/UI scope, unrelated fixes и архитектурные улучшения заморожены. После
@@ -59,7 +68,8 @@ Claude Code 2.1.241 выполнил реальную цепочку `Write tool
 `Write tool_result` → `Read tool_use` → `Read tool_result`, а final
 `PREMERGE-WRITE-READ-OK` был принят только после fresh verification.
 Focused D18 126/126, historical guard selection 347/347 и full 1070/1070 —
-PASS. Текущих открытых P1 — 0, G7 и G16 — PASS. Остальные приоритеты и gates — в
+PASS. После R3 текущих открытых P1 — 2 (D19, D20), G7 и G16 — FAIL до их
+closure/waiver. Остальные приоритеты и gates — в
 `PRODUCTION_READINESS.md`. D11 full schema transport закрыт после deterministic
 offline coverage, independent review и Windows Claude Code live WebFetch. D12
 nested-array parser ordering закрыт после deterministic coverage, independent
@@ -82,6 +92,15 @@ distinct target остаётся ambiguous, а raw allowed marker не прох�
 R2 подтвердил точный Write→Read supported flow без unexpected 5xx/502,
 hang/crash или raw marker leak; correlation, auth integrity и shutdown sanity —
 PASS. D18 — `CLOSED`, но production-ready = NO до остальных release gates.
+D19 исправляет подтверждённый pre-existing R3-C duplicate-execution defect:
+exact prompt теперь выводит две `file_mutation` obligations (create + required
+`Edit`) и одну final `file_verification`; completed actions не допускаются
+повторно только из-за guard retry, а stale verification после более поздней
+mutation разрешает свежий `Read`, но не replay `Write`/`Edit`. Deterministic
+baseline — 36 files / 1087 tests. D19 остаётся `IMPLEMENTED / AWAITING
+INDEPENDENT REVIEW + R3-C LIVE RETEST`; D20 не исправлялся. Поэтому R3 — `FAIL`
+pending D19 + D20, R4 — `NOT STARTED`, open release-blocking P1 = 2, G7/G16 —
+FAIL до closure/waiver этих defects.
 D10 graceful shutdown lifecycle реализован в feature branch как единый bounded
 `app.stop()` coordinator с подтверждением завершения owned processes. Первый
 independent review выявил две blocking race; follow-up сохраняет native ownership
@@ -93,9 +112,8 @@ confirmed termination. Последний independent re-review выявил о�
 post-spawn `error` listener; текущий follow-up делает его долговечным, поэтому
 повторные failed cleanup retries остаются typed/bounded и не теряют ownership.
 Final independent re-review и Windows desktop PB39 завершены PASS; D10 и PB39
-не переоткрывались D18. После closure D18 D10 + D18 feature chain имеет статус
-`READY FOR INTEGRATION`, но merge требует отдельного explicit authorization;
-shutdown contract и live evidence остаются валидными.
+не переоткрывались D18. D10 + D18 feature chain fast-forward integrated into
+master до R3; shutdown contract и live evidence остаются валидными.
 D1 остаётся неподтверждённой/deferred P3.
 
 Проект использует **неофициальные** внутренние маршруты веб-сайта DeepSeek
@@ -162,14 +180,14 @@ D1 остаётся неподтверждённой/deferred P3.
 | 7. DeepSeek | pow (WASM), sseParser, updateParser, client | ✅ готово |
 | 8. Server | middleware, output-адаптеры, protocolStream, routes, server | ✅ готово |
 | 9. Entrypoint | app.ts, index.ts, start.ts | ✅ готово |
-| 10. Тесты | 36 файлов, 1070 тестов | ✅ готово |
+| 10. Тесты | 36 файлов, 1087 тестов | ✅ готово |
 | 11. Скрипты | desktopStart, cdp, auth, doctor, launcher, live, real-OS platform smoke | ✅ live-часть работает |
 | 12. Веб-интерфейс | Bridge Console на `GET /` (Mileo dark theme, two-panel, diagnostics, model picker) | ✅ готово |
 
 **Проверки сейчас:**
 - `npm run typecheck` — ✅ без ошибок.
 - `npm run build` — ✅ собирается.
-- `npm test` — ✅ 1070/1070; D10 process-lifecycle outcomes проверяются
+- `npm test` — ✅ 1087/1087; D10 process-lifecycle outcomes проверяются
   deterministic injected helpers без broad/real process kill.
 - `npm run test:platform` — ✅ локально на Windows: real process/platform,
   `buildConfig`, Bridge HTTP, Unicode cwd и env propagation без DeepSeek auth.
@@ -1101,7 +1119,15 @@ OpenCode config не изменялся.
       `premerge-a.txt = PREMERGE-A-731`. Unexpected 5xx/502, hang/crash и raw
       marker leak отсутствовали; correlation, auth integrity и shutdown sanity —
       PASS. D18 — `CLOSED` и больше не является v1.0 release blocker.
-- [~] **D10 graceful SHUTDOWN/PID lifecycle** — PASS B и independent-review
+- [~] **D19 semantic tool admission** — exact R3-C теперь выводит две mutation
+      obligations (create + `Edit`) и одну final Read verification. Filename и
+      `с помощью Edit` не создают ложные actions; `замени` распознаётся узко,
+      bare `прочитай файл` наследует только один однозначный target. Guard не
+      exposes fulfilled Write/Edit/Read повторно по новому call ID; stale Read
+      допускает fresh Read, но не replay mutation. 17 regressions, tools 580/580,
+      full 1087/1087 — PASS. Статус: `IMPLEMENTED / AWAITING INDEPENDENT REVIEW
+      + R3-C LIVE RETEST`; D20 остаётся отдельным R3 blocker.
+- [x] **D10 graceful SHUTDOWN/PID lifecycle** — PASS B и independent-review
       follow-up реализованы: один bounded coordinator, confirmed target
       termination, retained native ownership при unknown PID, safe typed failure
       и раздельные AUTH abort/Windows Chrome tree cleanup. Первый review был
@@ -1112,8 +1138,8 @@ OpenCode config не изменялся.
       failed retry; lifecycle listener теперь долговечен и regression доказывает
       два typed failure подряд с retained ownership и последующий cleanup.
       Final independent re-review — PASS; Windows desktop PB39 — PASS 3/3.
-      D10/PB39 не переоткрыты. После closure D18 feature chain готова к
-      integration, но merge требует отдельного explicit authorization.
+      D10/PB39 не переоткрыты. D10 + D18 feature chain fast-forward integrated
+      into master; D10 — PASS, PB39 — PASS 3/3.
       macOS/Linux GUI lifecycle остаётся отдельным platform live TODO.
 - [x] В `src/api/handler.ts` переменная `turn` не используется — tool-цикл
       (повтор после tool_result) не замкнут, история ведётся только в

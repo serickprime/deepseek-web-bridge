@@ -2659,7 +2659,7 @@ describe("pseudo-xml tool intent leakage", () => {
     expect(wrapped.malformedToolIntent).toBe(false);
   });
 
-  it("requests a canonical tool call without replaying successful mutations", async () => {
+  it("repairs a malformed marker with final text after all obligations are fulfilled", async () => {
     const client = new DeepSeekClient({
       baseUrl: "https://example.com",
       auth: { token: "test-token", cookie: "test-cookie" },
@@ -2670,7 +2670,7 @@ describe("pseudo-xml tool intent leakage", () => {
       timeoutMs: 10_000,
       maxRetries: 0,
     });
-    const queue = [pseudoXml, '{"tool_call":{"name":"Bash","arguments":{"command":"cat note-927.txt"}}}'];
+    const queue = [pseudoXml, "DONE-927"];
     const runCompletion = vi.fn(async (_prompt: string, _state: UpstreamSessionState, _authGeneration: number) => ({
       content: queue.shift() ?? "",
       reasoning: "",
@@ -2696,14 +2696,212 @@ describe("pseudo-xml tool intent leakage", () => {
       tools: xmlTools,
     }, { chatSessionId: "xml-session", parentMessageId: null, history: [], updatedAt: 0 });
 
-    expect(result.toolCall?.name).toBe("Bash");
+    expect(result.toolCall).toBeUndefined();
     expect(runCompletion).toHaveBeenCalledTimes(2);
     const retryPrompt = runCompletion.mock.calls[1]?.[0] ?? "";
     expect(retryPrompt).toMatch(/malformed tool call/i);
-    expect(retryPrompt).toContain("Return exactly one correct tool call using valid JSON.");
+    expect(retryPrompt).toContain("Every current-user requirement already has fresh successful tool evidence.");
+    expect(retryPrompt).toContain("Return only the final text answer now.");
     expect(retryPrompt).toContain("Do not repeat already verified steps unless a missing requirement genuinely depends on doing so.");
     expect(retryPrompt).toContain("note-927.txt");
-    expect(result.content).toBe("");
+    expect(result.content).toBe("DONE-927");
+  });
+});
+
+describe("D19 semantic tool admission", () => {
+  const toolNames = ["Write", "Edit", "Read", "Bash"];
+  const tools = toolNames.map(name => ({
+    name,
+    description: name,
+    inputSchema: { type: "object", additionalProperties: true },
+  }));
+  const prompt = [
+    "Создай файл r3-edit.txt с точным содержимым ALPHA-731.",
+    "Затем с помощью Edit замени ALPHA-731 на BETA-731.",
+    "После этого прочитай файл.",
+    "Только после успешного чтения ответь R3-EDIT-OK.",
+  ].join("\n");
+  const use = (id: string, name: string, args: Record<string, unknown>): CanonicalMessage => ({
+    role: "assistant",
+    parts: [{ type: "tool_use", toolCall: { id, type: "function", name, arguments: args } }],
+  });
+  const result = (id: string, content = "ok"): CanonicalMessage => ({
+    role: "user",
+    parts: [{ type: "tool_result", toolResult: { toolUseId: id, content, isError: false } }],
+  });
+  const write = (id = "w1") => use(id, "Write", { file_path: "r3-edit.txt", content: "ALPHA-731" });
+  const edit = (id = "e1") => use(id, "Edit", { file_path: "r3-edit.txt", old_string: "ALPHA-731", new_string: "BETA-731" });
+  const read = (id = "r1") => use(id, "Read", { file_path: "r3-edit.txt" });
+  const cycle = (...messages: CanonicalMessage[]): CanonicalMessage[] => [
+    { role: "user", parts: [{ type: "text", text: prompt }] },
+    ...messages,
+  ];
+  const request = (messages: CanonicalMessage[]): CanonicalRequest => ({
+    model: "deepseek-v4-flash",
+    stream: false,
+    system: "",
+    messages,
+    tools,
+  });
+  const state = (): UpstreamSessionState => ({
+    chatSessionId: "d19-session",
+    parentMessageId: null,
+    history: [],
+    updatedAt: 0,
+  });
+  const clientWithOutputs = (outputs: string[]) => {
+    const client = new DeepSeekClient({
+      baseUrl: "https://example.com",
+      auth: { token: "test-token", cookie: "test-cookie" },
+      sessionManager: {} as never,
+      solver: {} as never,
+      logger: { info: () => {}, warn: () => {}, error: () => {} } as never,
+      redactor: { addSecret: () => {}, redactText: (text: string) => text } as never,
+      timeoutMs: 10_000,
+      maxRetries: 0,
+    });
+    const runCompletion = vi.fn(async (_prompt: string, _state: UpstreamSessionState, _authGeneration: number) => ({
+      content: outputs.shift() ?? "",
+      reasoning: "",
+      candidateMessageId: null,
+    }));
+    Object.defineProperty(client, "runCompletion", { value: runCompletion });
+    return { client, runCompletion };
+  };
+
+  it("infers exactly create, Edit, and final Read for the exact R3-C prompt", () => {
+    const obligations = inferToolObligations(prompt, toolNames);
+    expect(obligations.map(item => item.kind)).toEqual(["file_mutation", "file_mutation", "file_verification"]);
+    expect(obligations[1]?.requiredToolName).toBe("Edit");
+    expect(obligations.every(item => item.argumentLiterals.includes("r3-edit.txt"))).toBe(true);
+  });
+
+  it("does not treat edit inside r3-edit.txt as an action", () => {
+    const obligations = inferToolObligations("Создай файл r3-edit.txt с содержимым ALPHA-731.", toolNames);
+    expect(obligations.filter(item => item.kind === "file_mutation")).toHaveLength(1);
+  });
+
+  it("treats meta wording with Edit as a tool constraint, not another action", () => {
+    const obligations = inferToolObligations("Создай r3-edit.txt. Затем с помощью Edit замени ALPHA-731 на BETA-731.", toolNames);
+    expect(obligations.filter(item => item.kind === "file_mutation")).toHaveLength(2);
+    expect(obligations[1]?.requiredToolName).toBe("Edit");
+  });
+
+  it("recognizes Russian replace wording as the intended mutation", () => {
+    const obligations = inferToolObligations("Создай r3-edit.txt. Затем замени ALPHA-731 на BETA-731.", toolNames);
+    expect(obligations.filter(item => item.kind === "file_mutation")).toHaveLength(2);
+  });
+
+  it("lets a bare Read phrase inherit one unambiguous current target", () => {
+    const obligations = inferToolObligations("Создай only.txt. После этого прочитай файл.", toolNames);
+    expect(obligations.map(item => item.kind)).toEqual(["file_mutation", "file_verification"]);
+    expect(obligations[1]?.argumentLiterals).toContain("only.txt");
+  });
+
+  it("accepts final text after Write, Edit, and Read without duplicate calls", async () => {
+    const { client, runCompletion } = clientWithOutputs(["R3-EDIT-OK"]);
+    const response = await client.complete(request(cycle(
+      write(), result("w1"), edit(), result("e1"), read(), result("r1", "BETA-731"),
+    )), state());
+    expect(response.content).toBe("R3-EDIT-OK");
+    expect(response.toolCall).toBeUndefined();
+    expect(runCompletion).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a completed Write retry and exposes the missing Edit instead", async () => {
+    const { client, runCompletion } = clientWithOutputs([
+      '{"tool_call":{"name":"Write","arguments":{"file_path":"r3-edit.txt","content":"ALPHA-731"}}}',
+      '{"tool_call":{"name":"Edit","arguments":{"file_path":"r3-edit.txt","old_string":"ALPHA-731","new_string":"BETA-731"}}}',
+    ]);
+    const response = await client.complete(request(cycle(write(), result("w1"))), state());
+    expect(response.toolCall?.name).toBe("Edit");
+    expect(runCompletion).toHaveBeenCalledTimes(2);
+    expect(runCompletion.mock.calls[1]?.[0]).toContain("does not satisfy a still-unverified current-user requirement");
+  });
+
+  it("rejects a completed Edit retry and exposes the missing Read instead", async () => {
+    const { client, runCompletion } = clientWithOutputs([
+      '{"tool_call":{"name":"Edit","arguments":{"file_path":"r3-edit.txt","old_string":"ALPHA-731","new_string":"BETA-731"}}}',
+      '{"tool_call":{"name":"Read","arguments":{"file_path":"r3-edit.txt"}}}',
+    ]);
+    const response = await client.complete(request(cycle(write(), result("w1"), edit(), result("e1"))), state());
+    expect(response.toolCall?.name).toBe("Read");
+    expect(runCompletion).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps a completed Read valid when no later mutation occurred", async () => {
+    const { client, runCompletion } = clientWithOutputs([
+      '{"tool_call":{"name":"Read","arguments":{"file_path":"r3-edit.txt"}}}',
+      "R3-EDIT-OK",
+    ]);
+    const response = await client.complete(request(cycle(
+      write(), result("w1"), edit(), result("e1"), read(), result("r1", "BETA-731"),
+    )), state());
+    expect(response.content).toBe("R3-EDIT-OK");
+    expect(response.toolCall).toBeUndefined();
+    expect(runCompletion).toHaveBeenCalledTimes(2);
+  });
+
+  it("marks Read evidence stale after a later mutation", () => {
+    const evidence = inspectCurrentToolCycle(cycle(
+      write(), result("w1"), edit(), result("e1"), read(), result("r1", "BETA-731"),
+      use("e2", "Edit", { file_path: "r3-edit.txt", old_string: "BETA-731", new_string: "GAMMA-731" }), result("e2"),
+    ), toolNames);
+    expect(evidence.staleObligations.map(item => item.kind)).toContain("file_verification");
+  });
+
+  it("permits a fresh Read when verification became stale", () => {
+    const evidence = inspectCurrentToolCycle(cycle(
+      write(), result("w1"), edit(), result("e1"), read(), result("r1", "BETA-731"),
+      use("e2", "Edit", { file_path: "r3-edit.txt", old_string: "BETA-731", new_string: "GAMMA-731" }), result("e2"),
+    ), toolNames);
+    expect(shouldRetry(true, { id: "r2", type: "function", name: "Read", arguments: { file_path: "r3-edit.txt" } }, "", "", toolNames, evidence)).toBe(false);
+  });
+
+  it("does not permit Write or Edit replay to satisfy stale verification", () => {
+    const evidence = inspectCurrentToolCycle(cycle(
+      write(), result("w1"), edit(), result("e1"), read(), result("r1", "BETA-731"),
+      use("e2", "Edit", { file_path: "r3-edit.txt", old_string: "BETA-731", new_string: "GAMMA-731" }), result("e2"),
+    ), toolNames);
+    expect(shouldRetry(true, { id: "w2", type: "function", name: "Write", arguments: { file_path: "r3-edit.txt", content: "ALPHA-731" } }, "", "", toolNames, evidence)).toBe(true);
+    expect(shouldRetry(true, { id: "e3", type: "function", name: "Edit", arguments: { file_path: "r3-edit.txt", old_string: "GAMMA-731", new_string: "DELTA-731" } }, "", "", toolNames, evidence)).toBe(true);
+  });
+
+  it("blocks a final after a later mutation without a fresh Read", () => {
+    const evidence = inspectCurrentToolCycle(cycle(
+      write(), result("w1"), edit(), result("e1"), read(), result("r1", "BETA-731"),
+      use("e2", "Edit", { file_path: "r3-edit.txt", old_string: "BETA-731", new_string: "GAMMA-731" }), result("e2"),
+    ), toolNames);
+    expect(shouldRetry(true, null, "R3-EDIT-OK", "", toolNames, evidence)).toBe(true);
+  });
+
+  it("allows the final after the stale Read is refreshed", () => {
+    const evidence = inspectCurrentToolCycle(cycle(
+      write(), result("w1"), edit(), result("e1"), read(), result("r1", "BETA-731"),
+      use("e2", "Edit", { file_path: "r3-edit.txt", old_string: "BETA-731", new_string: "GAMMA-731" }), result("e2"),
+      read("r2"), result("r2", "GAMMA-731"),
+    ), toolNames);
+    expect(shouldRetry(true, null, "R3-EDIT-OK", "", toolNames, evidence)).toBe(false);
+  });
+
+  it("keeps two explicitly requested Edit actions distinct", () => {
+    const obligations = inferToolObligations("Edit report.txt twice.", toolNames);
+    expect(obligations.filter(item => item.kind === "file_mutation")).toHaveLength(2);
+  });
+
+  it("keeps two explicitly requested Read actions distinct", () => {
+    const obligations = inferToolObligations("Read report.txt twice.", toolNames);
+    expect(obligations.filter(item => item.kind === "file_verification")).toHaveLength(2);
+  });
+
+  it("admits each genuinely missing R3-C action once", () => {
+    const initial = inspectCurrentToolCycle(cycle(), toolNames);
+    const afterWrite = inspectCurrentToolCycle(cycle(write(), result("w1")), toolNames);
+    const afterEdit = inspectCurrentToolCycle(cycle(write(), result("w1"), edit(), result("e1")), toolNames);
+    expect(shouldRetry(true, { id: "w1", type: "function", name: "Write", arguments: { file_path: "r3-edit.txt", content: "ALPHA-731" } }, "", "", toolNames, initial)).toBe(false);
+    expect(shouldRetry(true, { id: "e1", type: "function", name: "Edit", arguments: { file_path: "r3-edit.txt", old_string: "ALPHA-731", new_string: "BETA-731" } }, "", "", toolNames, afterWrite)).toBe(false);
+    expect(shouldRetry(true, { id: "r1", type: "function", name: "Read", arguments: { file_path: "r3-edit.txt" } }, "", "", toolNames, afterEdit)).toBe(false);
+    expect(shouldRetry(true, { id: "w2", type: "function", name: "Write", arguments: { file_path: "r3-edit.txt", content: "ALPHA-731" } }, "", "", toolNames, afterWrite)).toBe(true);
   });
 });
 

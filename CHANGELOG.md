@@ -3,6 +3,29 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-28 — Fix D19 semantic tool admission
+
+- D19 подтверждён как pre-existing L2 release blocker в R3-C: `edit` внутри
+  `r3-edit.txt` и meta-формулировка `с помощью Edit` создавали ложные mutation
+  obligations, узкое русское `замени` не распознавалось, а bare
+  `прочитай файл` не наследовало единственный однозначный target.
+- Existing obligation inference теперь различает имя файла, meta tool wording и
+  реальное replace-действие; `Edit` constraint сохраняется в obligation, а
+  affirmative bare Read наследует target только при однозначном current action
+  context, не ослабляя D18 conditional/negative/ambiguity barriers.
+- Completion guard допускает canonical tool call только для реально missing или
+  stale semantic obligation. Новый call ID не разрешает replay уже успешных
+  Write/Edit/Read; последующая mutation делает Read stale и допускает свежий
+  Read, но не повторную mutation. Retry prompt перечисляет только missing/stale
+  requirements, а после их выполнения требует final text без нового action.
+- Добавлено 17 D19 regressions: exact R3-C inference, filename/meta/replace/bare
+  Read controls, root Write→Edit→Read flow, redundant admission, freshness,
+  explicit repeated Edit/Read и one-time missing-action admission. Focused
+  `tools.test.ts` — 580/580, full suite — 36 files / 1087 tests.
+- D19 имеет статус `IMPLEMENTED / AWAITING INDEPENDENT REVIEW + R3-C LIVE RETEST`.
+  R3 остаётся `FAIL` до проверки D19 и отдельного D20; R4 не начат. D18 закрыт,
+  D10 и PB39 3/3 остаются PASS; D20 в этой задаче не изменялся.
+
 ## 2026-08-27 — Close D18 after Windows live acceptance
 
 - D18 закрыт после подтверждённого PASS A, production implementation

@@ -29,6 +29,7 @@ import {
   looksLikePromisedActionContinuation,
   inspectCurrentToolCycle,
   isRepeatedFailedToolCall,
+  isToolCallSemanticallyAdmissible,
   type CurrentToolCycleEvidence,
   COMPLETION_GUARD_MAX_ATTEMPTS,
   buildUpstreamPrompt,
@@ -285,6 +286,12 @@ export class DeepSeekClient {
     if (guardEvidence.isInformationalRequest) toolCall = null;
     let malformedToolIntent = inspection.malformedToolIntent && !guardEvidence.isInformationalRequest;
     let sawRepeatedFailedToolCall = isRepeatedFailedToolCall(toolCall, guardEvidence);
+    let rejectedToolName = toolCall
+      && !sawRepeatedFailedToolCall
+      && !isToolCallSemanticallyAdmissible(toolCall, guardEvidence)
+      ? toolCall.name
+      : undefined;
+    let sawSemanticallyRejectedToolCall = rejectedToolName !== undefined;
     let sawMalformedToolIntent = malformedToolIntent;
 
     // Bounded completion guard loop: retry when the current user turn requires
@@ -307,7 +314,10 @@ export class DeepSeekClient {
         inconclusiveObligations: guardEvidence.inconclusiveObligations.map(obligation => obligation.description),
         cardinalityFailures: guardEvidence.cardinalityFailures,
         repeatedFailedToolName,
+        rejectedToolName,
         malformedToolIntent,
+        allRequirementsFulfilled: guardEvidence.obligations.length > 0
+          && guardEvidence.missingObligations.length === 0,
       });
       const retryPrompt = attemptParentState === "repair_candidate"
         ? retryInstruction
@@ -348,6 +358,12 @@ export class DeepSeekClient {
       if (guardEvidence.isInformationalRequest) toolCall = null;
       malformedToolIntent = retryInspection.malformedToolIntent && !guardEvidence.isInformationalRequest;
       sawRepeatedFailedToolCall ||= isRepeatedFailedToolCall(toolCall, guardEvidence);
+      rejectedToolName = toolCall
+        && !isRepeatedFailedToolCall(toolCall, guardEvidence)
+        && !isToolCallSemanticallyAdmissible(toolCall, guardEvidence)
+        ? toolCall.name
+        : undefined;
+      sawSemanticallyRejectedToolCall ||= rejectedToolName !== undefined;
       sawMalformedToolIntent ||= malformedToolIntent;
       if (toolCall) {
         output = { ...output, content: "", reasoning: "" };
@@ -366,7 +382,9 @@ export class DeepSeekClient {
           ? "malformed_tool_intent"
           : sawRepeatedFailedToolCall
             ? "repeated_failed_tool_call"
-            : "missing_tool_evidence",
+            : sawSemanticallyRejectedToolCall
+              ? "semantically_redundant_tool_call"
+              : "missing_tool_evidence",
         retryable: true,
         requires_environment_tool_result: guardEvidence.requiresEnvironmentToolResult,
         requires_action_tool_result: guardEvidence.requiresActionToolResult,
@@ -379,6 +397,7 @@ export class DeepSeekClient {
         cardinality_failure_count: guardEvidence.cardinalityFailures.length,
         missing_obligation_kinds: guardEvidence.missingActionKinds,
         repeated_failed_tool_call: sawRepeatedFailedToolCall,
+        semantically_redundant_tool_call: sawSemanticallyRejectedToolCall,
         malformed_tool_intent: sawMalformedToolIntent,
       });
       throw new BridgeError(
@@ -386,7 +405,9 @@ export class DeepSeekClient {
           ? "DeepSeek repeated a tool call that already failed in this user action cycle and did not provide a safe alternative or a non-empty honest failure. The failed action was not executed again."
           : sawMalformedToolIntent
             ? "DeepSeek produced malformed tool-call syntax and did not repair it within the bounded retry limit. No raw tool JSON was returned and no tool was executed."
-            : "DeepSeek did not produce the required real tool call for every current-user obligation. One or more requested actions or exact values remain unverified, so no fabricated success result was returned.",
+            : sawSemanticallyRejectedToolCall
+              ? "DeepSeek proposed a tool action that did not correspond to a still-unverified current-user obligation. The redundant action was not executed, and no fabricated success result was returned."
+              : "DeepSeek did not produce the required real tool call for every current-user obligation. One or more requested actions or exact values remain unverified, so no fabricated success result was returned.",
         { code: "TOOL_CALL_REQUIRED", status: 502, retryable: true },
       );
     }
@@ -998,7 +1019,10 @@ export function shouldRetry(
   malformedToolIntent = false,
 ): boolean {
   if (!hasTools) return false;
-  if (toolCall) return isRepeatedFailedToolCall(toolCall, evidence);
+  if (toolCall) {
+    return isRepeatedFailedToolCall(toolCall, evidence)
+      || !isToolCallSemanticallyAdmissible(toolCall, evidence);
+  }
   if (malformedToolIntent && evidence && !evidence.isInformationalRequest) return true;
   if (evidence?.requiresEnvironmentToolResult || evidence?.requiresActionToolResult) {
     if (evidence.hasUnavailableToolFailure) return true;

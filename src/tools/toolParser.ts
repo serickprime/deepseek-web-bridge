@@ -390,6 +390,7 @@ export interface ToolObligation {
   argumentLiterals: string[];
   resultLiterals: string[];
   requiredExactResultCount?: number;
+  requiredToolName?: string;
 }
 
 export interface ObligationCardinalityFailure {
@@ -691,12 +692,14 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
     span: string;
     sequential: boolean;
     explicitlyGrouped: boolean;
+    requiredToolName?: string;
   }
   interface FileActionGroup {
     context: FileActionContext;
     paths: string[];
     argumentLiterals: string[];
     resultLiterals: string[];
+    requiredToolName?: string;
   }
   type D18ActionRequirement =
     | { requirement: "mandatory" }
@@ -747,13 +750,32 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
   };
 
   const distinctPaths = [...new Set(pathLiterals.map(path => path.normalize("NFC")))];
-  const mutationVerb = /(?:созда\S*|сделай|сохран\S*|запиш\S*|добав\S*|дополн\S*|допис\S*|измен\S*|отредактир\S*|удал\S*|переимен\S*|перемест\S*|скопир\S*|create|make|save|write|append|add|modify|change|edit|delete|remove|rename|move|copy)/gi;
+  const mutationVerb = /(?:созда\S*|сделай|сохран\S*|запиш\S*|добав\S*|дополн\S*|допис\S*|измен\S*|замен\S*|отредактир\S*|удал\S*|переимен\S*|перемест\S*|скопир\S*|(?<![\p{L}\p{N}_.-])(?:create|make|save|write|append|add|modify|change|edit|delete|remove|rename|move|copy)(?![\p{L}\p{N}_.-]))/giu;
   const verifyVerb = /(?:провер\S*|прочит\S*|прочти|убедись|verify|check|inspect|read|cat\b|show|display)/gi;
   const actionMatches: FileActionMatch[] = [];
+  const explicitToolBefore = (start: number): string | undefined => {
+    const prefix = content.slice(Math.max(0, start - 80), start).trimEnd().toLowerCase();
+    return allowedToolNames.find(name => {
+      const normalized = name.trim().toLowerCase();
+      return [
+        `с помощью ${normalized}`,
+        `используя ${normalized}`,
+        `using ${normalized}`,
+        `with ${normalized}`,
+      ].some(marker => prefix.endsWith(marker));
+    });
+  };
+  const isMetaToolMention = (match: RegExpExecArray): boolean => {
+    const normalized = match[0].trim().toLowerCase();
+    if (!allowedToolNames.some(name => name.trim().toLowerCase() === normalized)) return false;
+    const prefix = content.slice(Math.max(0, match.index - 32), match.index).trimEnd();
+    return /(?:с\s+помощью|используя|using|with)$/i.test(prefix);
+  };
   const collectActions = (pattern: RegExp, context: FileActionContext): void => {
     pattern.lastIndex = 0;
     let match: RegExpExecArray | null;
     while ((match = pattern.exec(content))) {
+      if (isMetaToolMention(match)) continue;
       actionMatches.push({
         context,
         start: match.index,
@@ -764,6 +786,7 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
         span: "",
         sequential: false,
         explicitlyGrouped: false,
+        requiredToolName: explicitToolBefore(match.index),
       });
       if (match[0].length === 0) pattern.lastIndex++;
     }
@@ -815,7 +838,8 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
     const action = actionMatches[index]!;
     if (action.context !== "verification" || action.paths.length > 0) continue;
     const fileAnaphora = /(?:эт\S*(?:\s+же)?\s+файл\S*|в\s+него|\b(?:it|that\s+file|the\s+same\s+file)\b)/i.test(action.span);
-    if (!fileAnaphora) continue;
+    const bareFileReference = /^(?:прочит\S*|прочти)\s+файл\S*(?=\s|[.,:;!?]|$)/i.test(action.span);
+    if (!fileAnaphora && !bareFileReference) continue;
     const priorActions = actionMatches.slice(0, index);
     const mutationTargets = priorActions.flatMap((candidate, candidateIndex) => {
       if (candidate.context !== "mutation") return [];
@@ -898,6 +922,7 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
             paths,
             argumentLiterals: context === "mutation" ? [...values, ...paths, ...localUrls] : paths,
             resultLiterals: localResult,
+            requiredToolName: action.requiredToolName,
           });
         }
         previousSignature = signature;
@@ -935,10 +960,12 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
         id,
         kind,
         description: obligationDescription(kind, group.argumentLiterals, group.resultLiterals)
+          + (group.requiredToolName ? ` using ${group.requiredToolName}` : "")
           + (requiredExactResultCount === 1 ? " occurring exactly once in the final state" : ""),
         argumentLiterals: group.argumentLiterals,
         resultLiterals: group.resultLiterals,
         requiredExactResultCount,
+        ...(group.requiredToolName ? { requiredToolName: group.requiredToolName } : {}),
       };
     });
     if (index < 0) inferred.push(...obligations);
@@ -1199,6 +1226,35 @@ export function isRepeatedFailedToolCall(
   ));
 }
 
+function toolCallMatchesObligationIntent(
+  obligation: ToolObligation,
+  toolCall: CanonicalToolCall,
+): boolean {
+  if (obligation.requiredToolName
+    && obligation.requiredToolName.toLowerCase() !== toolCall.name.toLowerCase()) return false;
+  if (!fulfilledKindsForTool(toolCall).includes(obligation.kind)) return false;
+  const argumentStrings = collectStringValues(toolCall.arguments);
+  return obligation.argumentLiterals.every(literal => containsExactUnicode(argumentStrings, literal));
+}
+
+export function isToolCallSemanticallyAdmissible(
+  toolCall: unknown,
+  evidence?: CurrentToolCycleEvidence,
+): boolean {
+  if (!evidence || !toolCall || typeof toolCall !== "object") return true;
+  const candidate = toolCall as CanonicalToolCall;
+  if (typeof candidate.name !== "string" || !isPlainObject(candidate.arguments)) return true;
+  if (evidence.obligations.length === 0) return true;
+  if (evidence.missingObligations.some(obligation => toolCallMatchesObligationIntent(obligation, candidate))) {
+    return true;
+  }
+  if (!evidence.hasFailedCurrentToolResult) return false;
+  const missingIds = new Set(evidence.missingObligations.map(obligation => obligation.id));
+  return !evidence.obligations.some(obligation => (
+    !missingIds.has(obligation.id) && toolCallMatchesObligationIntent(obligation, candidate)
+  ));
+}
+
 function fulfilledKindsForTool(toolCall: CanonicalToolCall): ExternalActionKind[] {
   const name = toolCall.name.toLowerCase();
   const args = toolArgumentText(toolCall);
@@ -1276,6 +1332,8 @@ function fulfillsObligation(
   toolCall: CanonicalToolCall,
   resultContent: string,
 ): boolean {
+  if (obligation.requiredToolName
+    && obligation.requiredToolName.toLowerCase() !== toolCall.name.toLowerCase()) return false;
   if (!fulfilledKindsForTool(toolCall).includes(obligation.kind)) return false;
   if (looksLikeStructuredToolError(resultContent)) return false;
   if (looksLikeFailedObligationOutput(obligation.kind, resultContent)) return false;
@@ -1685,7 +1743,9 @@ export interface ToolRetryPromptContext {
   inconclusiveObligations?: string[];
   cardinalityFailures?: ObligationCardinalityFailure[];
   repeatedFailedToolName?: string;
+  rejectedToolName?: string;
   malformedToolIntent?: boolean;
+  allRequirementsFulfilled?: boolean;
 }
 
 export function createToolRetryPrompt(
@@ -1714,12 +1774,23 @@ export function createToolRetryPrompt(
       "Do NOT repeat that call unchanged. Choose a different tool, correct the arguments, or honestly explain why the task cannot be completed.",
     );
   }
+  if (context.rejectedToolName) {
+    lines.push(
+      `The proposed ${JSON.stringify(context.rejectedToolName)} call was NOT executed because it does not satisfy a still-unverified current-user requirement.`,
+      "A new call ID does not make an already completed action necessary again.",
+      "Do not repeat successful Write, Edit, Read, or other actions unless a listed missing or stale requirement specifically needs that action.",
+    );
+  }
   if (context.malformedToolIntent) {
     lines.push(
       "Your previous output was a malformed tool call. The tool was NOT executed.",
-      "Do not describe the action as text. Return exactly one correct tool call using valid JSON.",
-      "Every backslash inside a JSON string must be correctly escaped (use \\\\ for a literal backslash).",
     );
+    if (!context.allRequirementsFulfilled) {
+      lines.push(
+        "Do not describe the action as text. Return exactly one correct tool call using valid JSON.",
+        "Every backslash inside a JSON string must be correctly escaped (use \\\\ for a literal backslash).",
+      );
+    }
   }
   if ((context.missingActionKinds ?? []).length > 0) {
     lines.push(`Still-unverified action kinds: ${JSON.stringify(context.missingActionKinds)}`);
@@ -1759,16 +1830,23 @@ export function createToolRetryPrompt(
       "Do not repeat already verified steps unless a missing requirement genuinely depends on doing so.",
     );
   }
-  lines.push(
-    "For a request about the real environment or an external action, return a real tool_call JSON now.",
-    "Output ONLY the JSON envelope below — nothing else:",
-    '{"tool_call":{"name":"TOOL_NAME","arguments":{}}}',
-    `Allowed tool names: ${JSON.stringify(allowedNames)}`,
-    "No reasoning. No explanations. No Markdown. No text before or after.",
-    "A success final answer is allowed only after the client sends a real tool_result marked successful in the current tool cycle for every requested action.",
-    "If recovery is impossible after a real failure, report the failure honestly and do not claim the action succeeded.",
-    "If no external action or environment data is requested, output only your final text answer.",
-  );
+  if (context.allRequirementsFulfilled) {
+    lines.push(
+      "Every current-user requirement already has fresh successful tool evidence.",
+      "Return only the final text answer now. Do not call another tool and do not repeat any completed action.",
+    );
+  } else {
+    lines.push(
+      "For a request about the real environment or an external action, return one real tool_call JSON that addresses only a listed missing or stale requirement.",
+      "Output ONLY the JSON envelope below — nothing else:",
+      '{"tool_call":{"name":"TOOL_NAME","arguments":{}}}',
+      `Allowed tool names: ${JSON.stringify(allowedNames)}`,
+      "No reasoning. No explanations. No Markdown. No text before or after.",
+      "A success final answer is allowed only after the client sends a real tool_result marked successful in the current tool cycle for every requested action.",
+      "If recovery is impossible after a real failure, report the failure honestly and do not claim the action succeeded.",
+      "If no external action or environment data is requested, output only your final text answer.",
+    );
+  }
   return lines.join("\n");
 }
 
