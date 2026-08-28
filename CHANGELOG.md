@@ -3,6 +3,26 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-28 — Close D20 and R3 after Bash live acceptance
+
+- D20 закрыт после подтверждённого pre-existing L2 diagnosis, implementation
+  `a8800ba` + follow-up `005eebb`, independent re-review `PASS` и exact R3-D
+  Windows live `PASS`. Deterministic baseline остаётся 36 files / 1104 tests.
+- Exact R3-D на isolated Claude Code 2.1.241 вывел только
+  `command_execution`: один correlated Bash завершился с `is_error=false`, exit
+  zero и exact stdout `R3-BASH-731`, затем final был exact `R3-BASH-OK`.
+  Guard retry, unexpected 5xx/502, hang/crash отсутствовали; shutdown и auth
+  integrity — PASS.
+- R3 закрыт как `PASS`: A TEXT, B WRITE/READ, C WRITE/EDIT/READ и D BASH —
+  PASS. D19/D18 остаются `CLOSED`, D10 — `PASS`, PB39 — `PASS 3/3`; R4 —
+  `READY / NOT STARTED`.
+- D21 не подтверждён как production defect. Один более ранний R3-D run дал два
+  Bash, но targeted capture не воспроизвёл observation: successful matching
+  Bash закрыл obligation, второй Bash не был admitted. Это monitoring item для
+  stress testing, не v1.0 blocker.
+- Изменены только `CHANGELOG.md`, `PROJECT_STATE.md` и
+  `PRODUCTION_READINESS.md`; production code и tests не менялись.
+
 ## 2026-08-28 — Complete D20 command payload masking
 
 - Independent review первого D20 implementation выявил оставшийся same-boundary
