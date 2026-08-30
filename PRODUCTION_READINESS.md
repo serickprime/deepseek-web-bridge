@@ -2,9 +2,9 @@
 
 > **Статус:** `HARDENING IN PROGRESS`
 >
-> **Baseline:** `fix/r5-ordered-verification-inference` based on master `67ce7aba9effa6b1f2c9fb7208a487b89ad1d33a`
+> **Baseline:** `fix/launch-literal-false-positive` based on master `fb4f2fa0cfb133a9b3a374c5e4171264ed7a4775`
 >
-> **Offline baseline:** 36 test files, 1141 tests
+> **Offline baseline:** 36 test files, 1159 tests
 >
 > **Открыто:** P0 — 0, P1 — 1, P2 — 2; deferred P3 — 1
 > **Production scope:** Claude Code → Anthropic-compatible Bridge → DeepSeek Web → Bridge → Claude Code
@@ -70,9 +70,18 @@ integrated в master; Anthropic required-usage compatibility follow-up integrate
 target-specific obligations и distinct initial/final evidence. Focused R5 13/13,
 D19 17/17, D13 47/47, D18 140/140, f676 9/9; full 1141/1141; independent
 read-only review — `PASS`.
-R5 остаётся `BLOCKED` до exact single-file live, затем qualifying Run 1.
+R5 и R6 впоследствии прошли release acceptance и имеют статус `PASS / CLOSED`.
 D22/D23/D24 abandoned changes не входят в baseline. Targeted D21 capture не
 подтвердил production defect и остаётся monitoring item.
+
+Current release state supersedes the historical paragraph above: R5 and R6 are
+`PASS / CLOSED`. R7 persistence/lineage restart path reached a correct correlated
+`Read → Edit → Read`, but finalization was blocked by a false `launch` obligation
+inferred from `start` substrings inside backticked filename/value data. The narrow
+L2 fix masks quoted data only for launch inference, preserves genuine complete-token
+launch/restart actions, and passes 18 new regressions, focused 117/117, full
+1159/1159 and independent narrow review. R7 remains blocked pending minimal live
+and the single full restart/resume acceptance.
 
 ### v1.0 RC exit criteria
 
@@ -288,16 +297,16 @@ versioned addendum; новые regressions добавляются новыми I
 | G4 | `npm run test:platform` green | PASS on current Windows baseline |
 | G5 | CI Windows/Linux/macOS green for release commit | NEEDS RELEASE-COMMIT VERIFICATION |
 | G6 | Все P0 закрыты | PASS: D2/D3/D4/D6 CLOSED; open P0 = 0 |
-| G7 | Все P1 закрыты либо formally waived с owner/reason/expiry | FAIL: R5 ordered intermediate-verification P1 awaiting exact live; open P1 = 1 |
-| G8 | 100% deterministic offline PB cases automated and green | FAIL: PB-v1 пока specification |
-| G9 | 3 последовательных clean live benchmark runs | FAIL |
-| G10 | 3 × 30–50 tool autonomous runs без fabrication/replay/duplicate/malformed leak/unexpected 502/hang | FAIL |
+| G7 | Все P1 закрыты либо formally waived с owner/reason/expiry | FAIL: R7 false-launch P1 implemented/reviewed, awaiting minimal live + full R7; open P1 = 1 |
+| G8 | 100% deterministic offline PB cases automated and green | PASS: R4 PB-v1 deterministic acceptance green |
+| G9 | 3 последовательных clean live benchmark runs | PASS: R5 qualifying runs 3/3 |
+| G10 | 3 × 30–50 tool autonomous runs без fabrication/replay/duplicate/malformed leak/unexpected 502/hang | PASS: R5 CLOSED, qualifying runs 3/3 |
 | G11 | Rate limit → retryable `DEEPSEEK_RATE_LIMIT`/429 без guard storm | PASS offline; preserve in live |
 | G12 | Любой upstream failure bounded; нет hang/fake success | PASS: D3/D4 CLOSED; bounded upstream failure и downstream SSE error contract подтверждены deterministic tests и Windows live verification |
 | G13 | Restart сохраняет консистентные persistent session/lineage | PASS: deterministic PB31/PB33 green; Windows Claude Code restart сохранил session и использовал persisted lineage |
-| G14 | `/compact` после long chain проходит PB35 | NEEDS FROZEN LIVE RUNS |
+| G14 | `/compact` после long chain проходит PB35 | PASS: R6 real Claude Code `/compact` acceptance CLOSED |
 | G15 | Shutdown не оставляет orphan/stale PID и не убивает чужие процессы | PASS: D10 final independent re-review и Windows desktop PB39 PASS 3/3; D18 не относится к lifecycle |
-| G16 | Нет известных открытых P0/P1 production defects | FAIL: open P0 = 0, open P1 = 1 pending exact R5 ordered-verification live |
+| G16 | Нет известных открытых P0/P1 production defects | FAIL: open P0 = 0, open P1 = 1 pending R7 false-launch live acceptance |
 
 ## 9. Mandatory development workflow
 
@@ -398,12 +407,12 @@ D12, D13, D14, D15b, D17, D18, D19 и D20 закрыты после требуе
 coverage, independent review и, где это требовалось, релевантной Windows live
 verification. Открытых P0 — 0, P1 — 1, P2 — 2; deferred P3 — 1. G6 и G15
 пройдены; G7/G16 и остальные release gates остаются открытыми. Текущий P1 —
-R5 ordered intermediate-verification inference: implementation/full regression/
-independent review green, exact single-file live pending. D10 final
+R7 false `launch` obligation: implementation/full regression/independent review
+green, minimal live и полный R7 pending. D10 final
 independent re-review и Windows desktop PB39 PASS 3/3; D10 + D18 fast-forward
 integration завершена. D15b имеет статус `CLOSED`, D15a — `OPEN / CAPABILITY
-UNRESOLVED`. R1, R2 и R3 — `PASS`; R3 A TEXT, B WRITE/READ,
-C WRITE/EDIT/READ и D BASH прошли. R4 — `READY / NOT STARTED`. D19 и D20 —
+UNRESOLVED`. R1–R6 — `PASS`; R3 A TEXT, B WRITE/READ,
+C WRITE/EDIT/READ и D BASH прошли. R7 ожидает false-launch live acceptance. D19 и D20 —
 `CLOSED`. D21 не подтверждён как production defect: один более ранний R3-D run
 с двумя Bash не воспроизвёлся в targeted capture; successful matching Bash
 закрыл `command_execution`, второй Bash не был admitted. Наблюдение остаётся

@@ -5151,3 +5151,112 @@ describe("toolPrompt — priority rule (rule 11)", () => {
     expect(prompt).toMatch(/required to continue[\s\S]*?current tool_result cycle/i);
   });
 });
+
+describe("R7 launch literal false-positive regression", () => {
+  const tools = ["Write", "Edit", "Read", "Bash"];
+  const exactPrompt = "Read `restart-a.txt`, then change it to `RESTART-A-AFTER-BRIDGE-RESTART`, then read it again to verify the result.";
+  const use = (id: string, name: string, arguments_: Record<string, unknown>): CanonicalMessage => ({
+    role: "assistant",
+    parts: [{ type: "tool_use", toolCall: { id, type: "function", name, arguments: arguments_ } }],
+  });
+  const result = (id: string, content: string): CanonicalMessage => ({
+    role: "user",
+    parts: [{ type: "tool_result", toolResult: { toolUseId: id, content, isError: false } }],
+  });
+  const read = (id: string): CanonicalMessage => use(id, "Read", { file_path: "restart-a.txt" });
+  const edit = (id: string): CanonicalMessage => use(id, "Edit", {
+    file_path: "restart-a.txt",
+    old_string: "RESTART-A-FINAL",
+    new_string: "RESTART-A-AFTER-BRIDGE-RESTART",
+  });
+  const evidence = (...messages: CanonicalMessage[]) => inspectCurrentToolCycle([
+    { role: "user", parts: [{ type: "text", text: exactPrompt }] },
+    ...messages,
+  ], tools);
+
+  it("does not infer launch from the exact post-restart request", () => {
+    const obligations = inferToolObligations(exactPrompt, tools);
+    expect(obligations.map(obligation => obligation.kind)).toEqual([
+      "file_mutation",
+      "file_verification",
+    ]);
+    expect(obligations.map(obligation => obligation.kind)).not.toContain("launch");
+  });
+
+  it.each([
+    ["backticked filename", "Read `restart-a.txt`, then report its contents."],
+    ["backticked value", "Change note.txt to `RESTART-A-AFTER-BRIDGE-RESTART`, then verify it."],
+    ["both backticked literals", exactPrompt],
+    ["unquoted restart filename", "Read restart-a.txt, then report its contents."],
+    ["unquoted quickstart filename", "Read quickstart.txt, then report its contents."],
+    ["unquoted starter value", "Change note.txt to starter-value, then verify it."],
+    ["D19-style edit filename", "Edit r3-edit.txt, then read r3-edit.txt."],
+  ])("does not infer launch from data token: %s", (_name, prompt) => {
+    expect(inferToolObligations(prompt, tools).map(obligation => obligation.kind))
+      .not.toContain("launch");
+  });
+
+  it.each([
+    "start server",
+    "start the server",
+    "launch app",
+    "launch the app",
+    "open site",
+    "open the website",
+    "serve the site",
+  ])("preserves a genuine launch action: %s", prompt => {
+    expect(inferToolObligations(prompt, tools).map(obligation => obligation.kind))
+      .toContain("launch");
+  });
+
+  it("preserves genuine restart launch semantics", () => {
+    expect(inferToolObligations("restart the server", tools).map(obligation => obligation.kind))
+      .toContain("launch");
+  });
+
+  it("keeps history and historical tool results outside current-turn inference", () => {
+    const messages: CanonicalMessage[] = [
+      { role: "user", parts: [{ type: "text", text: "start server" }] },
+      use("historical-launch", "Bash", { command: "npm start" }),
+      result("historical-launch", "started"),
+      { role: "assistant", parts: [{ type: "text", text: "Historical launch complete." }] },
+      { role: "user", parts: [{ type: "text", text: exactPrompt }] },
+    ];
+    const current = inspectCurrentToolCycle(messages, tools);
+    expect(current.currentUserText).toBe(exactPrompt);
+    expect(current.requiredActionKinds).not.toContain("launch");
+    expect(current.hasCurrentToolResult).toBe(false);
+  });
+
+  it("progresses Read to Edit to fresh Read without a launch obligation", () => {
+    const initial = evidence();
+    expect(initial.requiredActionKinds).toEqual(["file_mutation", "file_verification"]);
+    expect(initial.requiredActionKinds).not.toContain("launch");
+    expect(shouldRetry(true, read("candidate-initial").parts[0]!.toolCall, "", "", tools, initial)).toBe(false);
+
+    const afterInitialRead = evidence(read("initial-read"), result("initial-read", "RESTART-A-FINAL"));
+    expect(afterInitialRead.fulfilledObligationIds).toEqual(["file_verification"]);
+    expect(afterInitialRead.missingObligations.map(obligation => obligation.id)).toEqual(["file_mutation"]);
+    expect(shouldRetry(true, edit("candidate-edit").parts[0]!.toolCall, "", "", tools, afterInitialRead)).toBe(false);
+
+    const afterEdit = evidence(
+      read("initial-read"), result("initial-read", "RESTART-A-FINAL"),
+      edit("edit"), result("edit", "edited"),
+    );
+    expect(afterEdit.fulfilledObligationIds).toEqual(["file_mutation"]);
+    expect(afterEdit.missingObligations.map(obligation => obligation.id)).toEqual(["file_verification"]);
+    expect(afterEdit.staleObligations.map(obligation => obligation.id)).toEqual(["file_verification"]);
+    expect(shouldRetry(true, null, "done", "", tools, afterEdit)).toBe(true);
+    expect(shouldRetry(true, read("candidate-final").parts[0]!.toolCall, "", "", tools, afterEdit)).toBe(false);
+
+    const complete = evidence(
+      read("initial-read"), result("initial-read", "RESTART-A-FINAL"),
+      edit("edit"), result("edit", "edited"),
+      read("final-read"), result("final-read", "RESTART-A-AFTER-BRIDGE-RESTART"),
+    );
+    expect(complete.missingObligations).toEqual([]);
+    expect(complete.staleObligations).toEqual([]);
+    expect(complete.requiresActionToolResult).toBe(false);
+    expect(shouldRetry(true, null, "verified", "", tools, complete)).toBe(false);
+  });
+});

@@ -10,7 +10,19 @@
 
 **DEVELOPMENT MODE:** `RELEASE HARDENING / SCOPE FREEZE FOR v1.0`
 
-**CURRENT BLOCKER:** P1 R5 ordered intermediate verification inference. Frozen
+**CURRENT BLOCKER:** P1 R7 false `launch` obligation from data literals.
+The narrow L2 implementation masks quoted/backticked data only for launch
+inference and requires complete Unicode-safe English action tokens. Exact
+post-restart `Read → Edit → Read` progression is deterministic green with no
+`launch`; 18 new regressions, focused 117/117 and full 36 files / 1159 tests
+PASS; independent narrow review PASS. Status:
+`IMPLEMENTED / REVIEW PASS / AWAITING MINIMAL LIVE + FULL R7`.
+
+**RELEASE ACCEPTANCE:** R1–R6 are `PASS / CLOSED`; R7 is `BLOCKED` only by the
+runtime validation of this launch fix. Persistence/lineage restart evidence
+already passed before the false obligation stopped finalization.
+
+**PREVIOUS R5 BLOCKER (CLOSED):** P1 R5 ordered intermediate verification inference. Frozen
 single-file task `Create → Verify → Edit → Verify` ранее давал три mutations и
 ноль verification obligations, поэтому безопасный D19 admission отклонял
 обязательный intermediate Read. Узкий L2 fix в
@@ -35,12 +47,12 @@ changes в clean baseline не переносились.
 **D20:** `CLOSED`.
 
 **R3:** `PASS`: A TEXT, B WRITE/READ, C WRITE/EDIT/READ и D BASH — `PASS`.
-**R4:** deterministic baseline остаётся green; **R5:** `BLOCKED` до exact
-single-file live текущего ordered verification fix, затем — qualifying Run 1.
+**R4:** `PASS`; **R5:** `PASS / CLOSED`; **R6:** `PASS / CLOSED`;
+**R7:** `BLOCKED` pending false-launch minimal live и full restart/resume acceptance.
 
 **D10:** `PASS`; **PB39:** `PASS 3/3`.
 
-**NEXT:** exact frozen single-file `Create → Verify → Edit → Verify` на isolated
+**PREVIOUS NEXT (COMPLETED):** exact frozen single-file `Create → Verify → Edit → Verify` на isolated
 Claude Code 2.1.241; при PASS — standard continuous-session R5 Run 1. D19/D20,
 D3/D4 и usage не переоткрывать; D22/D23/D24 не переносить в clean baseline.
 
@@ -89,7 +101,7 @@ independent re-review и exact R3-D Windows live. Один recognized-payload bo
 применяется ко всем стадиям file-verification inference: код внутри явного
 Bash/command payload не создаёт ложные natural-language file obligations, тогда
 как prose вне payload сохраняется. После этих closures P0/P1 были 0/0; текущий
-R5 ordered intermediate-verification P1 делает G7/G16 FAIL до exact live. Остальные
+R7 false-launch P1 делает G7/G16 FAIL до minimal live и полного R7. Остальные
 приоритеты и gates — в
 `PRODUCTION_READINESS.md`. D11 full schema transport закрыт после deterministic
 offline coverage, independent review и Windows Claude Code live WebFetch. D12
@@ -132,8 +144,7 @@ independent re-review — PASS. Exact R3-D Windows live на isolated Claude Cod
 zero и exact stdout `R3-BASH-731`, затем final `R3-BASH-OK`, без guard retry,
 unexpected 5xx/502, hang/crash; auth integrity и shutdown — PASS. D20 —
 `CLOSED`; R3 A/B/C/D — `PASS`; R4 deterministic baseline green. Текущий
-open P0/P1 = 0/1, G7/G16 — FAIL до exact single-file verification live и R5
-Run 1. Один
+open P0/P1 = 0/1, G7/G16 — FAIL до minimal live и полного R7. Один
 более ранний R3-D run с двумя Bash не воспроизвёлся в
 targeted D21 capture: successful matching Bash закрыл obligation, второй Bash
 не был admitted. D21 не подтверждён как production defect и остаётся только

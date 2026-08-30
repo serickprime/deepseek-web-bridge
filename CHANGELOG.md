@@ -3,6 +3,25 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-31 — Fix false launch inference from data literals
+
+- Исправлен подтверждённый R7 L2 blocker: `inferExternalActionKinds()` больше не
+  воспринимает `start` внутри filename/value literals (`restart-a.txt`,
+  `RESTART-A-AFTER-BRIDGE-RESTART`) как самостоятельный `launch` action.
+- Launch inference теперь использует отдельное length-preserving masking quoted/
+  backticked data и Unicode-safe lexical boundaries для `launch`, `start`,
+  `restart`, `open`, `serve`. Genuine `start server`, `launch app`, `open site`,
+  `serve website` и `restart the server` сохранены.
+- Exact R7 request детерминированно проходит state progression: initial Read
+  evidence → mutation → stale verification → fresh final Read; после последнего
+  результата missing obligations = 0, ложный `launch` отсутствует.
+- Добавлено 18 regression cases; focused D17/D19/ordered/current-cycle protection
+  117/117 и full 36 files / 1159 tests — PASS. Independent narrow review — PASS.
+  Статус: `IMPLEMENTED / REVIEW PASS / AWAITING MINIMAL LIVE + FULL R7`.
+- Изменены `src/tools/toolParser.ts`, `tests/unit/tools.test.ts`, `CHANGELOG.md`,
+  `PROJECT_STATE.md` и `PRODUCTION_READINESS.md`. Guard/retry/client, persistence,
+  lineage/session/correlation, transport и D22/D23/D24 не менялись.
+
 ## 2026-08-30 — Preserve ordered intermediate file verification
 
 - Исправлен подтверждённый R5 L2 inference defect для frozen single-file task

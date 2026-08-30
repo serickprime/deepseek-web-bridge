@@ -490,6 +490,13 @@ function maskExplicitCommandPayloads(content: string): string {
   return masked + content.slice(cursor);
 }
 
+function maskQuotedDataForLaunchInference(content: string): string {
+  return content.replace(
+    /"[^"\r\n]*"|'[^'\r\n]*'|«[^»\r\n]*»|`[^`\r\n]*`/g,
+    match => " ".repeat(match.length),
+  );
+}
+
 function maskNominalMutationTransitions(content: string): string {
   return content.replace(
     /(после\s+)(создания|изменения)(?=\s|[.,:;!?]|$)/giu,
@@ -561,8 +568,9 @@ function inferExternalActionKinds(content: string, allowedToolNames: string[]): 
   if (hasShell && install) kinds.add("dependency_install");
 
   const commandExecution = looksLikeExplicitCommandExecutionRequest(trimmed);
+  const launchIntentText = maskQuotedDataForLaunchInference(trimmed);
   const launch = !commandExecution
-    && /(?:запуст\S*|открой\S*|подними\S*)[\s\S]{0,60}(?:сайт|сервер|приложен|лендинг|страниц|его|её|их)|(?:launch|start|open|serve)[\s\S]{0,60}(?:app|server|site|website|page|\b(?:it|them)\b)/i.test(trimmed);
+    && /(?:запуст\S*|открой\S*|подними\S*)[\s\S]{0,60}(?:сайт|сервер|приложен|лендинг|страниц|его|её|их)|(?<![\p{L}\p{N}_.-])(?:launch|start|restart|open|serve)(?![\p{L}\p{N}_.-])[\s\S]{0,60}(?:app|server|site|website|page|\b(?:it|them)\b)/iu.test(launchIntentText);
   if (hasLauncher && launch) kinds.add("launch");
 
   if (hasShell && commandExecution) kinds.add("command_execution");
