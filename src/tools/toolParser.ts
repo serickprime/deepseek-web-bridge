@@ -490,6 +490,13 @@ function maskExplicitCommandPayloads(content: string): string {
   return masked + content.slice(cursor);
 }
 
+function maskNominalMutationTransitions(content: string): string {
+  return content.replace(
+    /(после\s+)(создания|изменения)(?=\s|[.,:;!?]|$)/giu,
+    (_match, prefix: string, nominal: string) => `${prefix}${" ".repeat(nominal.length)}`,
+  );
+}
+
 function looksLikeExplicitCommandExecutionRequest(content: string): boolean {
   if (/(?:выполн\S*|запуст\S*)\s+(?:(?:эту|следующ\S*)\s+)?команд\S*|\b(?:run|execute)\s+(?:(?:the|this|following)\s+)?command\b/i.test(content)) {
     return true;
@@ -547,7 +554,7 @@ function inferExternalActionKinds(content: string, allowedToolNames: string[]): 
   const fileIntentText = maskExplicitCommandPayloads(trimmed);
 
   const externalTarget = /файл|папк|каталог|проект|лендинг|сайт|страниц|програм|скрипт|конфиг|документ|зависимост|пакет|\b[\w.-]+\.[a-z0-9_-]{1,16}\b|file|folder|directory|project|landing|website|site|page|program|script|config|document|dependency|package/i.test(fileIntentText);
-  const fileMutation = /созда\S*|сделай|сохран\S*|запиш\S*|измен\S*|отредактир\S*|удал\S*|переимен\S*|перемест\S*|скопир\S*|create|make|build|save|write|modify|change|edit|delete|remove|rename|move|copy/i.test(fileIntentText);
+  const fileMutation = /созда\S*|сделай|сохран\S*|запиш\S*|измен\S*|замен\S*|отредактир\S*|удал\S*|переимен\S*|перемест\S*|скопир\S*|create|make|build|save|write|modify|change|edit|delete|remove|rename|move|copy/i.test(maskNominalMutationTransitions(fileIntentText));
   if (hasFileWriter && externalTarget && fileMutation) kinds.add("file_mutation");
 
   const install = /установ\S*|добав\S*\s+(?:зависимост|пакет)|install|add (?:the )?(?:dependency|package)/i.test(trimmed);
@@ -739,6 +746,62 @@ function inferHeadingFileActionObligations(
   return obligations;
 }
 
+function inferOrderedNarrativeFileActionObligations(
+  content: string,
+  allowedToolNames: string[],
+): ToolObligation[] | null {
+  const requiredTool = (expected: string): string | undefined =>
+    allowedToolNames.find(name => name.trim().toLowerCase() === expected.toLowerCase());
+  const writeTool = requiredTool("Write");
+  const editTool = requiredTool("Edit");
+  const readTool = requiredTool("Read");
+  if (!writeTool || !editTool || !readTool) return null;
+
+  const create = /(?:^|[.!?]\s+)\s*(?:задача\s+\d+[.:]\s*)?(?:создай|запиши|сохрани)\s+(?:файл\s+)?((?:[\w.-]+[\\/])*[\w.-]+\.(?:json|md|txt|html?|jsx?|tsx?|ya?ml|toml))\s+с\s+(?:точн\S*\s+)?содержим\S*\s+([A-Za-z0-9][A-Za-z0-9._-]{0,127})/iu.exec(content);
+  const firstVerification = /(?:^|[.!?]\s+)\s*после\s+создания\s+(?:обязательно\s+)?прочитай\s+и\s+проверь\s+его(?:\s+содержим\S*)?/iu.exec(content);
+  const edit = /(?:^|[.!?]\s+)\s*затем\s+через\s+Edit\s+замени\s+([A-Za-z0-9][A-Za-z0-9._-]{0,127})\s+на\s+([A-Za-z0-9][A-Za-z0-9._-]{0,127})/iu.exec(content);
+  const finalVerification = /(?:^|[.!?]\s+)\s*после\s+изменения\s+снова\s+прочитай\s+файл\s+и\s+проверь\s+итогов\S*\s+содержим\S*/iu.exec(content);
+  if (!create || !firstVerification || !edit || !finalVerification) return null;
+
+  const starts = [create.index, firstVerification.index, edit.index, finalVerification.index];
+  if (starts.some((start, index) => index > 0 && start <= starts[index - 1]!)) return null;
+  const paths = literalValues(extractExactUserLiterals(content), ["path"])
+    .map(path => path.normalize("NFC"));
+  const target = create[1]!.normalize("NFC");
+  if (new Set(paths).size !== 1 || paths[0] !== target) return null;
+
+  const normalizeMarker = (value: string): string => value.replace(/[.!?]+$/u, "").normalize("NFC");
+  const initialMarker = normalizeMarker(create[2]!);
+  const oldMarker = normalizeMarker(edit[1]!);
+  const finalMarker = normalizeMarker(edit[2]!);
+  if (initialMarker !== oldMarker) return null;
+
+  const group = `narrative-file-sequence:${create.index}`;
+  const make = (
+    id: string,
+    kind: "file_mutation" | "file_verification",
+    requiredToolName: string,
+    argumentLiterals: string[],
+    resultLiterals: string[],
+    orderedActionIndex: number,
+  ): ToolObligation => ({
+    id,
+    kind,
+    description: `${obligationDescription(kind, argumentLiterals, resultLiterals)} using ${requiredToolName}`,
+    argumentLiterals,
+    resultLiterals,
+    requiredToolName,
+    orderedActionGroup: group,
+    orderedActionIndex,
+  });
+  return [
+    make("file_mutation#1", "file_mutation", writeTool, [target, initialMarker], [], 1),
+    make("file_verification#1", "file_verification", readTool, [target], [initialMarker], 2),
+    make("file_mutation#2", "file_mutation", editTool, [target, initialMarker, finalMarker], [], 3),
+    make("file_verification#2", "file_verification", readTool, [target], [finalMarker], 4),
+  ];
+}
+
 export function inferToolObligations(content: string, allowedToolNames: string[]): ToolObligation[] {
   if (allowedToolNames.length === 0 || isInformationalRequest(content)) return [];
   const hasShell = hasToolMatching(allowedToolNames, /bash|shell|powershell|terminal|command|exec/);
@@ -882,7 +945,7 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
     if (/(?:\bor\s+\S|\beither\b|(?:^|\s)(?:или|либо)\s+\S)/i.test(`${localPrefix} ${localSuffix}`)) {
       return { requirement: "non_mandatory", reason: "alternative" };
     }
-    const mandatoryPrefix = /(?:^|[.!?]\s*|\n+|,\s*)\s*(?:(?:then|now|please)\s+|after\s+(?:creating|writing|saving)(?:\s+(?:it|the\s+file))?\s*,?\s*|(?:затем|потом|теперь|пожалуйста)\s+|после\s+(?:создания|записи|сохранения|этого)\s*,?\s*(?:обязательно\s+)?|обязательно\s+)?$/i.test(localPrefix);
+    const mandatoryPrefix = /(?:^|[.!?]\s*|\n+|,\s*)\s*(?:(?:then|now|please)\s+|after\s+(?:creating|writing|saving)(?:\s+(?:it|the\s+file))?\s*,?\s*|(?:затем|потом|теперь|пожалуйста)\s+|после\s+(?:создания|изменения|записи|сохранения|этого)\s*,?\s*(?:обязательно\s+)?|обязательно\s+)?$/i.test(localPrefix);
     return mandatoryPrefix ? { requirement: "mandatory" } : { requirement: "non_mandatory", reason: "meta" };
   };
 
@@ -897,6 +960,7 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
       return [
         `с помощью ${normalized}`,
         `используя ${normalized}`,
+        `через ${normalized}`,
         `using ${normalized}`,
         `with ${normalized}`,
       ].some(marker => prefix.endsWith(marker));
@@ -906,19 +970,32 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
     const normalized = match[0].trim().toLowerCase();
     if (!allowedToolNames.some(name => name.trim().toLowerCase() === normalized)) return false;
     const prefix = content.slice(Math.max(0, match.index - 32), match.index).trimEnd();
-    return /(?:с\s+помощью|используя|using|with)$/i.test(prefix);
+    return /(?:с\s+помощью|используя|через|using|with)$/i.test(prefix);
   };
   const collectActions = (pattern: RegExp, context: FileActionContext): void => {
     pattern.lastIndex = 0;
     let match: RegExpExecArray | null;
     while ((match = pattern.exec(fileIntentText))) {
       if (isMetaToolMention(match)) continue;
+      const normalizedVerb = match[0].replace(/[^\p{L}]/gu, "").toLowerCase();
+      const prefix = fileIntentText.slice(Math.max(0, match.index - 32), match.index);
+      if (context === "mutation"
+        && /^(?:создания|изменения)$/.test(normalizedVerb)
+        && /после\s+$/iu.test(prefix)) continue;
+      const compoundVerification = context === "verification"
+        && /^(?:прочит\S*|прочти)$/iu.test(match[0])
+        ? /^\s+и\s+(провер\S*)/iu.exec(fileIntentText.slice(pattern.lastIndex))
+        : null;
+      const verbEnd = compoundVerification
+        ? pattern.lastIndex + compoundVerification[0].length
+        : match.index + match[0].length;
+      if (compoundVerification) pattern.lastIndex = verbEnd;
       actionMatches.push({
         context,
         start: match.index,
-        verbEnd: match.index + match[0].length,
+        verbEnd,
         end: content.length,
-        verb: match[0].toLowerCase(),
+        verb: fileIntentText.slice(match.index, verbEnd).toLowerCase(),
         paths: [],
         span: "",
         sequential: false,
@@ -932,7 +1009,7 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
   collectActions(verifyVerb, "verification");
   actionMatches.sort((left, right) => left.start - right.start || left.verbEnd - right.verbEnd);
 
-  const sequenceCue = /(?:затем|после\s+этого|потом|снова|ещ[её]\s+раз|\bthen\b|\bagain\b|\btwice\b|дважды|два\s+раза)/i;
+  const sequenceCue = /(?:затем|после\s+(?:этого|создания|изменения)|потом|снова|ещ[её]\s+раз|\bthen\b|\bagain\b|\btwice\b|дважды|два\s+раза)/i;
   const groupedCue = /(?:одн\S*\s+(?:команд\S*|операц\S*|действ\S*)|(?:using|with)\s+(?:one|a\s+single)\s+(?:command|operation|action)|\bone\s+command\b|\bsingle\s+(?:command|operation|action)\b)/i;
   for (let index = 0; index < actionMatches.length; index++) {
     const action = actionMatches[index]!;
@@ -974,7 +1051,10 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
   for (let index = 1; index < actionMatches.length; index++) {
     const action = actionMatches[index]!;
     if (action.context !== "verification" || action.paths.length > 0) continue;
-    const fileAnaphora = /(?:эт\S*(?:\s+же)?\s+файл\S*|в\s+него|его\s+содержим\S*|\b(?:it|that\s+file|the\s+same\s+file)\b)/i.test(action.span);
+    const compoundPronoun = /^(?:прочит\S*|прочти)\s+и\s+провер\S*/i.test(action.verb)
+      && /(?:^|\s)его(?=\s|[.,:;!?]|$)/i.test(action.span);
+    const fileAnaphora = compoundPronoun
+      || /(?:эт\S*(?:\s+же)?\s+файл\S*|в\s+него|его\s+содержим\S*|\b(?:it|that\s+file|the\s+same\s+file)\b)/i.test(action.span);
     const bareFileReference = /^(?:прочит\S*|прочти)\s+файл\S*(?=\s|[.,:;!?]|$)/i.test(action.span);
     if (!fileAnaphora && !bareFileReference) continue;
     const priorActions = actionMatches.slice(0, index);
@@ -1158,15 +1238,16 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
       }
     }
   }
-  const headingObligations = inferHeadingFileActionObligations(content, allowedToolNames);
-  if (headingObligations) {
+  const specializedFileObligations = inferHeadingFileActionObligations(content, allowedToolNames)
+    ?? inferOrderedNarrativeFileActionObligations(content, allowedToolNames);
+  if (specializedFileObligations) {
     const firstFileIndex = inferred.findIndex(obligation => (
       obligation.kind === "file_mutation" || obligation.kind === "file_verification"
     ));
     const retained = inferred.filter(obligation => (
       obligation.kind !== "file_mutation" && obligation.kind !== "file_verification"
     ));
-    retained.splice(firstFileIndex < 0 ? retained.length : firstFileIndex, 0, ...headingObligations);
+    retained.splice(firstFileIndex < 0 ? retained.length : firstFileIndex, 0, ...specializedFileObligations);
     return retained;
   }
   return inferred;

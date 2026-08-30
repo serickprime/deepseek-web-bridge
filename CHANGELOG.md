@@ -3,6 +3,24 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-30 — Preserve ordered intermediate file verification
+
+- Исправлен подтверждённый R5 L2 inference defect для frozen single-file task
+  `Create → Verify → Edit → Verify`: теперь формируются ровно четыре ordered,
+  target-specific obligations с отдельными initial/final verification evidence.
+- Узко исключены nominal transition phrases `после создания` / `после изменения`
+  из mutation extraction; `через Edit` остаётся tool constraint, а compound
+  `прочитай и проверь его` наследует только единственный однозначный target.
+  Ambiguous pronoun remains fail-closed; semantic admission, retry, client,
+  lineage/correlation, transport и Anthropic output не менялись.
+- Добавлено 13 focused regressions для inference/progression, premature Edit,
+  freshness, nominal/meta/compound controls. Focused: R5 13/13, D19 17/17,
+  D13 47/47, D18 140/140, f676 9/9; full: 36 files / 1141 tests. Independent
+  read-only review — `PASS`; статус — `IMPLEMENTED / REVIEW PASS / AWAITING
+  EXACT SINGLE-FILE LIVE`, затем при успехе — R5 Run 1.
+- Изменены `src/tools/toolParser.ts`, `tests/unit/tools.test.ts`, `CHANGELOG.md`,
+  `PROJECT_STATE.md` и `PRODUCTION_READINESS.md`. D22/D23/D24 не переносились.
+
 ## 2026-08-30 — Require truthful Anthropic non-stream usage
 
 - Подтверждённый Claude Code 2.1.241 A/B показал L1 compatibility blocker:

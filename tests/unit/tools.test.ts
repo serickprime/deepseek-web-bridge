@@ -2978,6 +2978,153 @@ describe("R5 heading-scoped target obligations", () => {
   });
 });
 
+describe("R5 ordered intermediate verification inference", () => {
+  const toolNames = ["Write", "Edit", "Read", "Bash"];
+  const prompt = "Задача 01. Создай файл stress01.txt с точным содержимым R5-01-INITIAL. После создания прочитай и проверь его. Затем через Edit замени R5-01-INITIAL на R5-01-FINAL. После изменения снова прочитай файл и проверь итоговое содержимое. Заверши только после реальных результатов всех четырёх действий и ответь R5-TASK-01-OK.";
+  const use = (id: string, name: string, args: Record<string, unknown>): CanonicalMessage => ({
+    role: "assistant",
+    parts: [{ type: "tool_use", toolCall: { id, type: "function", name, arguments: args } }],
+  });
+  const result = (id: string, content = "ok", isError = false): CanonicalMessage => ({
+    role: "user",
+    parts: [{ type: "tool_result", toolResult: { toolUseId: id, content, isError } }],
+  });
+  const cycle = (...messages: CanonicalMessage[]): CanonicalMessage[] => [
+    { role: "user", parts: [{ type: "text", text: prompt }] },
+    ...messages,
+  ];
+  const write = (id = "w1") => use(id, "Write", { file_path: "stress01.txt", content: "R5-01-INITIAL" });
+  const read = (id: string) => use(id, "Read", { file_path: "stress01.txt" });
+  const edit = (id = "e1") => use(id, "Edit", {
+    file_path: "stress01.txt",
+    old_string: "R5-01-INITIAL",
+    new_string: "R5-01-FINAL",
+  });
+
+  it("infers the exact frozen task as four ordered target-specific obligations", () => {
+    const obligations = inferToolObligations(prompt, toolNames);
+    expect(obligations.map(obligation => obligation.kind)).toEqual([
+      "file_mutation",
+      "file_verification",
+      "file_mutation",
+      "file_verification",
+    ]);
+    expect(obligations.map(obligation => obligation.argumentLiterals[0]))
+      .toEqual(Array(4).fill("stress01.txt"));
+    expect(obligations.map(obligation => obligation.requiredToolName))
+      .toEqual(["Write", "Read", "Edit", "Read"]);
+    expect(obligations.map(obligation => obligation.orderedActionIndex)).toEqual([1, 2, 3, 4]);
+    expect(obligations[1]?.resultLiterals).toEqual(["R5-01-INITIAL"]);
+    expect(obligations[3]?.resultLiterals).toEqual(["R5-01-FINAL"]);
+  });
+
+  it("keeps verification next and rejects a premature Edit after Write", () => {
+    const evidence = inspectCurrentToolCycle(cycle(write(), result("w1", "created")), toolNames);
+    expect(evidence.fulfilledObligationIds).toEqual(["file_mutation#1"]);
+    expect(evidence.missingObligations.map(obligation => obligation.id)).toEqual([
+      "file_verification#1",
+      "file_mutation#2",
+      "file_verification#2",
+    ]);
+    expect(shouldRetry(true, read("candidate-read").parts[0]!.toolCall, "", "", toolNames, evidence)).toBe(false);
+    expect(shouldRetry(true, edit("candidate-edit").parts[0]!.toolCall, "", "", toolNames, evidence)).toBe(true);
+  });
+
+  it("admits Edit only after the correlated intermediate Read", () => {
+    const evidence = inspectCurrentToolCycle(cycle(
+      write(), result("w1", "created"),
+      read("r1"), result("r1", "R5-01-INITIAL"),
+    ), toolNames);
+    expect(evidence.fulfilledObligationIds).toEqual(["file_mutation#1", "file_verification#1"]);
+    expect(evidence.missingObligations.map(obligation => obligation.id)).toEqual([
+      "file_mutation#2",
+      "file_verification#2",
+    ]);
+    expect(shouldRetry(true, edit("candidate-edit").parts[0]!.toolCall, "", "", toolNames, evidence)).toBe(false);
+  });
+
+  it("requires a fresh final Read after Edit", () => {
+    const evidence = inspectCurrentToolCycle(cycle(
+      write(), result("w1", "created"),
+      read("r1"), result("r1", "R5-01-INITIAL"),
+      edit(), result("e1", "changed"),
+    ), toolNames);
+    expect(evidence.fulfilledObligationIds).toEqual([
+      "file_mutation#1",
+      "file_verification#1",
+      "file_mutation#2",
+    ]);
+    expect(evidence.missingObligations.map(obligation => obligation.id)).toEqual(["file_verification#2"]);
+    expect(shouldRetry(true, null, "R5-TASK-01-OK", "", toolNames, evidence)).toBe(true);
+    expect(shouldRetry(true, read("candidate-final").parts[0]!.toolCall, "", "", toolNames, evidence)).toBe(false);
+  });
+
+  it("allows final only after the second correlated Read", () => {
+    const evidence = inspectCurrentToolCycle(cycle(
+      write(), result("w1", "created"),
+      read("r1"), result("r1", "R5-01-INITIAL"),
+      edit(), result("e1", "changed"),
+      read("r2"), result("r2", "R5-01-FINAL"),
+    ), toolNames);
+    expect(evidence.fulfilledObligationIds).toEqual([
+      "file_mutation#1",
+      "file_verification#1",
+      "file_mutation#2",
+      "file_verification#2",
+    ]);
+    expect(evidence.missingObligations).toEqual([]);
+    expect(evidence.staleObligations).toEqual([]);
+    expect(evidence.requiresActionToolResult).toBe(false);
+    expect(shouldRetry(true, null, "R5-TASK-01-OK", "", toolNames, evidence)).toBe(false);
+  });
+
+  it.each([
+    ["creation", "После создания прочитай a.txt."],
+    ["change", "После изменения прочитай a.txt."],
+  ])("does not treat nominal %s transition wording as mutation", (_name, wording) => {
+    expect(inferToolObligations(wording, toolNames).map(obligation => obligation.kind))
+      .toEqual(["file_verification"]);
+  });
+
+  it.each([
+    "Создай a.txt.",
+    "Измени a.txt.",
+    "Замени содержимое a.txt.",
+  ])("keeps explicit imperative mutation actionable: %s", wording => {
+    expect(inferToolObligations(wording, toolNames).map(obligation => obligation.kind))
+      .toContain("file_mutation");
+  });
+
+  it("treats through-Edit wording as a constraint rather than a second mutation", () => {
+    const obligations = inferToolObligations(
+      "Создай a.txt с A. Затем через Edit замени A на B в a.txt.",
+      toolNames,
+    ).filter(obligation => obligation.kind === "file_mutation");
+    expect(obligations).toHaveLength(2);
+    expect(obligations[1]?.requiredToolName).toBe("Edit");
+  });
+
+  it("keeps compound read-and-check as one verification for one target", () => {
+    const obligations = inferToolObligations(
+      "Создай a.txt. После создания прочитай и проверь его.",
+      toolNames,
+    );
+    expect(obligations.map(obligation => obligation.kind)).toEqual([
+      "file_mutation",
+      "file_verification",
+    ]);
+    expect(obligations[1]?.argumentLiterals).toEqual(["a.txt"]);
+  });
+
+  it("keeps compound pronoun verification fail-closed for ambiguous targets", () => {
+    const obligations = inferToolObligations(
+      "Создай a.txt и b.txt. После создания прочитай и проверь его.",
+      toolNames,
+    );
+    expect(obligations.map(obligation => obligation.kind)).not.toContain("file_verification");
+  });
+});
+
 describe("D19 semantic tool admission", () => {
   const toolNames = ["Write", "Edit", "Read", "Bash"];
   const tools = toolNames.map(name => ({

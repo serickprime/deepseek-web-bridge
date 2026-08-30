@@ -10,18 +10,19 @@
 
 **DEVELOPMENT MODE:** `RELEASE HARDENING / SCOPE FREEZE FOR v1.0`
 
-**CURRENT BLOCKER:** P1 Anthropic required-usage compatibility. Fresh exact A/B
-с Claude Code 2.1.241 доказал: valid non-stream `tool_use` Message без top-level
-`usage` отклоняется как `JSON but not a Message`, а usage-only вариант
-принимается. Узкий L1 fix реализован в `fix/anthropic-required-usage`: exact
-split сохраняется, unknown/partial получает deterministic internally-marked
-estimate, успешный non-stream Message всегда содержит standard usage. Focused
-D15b/bd620/D3/D4/f676 — 733/733, full — 36 files / 1128 tests, independent
-review — PASS. Статус — `IMPLEMENTED / REVIEW PASS / AWAITING WINDOWS LIVE`.
+**CURRENT BLOCKER:** P1 R5 ordered intermediate verification inference. Frozen
+single-file task `Create → Verify → Edit → Verify` ранее давал три mutations и
+ноль verification obligations, поэтому безопасный D19 admission отклонял
+обязательный intermediate Read. Узкий L2 fix в
+`fix/r5-ordered-verification-inference` формирует четыре ordered target-specific
+obligations, сохраняет distinct initial/final verification и не меняет
+admission/retry/client/correlation. Focused R5 13/13, D19 17/17, D13 47/47,
+D18 140/140, f676 9/9; full — 36 files / 1141 tests; independent review —
+`PASS`. Статус — `IMPLEMENTED / REVIEW PASS / AWAITING EXACT SINGLE-FILE LIVE`.
 
-R5 heading-target P1 implementation в master остаётся валидным и не менялся:
-1/2/4/8 headings дают 4/8/16/32 ordered target-specific obligations. Его exact
-Run 1 acceptance возобновится только после protocol compatibility live.
+Anthropic required-usage compatibility fix уже integrated в master `67ce7ab`;
+текущий R5 finding не является D3/D4/usage regression. D22/D23/D24 abandoned
+changes в clean baseline не переносились.
 
 **R1:** `PASS` — fourth independent review D18.
 
@@ -34,14 +35,14 @@ Run 1 acceptance возобновится только после protocol compa
 **D20:** `CLOSED`.
 
 **R3:** `PASS`: A TEXT, B WRITE/READ, C WRITE/EDIT/READ и D BASH — `PASS`.
-**R4:** deterministic baseline остаётся green; **R5:** `BLOCKED` до required-
-usage live compatibility и последующего exact heading-target Run 1 acceptance.
+**R4:** deterministic baseline остаётся green; **R5:** `BLOCKED` до exact
+single-file live текущего ordered verification fix, затем — qualifying Run 1.
 
 **D10:** `PASS`; **PB39:** `PASS 3/3`.
 
-**NEXT:** isolated Claude Code 2.1.241 minimal tool cycle и короткий
-Write→Edit→Read control на required-usage branch; затем exact unchanged R5 Run 1.
-D19/D20 не переоткрывать; D22/D23/D24 не переносить в clean baseline.
+**NEXT:** exact frozen single-file `Create → Verify → Edit → Verify` на isolated
+Claude Code 2.1.241; при PASS — standard continuous-session R5 Run 1. D19/D20,
+D3/D4 и usage не переоткрывать; D22/D23/D24 не переносить в clean baseline.
 
 Release-mode policy из `AGENTS.md` сохраняет scope freeze: новые функции,
 provider/UI scope, unrelated fixes и архитектурные улучшения заморожены. После
@@ -87,8 +88,8 @@ D20 закрыт после узкого исправления command-payload 
 independent re-review и exact R3-D Windows live. Один recognized-payload boundary
 применяется ко всем стадиям file-verification inference: код внутри явного
 Bash/command payload не создаёт ложные natural-language file obligations, тогда
-как prose вне payload сохраняется. После этих closures P0/P1 были 0/0; текущие
-required-usage и R5 heading-target P1 снова делают G7/G16 FAIL. Остальные
+как prose вне payload сохраняется. После этих closures P0/P1 были 0/0; текущий
+R5 ordered intermediate-verification P1 делает G7/G16 FAIL до exact live. Остальные
 приоритеты и gates — в
 `PRODUCTION_READINESS.md`. D11 full schema transport закрыт после deterministic
 offline coverage, independent review и Windows Claude Code live WebFetch. D12
@@ -131,7 +132,8 @@ independent re-review — PASS. Exact R3-D Windows live на isolated Claude Cod
 zero и exact stdout `R3-BASH-731`, затем final `R3-BASH-OK`, без guard retry,
 unexpected 5xx/502, hang/crash; auth integrity и shutdown — PASS. D20 —
 `CLOSED`; R3 A/B/C/D — `PASS`; R4 deterministic baseline green. Текущий
-open P0/P1 = 0/2, G7/G16 — FAIL до required-usage live и R5 exact Run 1. Один
+open P0/P1 = 0/1, G7/G16 — FAIL до exact single-file verification live и R5
+Run 1. Один
 более ранний R3-D run с двумя Bash не воспроизвёлся в
 targeted D21 capture: successful matching Bash закрыл obligation, второй Bash
 не был admitted. D21 не подтверждён как production defect и остаётся только
