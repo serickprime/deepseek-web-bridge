@@ -3,6 +3,22 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-30 — Enforce pronominal content verification
+
+- Узко расширен существующий single-target pronominal verification matcher:
+  affirmative `проверь его содержимое` / `проверить его содержимое` наследует
+  единственный однозначный target предшествующей file mutation. Ambiguous,
+  negative, conditional и informational/meta wording остаётся fail-closed.
+- После Write или Write→Edit `file_verification` остаётся missing до fresh
+  correlated Read; plain final блокируется, matching Read admitted, а успешный
+  result закрывает verification. Retry counts, prompts, semantic admission,
+  lineage/session/correlation и D22/D23/D24 не менялись.
+- Добавлено 14 focused regression cases в `tests/unit/tools.test.ts`; focused
+  D18/pronominal suite — 140/140, full baseline — 36 files / 1118 tests.
+  Статус: `IMPLEMENTED / AWAITING INDEPENDENT NARROW REVIEW + EXACT LIVE A–E`.
+- Изменены `src/tools/toolParser.ts`, `tests/unit/tools.test.ts`,
+  `CHANGELOG.md`, `PROJECT_STATE.md` и `PRODUCTION_READINESS.md`.
+
 ## 2026-08-28 — Close D20 and R3 after Bash live acceptance
 
 - D20 закрыт после подтверждённого pre-existing L2 diagnosis, implementation

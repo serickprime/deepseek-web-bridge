@@ -879,7 +879,7 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
   for (let index = 1; index < actionMatches.length; index++) {
     const action = actionMatches[index]!;
     if (action.context !== "verification" || action.paths.length > 0) continue;
-    const fileAnaphora = /(?:эт\S*(?:\s+же)?\s+файл\S*|в\s+него|\b(?:it|that\s+file|the\s+same\s+file)\b)/i.test(action.span);
+    const fileAnaphora = /(?:эт\S*(?:\s+же)?\s+файл\S*|в\s+него|его\s+содержим\S*|\b(?:it|that\s+file|the\s+same\s+file)\b)/i.test(action.span);
     const bareFileReference = /^(?:прочит\S*|прочти)\s+файл\S*(?=\s|[.,:;!?]|$)/i.test(action.span);
     if (!fileAnaphora && !bareFileReference) continue;
     const priorActions = actionMatches.slice(0, index);

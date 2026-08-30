@@ -1,6 +1,6 @@
 # Состояние проекта
 
-> **Актуально на:** 2026-08-28.
+> **Актуально на:** 2026-08-30.
 > Этот файл — главный источник правды о стадии проекта. Любой агент обязан
 > прочитать его перед началом работы и обновить после внесения изменений.
 > Обязательный порядок чтения перед задачей: `AGENTS.md` → `PROJECT_STATE.md`
@@ -10,10 +10,12 @@
 
 **DEVELOPMENT MODE:** `RELEASE HARDENING / SCOPE FREEZE FOR v1.0`
 
-**CURRENT BLOCKER:** открытых P0/P1 нет. D20 закрыт после independent re-review
-и exact R3-D Windows live; D19 ранее закрыт после independent review и exact
-R3-C Windows live acceptance. Проект переходит к R4 PB-v1 deterministic
-acceptance, но ещё не объявляется production-ready.
+**CURRENT BLOCKER:** P1 supported-flow regression в single-target Russian
+content verification: `проверь/проверить его содержимое` ранее теряло
+`file_verification` после successful Write. Узкий fix реализован в
+`fix/pronominal-content-verification`; deterministic focused 140/140 и full
+36 files / 1118 tests — PASS. Статус — `IMPLEMENTED / AWAITING INDEPENDENT
+NARROW REVIEW + EXACT LIVE A–E`. Production-ready не объявляется.
 
 **R1:** `PASS` — fourth independent review D18.
 
@@ -26,12 +28,12 @@ acceptance, но ещё не объявляется production-ready.
 **D20:** `CLOSED`.
 
 **R3:** `PASS`: A TEXT, B WRITE/READ, C WRITE/EDIT/READ и D BASH — `PASS`.
-**R4:** `READY / NOT STARTED`.
+**R4:** `BLOCKED` до independent review и exact live acceptance текущего P1.
 
 **D10:** `PASS`; **PB39:** `PASS 3/3`.
 
-**NEXT:** R4 PB-v1 deterministic acceptance. D19/D20 не переоткрывать без
-нового regression evidence.
+**NEXT:** independent narrow review → exact live A–E control; только после PASS
+возврат к release path. D19/D20 не переоткрывать без нового regression evidence.
 
 Release-mode policy из `AGENTS.md` сохраняет scope freeze: новые функции,
 provider/UI scope, unrelated fixes и архитектурные улучшения заморожены. После

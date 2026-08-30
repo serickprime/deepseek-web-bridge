@@ -3439,6 +3439,13 @@ describe("pronominal file verification completion guard", () => {
     "Only after reading it reply:",
     "PREMERGE-WRITE-READ-OK",
   ].join("\n\n");
+  const contentVerificationPrompt = "Создай файл write.txt с точным содержимым CONTROL-WRITE-731, затем проверь его содержимое.";
+  const contentVerificationInfinitivePrompt = "Создай файл write.txt с точным содержимым CONTROL-WRITE-731, затем проверить его содержимое.";
+  const editContentVerificationPrompt = [
+    "Создай edit.txt с содержимым ALPHA-731.",
+    "Затем измени ALPHA-731 на BETA-731.",
+    "После этого проверь его содержимое.",
+  ].join("\n");
 
   function msg(role: "user" | "assistant", parts: unknown[]): CanonicalMessage {
     return { role, parts } as unknown as CanonicalMessage;
@@ -3548,6 +3555,112 @@ describe("pronominal file verification completion guard", () => {
       ["file_mutation", ["premerge-a.txt"]],
       ["file_verification", ["premerge-a.txt"]],
     ]);
+  });
+
+  it.each([
+    contentVerificationPrompt,
+    contentVerificationInfinitivePrompt,
+  ])("inherits a single mutation target for narrow Russian content verification: %s", prompt => {
+    expect(inferToolObligations(prompt, tools).map(obligation => [
+      obligation.id,
+      obligation.argumentLiterals,
+    ])).toEqual([
+      ["file_mutation", ["write.txt"]],
+      ["file_verification", ["write.txt"]],
+    ]);
+  });
+
+  it("keeps content verification missing after Write and blocks a plain final", () => {
+    const evidence = cycle(contentVerificationPrompt, [
+      tu("content-write", "Write", { file_path: "write.txt", content: "CONTROL-WRITE-731" }),
+      tr("content-write", "File written"),
+    ]);
+
+    expect(evidence.fulfilledObligationIds).toEqual(["file_mutation"]);
+    expect(evidence.missingObligations.map(obligation => obligation.id)).toEqual(["file_verification"]);
+    expect(shouldRetry(true, null, "Готово", "", tools, evidence)).toBe(true);
+  });
+
+  it("admits the matching Read and fulfills content verification only after its correlated result", () => {
+    const afterWrite = cycle(contentVerificationPrompt, [
+      tu("content-write", "Write", { file_path: "write.txt", content: "CONTROL-WRITE-731" }),
+      tr("content-write", "File written"),
+    ]);
+    const readInspection = inspectToolCallFromOutput({
+      content: '{"tool_call":{"name":"Read","arguments":{"file_path":"write.txt"}}}',
+      reasoning: "",
+    }, tools);
+    const afterRead = cycle(contentVerificationPrompt, [
+      tu("content-write", "Write", { file_path: "write.txt", content: "CONTROL-WRITE-731" }),
+      tr("content-write", "File written"),
+      tu("content-read", "Read", { file_path: "write.txt" }),
+      tr("content-read", "CONTROL-WRITE-731"),
+    ]);
+
+    expect(shouldRetry(
+      true,
+      readInspection.toolCall,
+      "",
+      "",
+      tools,
+      afterWrite,
+      readInspection.malformedToolIntent,
+    )).toBe(false);
+    expect(afterRead.fulfilledObligationIds).toEqual(["file_mutation", "file_verification"]);
+    expect(afterRead.missingObligations).toEqual([]);
+    expect(shouldRetry(true, null, "Готово", "", tools, afterRead)).toBe(false);
+  });
+
+  it("requires fresh content verification after Write and Edit", () => {
+    const editTools = [...tools, "Edit"];
+    const messages = [
+      msg("user", [{ type: "text", text: editContentVerificationPrompt }]),
+      tu("edit-write", "Write", { file_path: "edit.txt", content: "ALPHA-731" }),
+      tr("edit-write", "File written"),
+      tu("edit-change", "Edit", { file_path: "edit.txt", old_string: "ALPHA-731", new_string: "BETA-731" }),
+      tr("edit-change", "File edited"),
+    ];
+    const evidence = inspectCurrentToolCycle(messages, editTools);
+    const verified = inspectCurrentToolCycle([
+      ...messages,
+      tu("edit-read", "Read", { file_path: "edit.txt" }),
+      tr("edit-read", "BETA-731"),
+    ], editTools);
+
+    expect(evidence.obligations.map(obligation => obligation.kind)).toEqual([
+      "file_mutation",
+      "file_mutation",
+      "file_verification",
+    ]);
+    expect(evidence.fulfilledObligationIds).toEqual(["file_mutation#1", "file_mutation#2"]);
+    expect(evidence.missingObligations.map(obligation => obligation.id)).toEqual(["file_verification"]);
+    expect(shouldRetry(true, null, "Готово", "", editTools, evidence)).toBe(true);
+    expect(verified.missingObligations).toEqual([]);
+    expect(shouldRetry(true, null, "Готово", "", editTools, verified)).toBe(false);
+  });
+
+  it.each([
+    ["ambiguous", "Создай a.txt и b.txt, затем проверь его содержимое."],
+    ["negative", "Создай a.txt, затем не проверяй его содержимое."],
+    ["conditional", "Создай a.txt, затем, если нужно, проверь его содержимое."],
+    ["informational", "Создай a.txt, затем объясни, как проверить его содержимое."],
+  ])("does not inherit content verification for %s wording", (_name, prompt) => {
+    expect(inferToolObligations(prompt, tools).map(obligation => obligation.kind))
+      .not.toContain("file_verification");
+  });
+
+  it.each([
+    "Создай a.txt. Затем проверь этот файл.",
+    "Создай a.txt. Затем проверь этот же файл.",
+    "Create a.txt. Then read it.",
+    "Create a.txt. Then read that file.",
+    "Создай a.txt. Затем прочитай файл.",
+  ])("preserves existing recognized single-target verification: %s", prompt => {
+    expect(inferToolObligations(prompt, tools).map(obligation => [obligation.kind, obligation.argumentLiterals]))
+      .toEqual([
+        ["file_mutation", ["a.txt"]],
+        ["file_verification", ["a.txt"]],
+      ]);
   });
 
   const nonExecutablePronominalVerificationCases = [
