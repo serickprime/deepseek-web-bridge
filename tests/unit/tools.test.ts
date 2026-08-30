@@ -2843,6 +2843,141 @@ describe("pseudo-xml tool intent leakage", () => {
   });
 });
 
+describe("R5 heading-scoped target obligations", () => {
+  const toolNames = ["Write", "Edit", "Read", "Bash"];
+  const heading = (index: number): string => {
+    const suffix = String(index).padStart(2, "0");
+    return `Файл stress${suffix}.txt: (1) создай через Write с точным содержимым R5-INITIAL-${suffix}; (2) проверь свежим Read; (3) через Edit замени R5-INITIAL-${suffix} на R5-FINAL-${suffix}; (4) снова проверь свежим Read после изменения.`;
+  };
+  const prompt = (count: number): string => [
+    "Выполни автономную последовательную стресс-проверку независимых файлов.",
+    ...Array.from({ length: count }, (_, index) => heading(index + 1)),
+    "Только после реальных результатов всех действий напиши R5-RUN1-OK.",
+  ].join("\n");
+  const use = (id: string, name: string, args: Record<string, unknown>): CanonicalMessage => ({
+    role: "assistant",
+    parts: [{ type: "tool_use", toolCall: { id, type: "function", name, arguments: args } }],
+  });
+  const result = (id: string, content = "ok", isError = false): CanonicalMessage => ({
+    role: "user",
+    parts: [{ type: "tool_result", toolResult: { toolUseId: id, content, isError } }],
+  });
+  const cycle = (count: number, ...messages: CanonicalMessage[]): CanonicalMessage[] => [
+    { role: "user", parts: [{ type: "text", text: prompt(count) }] },
+    ...messages,
+  ];
+  const write = (index: number, id = `w${index}`): CanonicalMessage => {
+    const suffix = String(index).padStart(2, "0");
+    return use(id, "Write", { file_path: `stress${suffix}.txt`, content: `R5-INITIAL-${suffix}` });
+  };
+  const read = (index: number, id: string): CanonicalMessage => {
+    const suffix = String(index).padStart(2, "0");
+    return use(id, "Read", { file_path: `stress${suffix}.txt` });
+  };
+  const edit = (index: number, id = `e${index}`): CanonicalMessage => {
+    const suffix = String(index).padStart(2, "0");
+    return use(id, "Edit", {
+      file_path: `stress${suffix}.txt`,
+      old_string: `R5-INITIAL-${suffix}`,
+      new_string: `R5-FINAL-${suffix}`,
+    });
+  };
+  const completeFile = (index: number): CanonicalMessage[] => {
+    const suffix = String(index).padStart(2, "0");
+    return [
+      write(index), result(`w${index}`),
+      read(index, `r${index}a`), result(`r${index}a`, `R5-INITIAL-${suffix}`),
+      edit(index), result(`e${index}`),
+      read(index, `r${index}b`), result(`r${index}b`, `R5-FINAL-${suffix}`),
+    ];
+  };
+
+  it.each([1, 2, 4, 8])("retains %i heading target(s) and four obligations per target", count => {
+    const obligations = inferToolObligations(prompt(count), toolNames);
+    expect(obligations).toHaveLength(count * 4);
+    expect(new Set(obligations.flatMap(obligation => obligation.argumentLiterals.filter(value => /stress\d+\.txt/.test(value))).map(value => value.normalize("NFC"))).size).toBe(count);
+    expect(obligations.map(obligation => obligation.orderedActionIndex))
+      .toEqual(Array.from({ length: count * 4 }, (_, index) => index + 1));
+  });
+
+  it("binds each heading block to create, verify, edit, and final verify", () => {
+    const obligations = inferToolObligations(prompt(1), toolNames);
+    expect(obligations.map(obligation => [obligation.kind, obligation.requiredToolName])).toEqual([
+      ["file_mutation", "Write"],
+      ["file_verification", "Read"],
+      ["file_mutation", "Edit"],
+      ["file_verification", "Read"],
+    ]);
+    expect(obligations.map(obligation => obligation.argumentLiterals[0])).toEqual(Array(4).fill("stress01.txt"));
+    expect(obligations[1]?.resultLiterals).toEqual(["R5-INITIAL-01"]);
+    expect(obligations[3]?.resultLiterals).toEqual(["R5-FINAL-01"]);
+  });
+
+  it("requires fresh verification after the ordered Edit before final", () => {
+    const afterCreate = inspectCurrentToolCycle(cycle(1, write(1), result("w1")), toolNames);
+    expect(afterCreate.fulfilledObligationIds).toEqual(["file_mutation#1"]);
+    expect(afterCreate.missingObligations).toHaveLength(3);
+    expect(shouldRetry(true, null, "R5-RUN1-OK", "", toolNames, afterCreate)).toBe(true);
+    expect(shouldRetry(true, read(1, "candidate").parts[0]!.toolCall, "", "", toolNames, afterCreate)).toBe(false);
+
+    const afterFirstRead = inspectCurrentToolCycle(cycle(1,
+      write(1), result("w1"),
+      read(1, "r1a"), result("r1a", "R5-INITIAL-01"),
+    ), toolNames);
+    expect(afterFirstRead.fulfilledObligationIds).toEqual(["file_mutation#1", "file_verification#1"]);
+    expect(shouldRetry(true, edit(1, "candidate-edit").parts[0]!.toolCall, "", "", toolNames, afterFirstRead)).toBe(false);
+
+    const afterEdit = inspectCurrentToolCycle(cycle(1,
+      write(1), result("w1"),
+      read(1, "r1a"), result("r1a", "R5-INITIAL-01"),
+      edit(1), result("e1"),
+    ), toolNames);
+    expect(afterEdit.fulfilledObligationIds).toEqual(["file_mutation#1", "file_verification#1", "file_mutation#2"]);
+    expect(afterEdit.missingObligations.map(obligation => obligation.id)).toEqual(["file_verification#2"]);
+    expect(shouldRetry(true, null, "R5-RUN1-OK", "", toolNames, afterEdit)).toBe(true);
+
+    const complete = inspectCurrentToolCycle(cycle(1, ...completeFile(1)), toolNames);
+    expect(complete.missingObligations).toEqual([]);
+    expect(shouldRetry(true, null, "R5-RUN1-OK", "", toolNames, complete)).toBe(false);
+  });
+
+  it("keeps every later heading outstanding after the first file is complete", () => {
+    const evidence = inspectCurrentToolCycle(cycle(2, ...completeFile(1)), toolNames);
+    expect(evidence.fulfilledObligationIds).toEqual([
+      "file_mutation#1", "file_verification#1", "file_mutation#2", "file_verification#2",
+    ]);
+    expect(evidence.missingObligations).toHaveLength(4);
+    expect(new Set(evidence.missingObligations.map(obligation => obligation.argumentLiterals[0])))
+      .toEqual(new Set(["stress02.txt"]));
+    expect(evidence.requiresActionToolResult).toBe(true);
+    expect(shouldRetry(true, null, "R5-RUN1-OK", "", toolNames, evidence)).toBe(true);
+  });
+
+  it("rejects wrong-target and redundant actions while admitting the next exact step", () => {
+    const initial = inspectCurrentToolCycle(cycle(1), toolNames);
+    expect(shouldRetry(true, write(1).parts[0]!.toolCall, "", "", toolNames, initial)).toBe(false);
+    expect(shouldRetry(true, use("wrong", "Write", { file_path: "other.txt", content: "R5-INITIAL-01" }).parts[0]!.toolCall, "", "", toolNames, initial)).toBe(true);
+    expect(shouldRetry(true, edit(1).parts[0]!.toolCall, "", "", toolNames, initial)).toBe(true);
+
+    const afterCreate = inspectCurrentToolCycle(cycle(1, write(1), result("w1")), toolNames);
+    expect(shouldRetry(true, write(1, "w2").parts[0]!.toolCall, "", "", toolNames, afterCreate)).toBe(true);
+    expect(shouldRetry(true, read(1, "r1").parts[0]!.toolCall, "", "", toolNames, afterCreate)).toBe(false);
+  });
+
+  it("does not advance an ordered heading sequence after a failed step", () => {
+    const failedCreate = inspectCurrentToolCycle(cycle(1, write(1), result("w1", "permission denied", true)), toolNames);
+    expect(failedCreate.fulfilledObligationIds).toEqual([]);
+    expect(failedCreate.missingObligations).toHaveLength(4);
+    expect(shouldRetry(true, edit(1).parts[0]!.toolCall, "", "", toolNames, failedCreate)).toBe(true);
+    expect(shouldRetry(true, use("wrong", "Write", { file_path: "other.txt", content: "R5-INITIAL-01" }).parts[0]!.toolCall, "", "", toolNames, failedCreate)).toBe(true);
+    expect(shouldRetry(true, use("w2", "Write", {
+      file_path: "stress01.txt",
+      content: "R5-INITIAL-01",
+      corrected: true,
+    }).parts[0]!.toolCall, "", "", toolNames, failedCreate)).toBe(false);
+  });
+});
+
 describe("D19 semantic tool admission", () => {
   const toolNames = ["Write", "Edit", "Read", "Bash"];
   const tools = toolNames.map(name => ({

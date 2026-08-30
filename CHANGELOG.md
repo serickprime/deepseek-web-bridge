@@ -3,6 +3,23 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-30 — Preserve R5 heading-scoped file actions
+
+- Узкий heading matcher распознаёт только `Файл <supported-path>:` blocks
+  фиксированного R5 workload и связывает четыре локальных шага с target heading:
+  `Write(create)` → fresh `Read` → `Edit` → fresh post-edit `Read`.
+- Tagged ordered obligations сохраняют tool/target/marker identity. Evidence
+  закрывает шаги только в заявленном порядке; первый file cycle не закрывает
+  последующие headings, wrong-target и повтор уже выполненной mutation не
+  допускаются, а final после Edit остаётся blocked до свежей проверки.
+- Добавлено 9 regression cases для границ 1/2/4/8 headings, counts 4/8/16/32,
+  one-/two-file transitions, failed-step, wrong-target и redundant-action
+  controls. `tools.test.ts` — 620/620; full baseline — 36 files / 1127 tests.
+- Изменены `src/tools/toolParser.ts`, `tests/unit/tools.test.ts`,
+  `CHANGELOG.md`, `PROJECT_STATE.md` и `PRODUCTION_READINESS.md`. D22/D23/D24
+  не переносились; DeepSeek client, retry/prompt, transport, session/lineage и
+  correlation не менялись.
+
 ## 2026-08-30 — Enforce pronominal content verification
 
 - Узко расширен существующий single-target pronominal verification matcher:

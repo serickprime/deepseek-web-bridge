@@ -2,9 +2,9 @@
 
 > **Статус:** `HARDENING IN PROGRESS`
 >
-> **Baseline:** `fix/pronominal-content-verification` based on master `748ec2af2cfb2fa18855293854087ba3c47524f5`
+> **Baseline:** `fix/r5-heading-targets` based on master `b0c87da025c4333f798b251c0096292432694605`
 >
-> **Offline baseline:** 36 test files, 1118 tests
+> **Offline baseline:** 36 test files, 1127 tests
 >
 > **Открыто:** P0 — 0, P1 — 1, P2 — 2; deferred P3 — 1
 > **Production scope:** Claude Code → Anthropic-compatible Bridge → DeepSeek Web → Bridge → Claude Code
@@ -61,12 +61,16 @@ persistence → R8 final full regression + release documentation → R9 v1.0 RC 
 R10 v1.0. Пройденный этап не повторяется без regression evidence.
 
 R1 — `PASS`. R2 — `PASS`. D18, D19 и D20 — `CLOSED`. D10 — `PASS`, PB39 —
-`PASS 3/3`. R3 historical acceptance — `PASS`, но новый supported-flow P1
-показал, что narrow Russian `проверь/проверить его содержимое` не наследовал
-единственный prior file target. Fix реализован без изменения retry/prompt/
-lineage semantics; focused 140/140 и full 1118/1118 — PASS. R4 остаётся
-`BLOCKED` до independent narrow review и exact live A–E. Targeted D21 capture
-не подтвердил production defect и остаётся monitoring item.
+`PASS 3/3`. Narrow pronominal content-verification fix прошёл independent review
+и exact live A–E, затем fast-forward integrated как clean master baseline
+`b0c87da`. Текущий R5 P1 — heading target collapse: `Файл <path>:` blocks
+теряли targets и 8 file cycles схлопывались до двух generic obligations. Узкий
+L2 implementation сохраняет 4 ordered target-specific actions на block;
+1/2/4/8 scale, failed-step и one-/two-file evidence transitions green, full
+1127/1127.
+R5 остаётся `BLOCKED` до independent review и exact unchanged Run 1 live.
+D22/D23/D24 abandoned changes не входят в baseline. Targeted D21 capture не
+подтвердил production defect и остаётся monitoring item.
 
 ### v1.0 RC exit criteria
 
@@ -282,7 +286,7 @@ versioned addendum; новые regressions добавляются новыми I
 | G4 | `npm run test:platform` green | PASS on current Windows baseline |
 | G5 | CI Windows/Linux/macOS green for release commit | NEEDS RELEASE-COMMIT VERIFICATION |
 | G6 | Все P0 закрыты | PASS: D2/D3/D4/D6 CLOSED; open P0 = 0 |
-| G7 | Все P1 закрыты либо formally waived с owner/reason/expiry | FAIL: pronominal content-verification P1 awaiting independent review + live; open P1 = 1 |
+| G7 | Все P1 закрыты либо formally waived с owner/reason/expiry | FAIL: R5 heading-target P1 awaiting independent review + live; open P1 = 1 |
 | G8 | 100% deterministic offline PB cases automated and green | FAIL: PB-v1 пока specification |
 | G9 | 3 последовательных clean live benchmark runs | FAIL |
 | G10 | 3 × 30–50 tool autonomous runs без fabrication/replay/duplicate/malformed leak/unexpected 502/hang | FAIL |
@@ -291,7 +295,7 @@ versioned addendum; новые regressions добавляются новыми I
 | G13 | Restart сохраняет консистентные persistent session/lineage | PASS: deterministic PB31/PB33 green; Windows Claude Code restart сохранил session и использовал persisted lineage |
 | G14 | `/compact` после long chain проходит PB35 | NEEDS FROZEN LIVE RUNS |
 | G15 | Shutdown не оставляет orphan/stale PID и не убивает чужие процессы | PASS: D10 final independent re-review и Windows desktop PB39 PASS 3/3; D18 не относится к lifecycle |
-| G16 | Нет известных открытых P0/P1 production defects | FAIL: open P0 = 0, open P1 = 1 pending verification |
+| G16 | Нет известных открытых P0/P1 production defects | FAIL: open P0 = 0, open P1 = 1 pending R5 heading-target verification |
 
 ## 9. Mandatory development workflow
 

@@ -10,12 +10,14 @@
 
 **DEVELOPMENT MODE:** `RELEASE HARDENING / SCOPE FREEZE FOR v1.0`
 
-**CURRENT BLOCKER:** P1 supported-flow regression в single-target Russian
-content verification: `проверь/проверить его содержимое` ранее теряло
-`file_verification` после successful Write. Узкий fix реализован в
-`fix/pronominal-content-verification`; deterministic focused 140/140 и full
-36 files / 1118 tests — PASS. Статус — `IMPLEMENTED / AWAITING INDEPENDENT
-NARROW REVIEW + EXACT LIVE A–E`. Production-ready не объявляется.
+**CURRENT BLOCKER:** P1 R5 supported-flow heading target collapse. Exact
+`Файл stressNN.txt:` blocks ранее не попадали в path extraction из-за colon,
+поэтому 8×(create→verify→edit→verify) схлопывались до двух targetless
+obligations и final мог пройти после первого file cycle. Узкий L2 fix реализован
+в `fix/r5-heading-targets`: 1/2/4/8 headings дают 4/8/16/32 ordered
+target-specific obligations; focused tools 620/620 и full 36 files / 1127 tests
+— PASS. Статус — `IMPLEMENTED / AWAITING INDEPENDENT REVIEW + EXACT R5 RUN 1
+LIVE`. Production-ready не объявляется.
 
 **R1:** `PASS` — fourth independent review D18.
 
@@ -28,12 +30,14 @@ NARROW REVIEW + EXACT LIVE A–E`. Production-ready не объявляется.
 **D20:** `CLOSED`.
 
 **R3:** `PASS`: A TEXT, B WRITE/READ, C WRITE/EDIT/READ и D BASH — `PASS`.
-**R4:** `BLOCKED` до independent review и exact live acceptance текущего P1.
+**R4:** deterministic baseline остаётся green; **R5:** `BLOCKED` до independent
+review и exact live acceptance heading-target P1.
 
 **D10:** `PASS`; **PB39:** `PASS 3/3`.
 
-**NEXT:** independent narrow review → exact live A–E control; только после PASS
-возврат к release path. D19/D20 не переоткрывать без нового regression evidence.
+**NEXT:** independent narrow review implementation diff → exact unchanged R5
+Run 1 live. D19/D20 не переоткрывать без нового regression evidence; D22/D23/D24
+не переносить в clean baseline.
 
 Release-mode policy из `AGENTS.md` сохраняет scope freeze: новые функции,
 provider/UI scope, unrelated fixes и архитектурные улучшения заморожены. После

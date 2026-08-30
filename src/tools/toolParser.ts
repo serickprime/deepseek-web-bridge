@@ -391,6 +391,8 @@ export interface ToolObligation {
   resultLiterals: string[];
   requiredExactResultCount?: number;
   requiredToolName?: string;
+  orderedActionGroup?: string;
+  orderedActionIndex?: number;
 }
 
 export interface ObligationCardinalityFailure {
@@ -642,6 +644,99 @@ function obligationDescription(kind: ExternalActionKind, argumentLiterals: strin
     case "server_verification": return "verify that the application/server is responding";
     case "dependency_install": return "install the requested dependencies";
   }
+}
+
+function inferHeadingFileActionObligations(
+  content: string,
+  allowedToolNames: string[],
+): ToolObligation[] | null {
+  const requiredTool = (expected: string): string | undefined =>
+    allowedToolNames.find(name => name.trim().toLowerCase() === expected.toLowerCase());
+  const writeTool = requiredTool("Write");
+  const editTool = requiredTool("Edit");
+  const readTool = requiredTool("Read");
+  if (!writeTool || !editTool || !readTool) return null;
+
+  const headingPattern = /(?:^|\r?\n)\s*Файл\s+((?:[\w.-]+[\\/])*[\w.-]+\.(?:json|md|txt|html?|jsx?|tsx?|ya?ml|toml)):/giu;
+  const headings = [...content.matchAll(headingPattern)];
+  if (headings.length === 0) return null;
+  const targets = headings.map(match => match[1]!.normalize("NFC"));
+  if (new Set(targets).size !== targets.length) return null;
+
+  interface HeadingStep {
+    number: number;
+    text: string;
+  }
+  interface HeadingBlock {
+    target: string;
+    steps: HeadingStep[];
+    initialMarker?: string;
+    finalMarker?: string;
+  }
+  const blocks: HeadingBlock[] = [];
+  for (let index = 0; index < headings.length; index++) {
+    const heading = headings[index]!;
+    const blockStart = (heading.index ?? 0) + heading[0].length;
+    const blockEnd = headings[index + 1]?.index ?? content.length;
+    const blockText = content.slice(blockStart, blockEnd);
+    const steps = [...blockText.matchAll(/\((\d+)\)\s*([\s\S]*?)(?=\(\d+\)\s*|$)/g)]
+      .map(match => ({ number: Number(match[1]), text: match[2]!.trim() }));
+    if (steps.length !== 4 || steps.some((step, stepIndex) => step.number !== stepIndex + 1)) return null;
+    if (!/(?:созда\S*|запиш\S*|сохран\S*)/i.test(steps[0]!.text)
+      || !/\bWrite\b/i.test(steps[0]!.text)
+      || !/(?:провер\S*|прочит\S*|прочти)/i.test(steps[1]!.text)
+      || !/\bRead\b/i.test(steps[1]!.text)
+      || !/(?:замен\S*|измен\S*|отредактир\S*)/i.test(steps[2]!.text)
+      || !/\bEdit\b/i.test(steps[2]!.text)
+      || !/(?:провер\S*|прочит\S*|прочти)/i.test(steps[3]!.text)
+      || !/\bRead\b/i.test(steps[3]!.text)) return null;
+
+    const initialMarker = /(?:точн\S*\s+)?содержим\S*\s+([A-Za-z0-9][A-Za-z0-9._-]{0,127})/i.exec(steps[0]!.text)?.[1];
+    const replacement = /замен\S*\s+([A-Za-z0-9][A-Za-z0-9._-]{0,127})\s+на\s+([A-Za-z0-9][A-Za-z0-9._-]{0,127})/i.exec(steps[2]!.text);
+    const oldMarker = replacement?.[1];
+    const finalMarker = replacement?.[2];
+    if (initialMarker && oldMarker && initialMarker.normalize("NFC") !== oldMarker.normalize("NFC")) return null;
+    blocks.push({ target: targets[index]!, steps, initialMarker, finalMarker });
+  }
+
+  const group = `heading-file-sequence:${headings[0]!.index ?? 0}`;
+  let mutationIndex = 0;
+  let verificationIndex = 0;
+  let orderedActionIndex = 0;
+  const obligations: ToolObligation[] = [];
+  const add = (
+    kind: "file_mutation" | "file_verification",
+    target: string,
+    requiredToolName: string,
+    argumentValues: string[],
+    resultValues: string[],
+  ): void => {
+    const idIndex = kind === "file_mutation" ? ++mutationIndex : ++verificationIndex;
+    const argumentLiterals = [target, ...argumentValues];
+    obligations.push({
+      id: `${kind}#${idIndex}`,
+      kind,
+      description: `${obligationDescription(kind, argumentLiterals, resultValues)} using ${requiredToolName}`,
+      argumentLiterals,
+      resultLiterals: resultValues,
+      requiredToolName,
+      orderedActionGroup: group,
+      orderedActionIndex: ++orderedActionIndex,
+    });
+  };
+  for (const block of blocks) {
+    add("file_mutation", block.target, writeTool, block.initialMarker ? [block.initialMarker] : [], []);
+    add("file_verification", block.target, readTool, [], block.initialMarker ? [block.initialMarker] : []);
+    add(
+      "file_mutation",
+      block.target,
+      editTool,
+      [block.initialMarker, block.finalMarker].filter((value): value is string => value !== undefined),
+      [],
+    );
+    add("file_verification", block.target, readTool, [], block.finalMarker ? [block.finalMarker] : []);
+  }
+  return obligations;
 }
 
 export function inferToolObligations(content: string, allowedToolNames: string[]): ToolObligation[] {
@@ -1063,6 +1158,17 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
       }
     }
   }
+  const headingObligations = inferHeadingFileActionObligations(content, allowedToolNames);
+  if (headingObligations) {
+    const firstFileIndex = inferred.findIndex(obligation => (
+      obligation.kind === "file_mutation" || obligation.kind === "file_verification"
+    ));
+    const retained = inferred.filter(obligation => (
+      obligation.kind !== "file_mutation" && obligation.kind !== "file_verification"
+    ));
+    retained.splice(firstFileIndex < 0 ? retained.length : firstFileIndex, 0, ...headingObligations);
+    return retained;
+  }
   return inferred;
 }
 
@@ -1287,9 +1393,26 @@ export function isToolCallSemanticallyAdmissible(
   const candidate = toolCall as CanonicalToolCall;
   if (typeof candidate.name !== "string" || !isPlainObject(candidate.arguments)) return true;
   if (evidence.obligations.length === 0) return true;
-  if (evidence.missingObligations.some(obligation => toolCallMatchesObligationIntent(obligation, candidate))) {
+  const nextOrderedIndex = new Map<string, number>();
+  for (const obligation of evidence.missingObligations) {
+    if (obligation.orderedActionGroup === undefined || obligation.orderedActionIndex === undefined) continue;
+    const current = nextOrderedIndex.get(obligation.orderedActionGroup);
+    if (current === undefined || obligation.orderedActionIndex < current) {
+      nextOrderedIndex.set(obligation.orderedActionGroup, obligation.orderedActionIndex);
+    }
+  }
+  const executableMissing = evidence.missingObligations.filter(obligation => (
+    obligation.orderedActionGroup === undefined
+    || obligation.orderedActionIndex === nextOrderedIndex.get(obligation.orderedActionGroup)
+  ));
+  if (executableMissing.some(obligation => toolCallMatchesObligationIntent(obligation, candidate))) {
     return true;
   }
+  if (evidence.missingObligations.some(obligation => (
+    obligation.orderedActionGroup !== undefined
+    && toolCallMatchesObligationIntent(obligation, candidate)
+  ))) return false;
+  if (evidence.missingObligations.some(obligation => obligation.orderedActionGroup !== undefined)) return false;
   if (!evidence.hasFailedCurrentToolResult) return false;
   const missingIds = new Set(evidence.missingObligations.map(obligation => obligation.id));
   return !evidence.obligations.some(obligation => (
@@ -1569,8 +1692,32 @@ export function inspectCurrentToolCycle(
   const inconclusiveObligations: ToolObligation[] = [];
   const cardinalityFailures: ObligationCardinalityFailure[] = [];
   const boundEvidence = matchObligationsToEvidence(obligations, successfulEvidence);
+  const orderedGroups = new Map<string, number[]>();
+  obligations.forEach((obligation, obligationIndex) => {
+    if (obligation.orderedActionGroup === undefined || obligation.orderedActionIndex === undefined) return;
+    const indexes = orderedGroups.get(obligation.orderedActionGroup) ?? [];
+    indexes.push(obligationIndex);
+    orderedGroups.set(obligation.orderedActionGroup, indexes);
+    boundEvidence.delete(obligationIndex);
+  });
+  for (const indexes of orderedGroups.values()) {
+    indexes.sort((left, right) => (
+      obligations[left]!.orderedActionIndex! - obligations[right]!.orderedActionIndex!
+    ));
+    let afterSequence = -1;
+    for (const obligationIndex of indexes) {
+      const obligation = obligations[obligationIndex]!;
+      const matching = successfulEvidence.find(evidence => (
+        evidence.sequence > afterSequence
+        && fulfillsObligation(obligation, evidence.toolCall, evidence.resultContent)
+      ));
+      if (!matching) break;
+      boundEvidence.set(obligationIndex, matching);
+      afterSequence = matching.sequence;
+    }
+  }
   const fulfilledObligationIds = obligations.filter((obligation, obligationIndex) => {
-    const lastInvalidation = isFinalStateObligation(obligation)
+    const lastInvalidation = isFinalStateObligation(obligation) && obligation.orderedActionGroup === undefined
       ? completedEvidence.reduce((latest, evidence) => (
         invalidatesFinalState(obligation, evidence.toolCall) ? Math.max(latest, evidence.sequence) : latest
       ), -1)
