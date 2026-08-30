@@ -10,14 +10,18 @@
 
 **DEVELOPMENT MODE:** `RELEASE HARDENING / SCOPE FREEZE FOR v1.0`
 
-**CURRENT BLOCKER:** P1 R5 supported-flow heading target collapse. Exact
-`Файл stressNN.txt:` blocks ранее не попадали в path extraction из-за colon,
-поэтому 8×(create→verify→edit→verify) схлопывались до двух targetless
-obligations и final мог пройти после первого file cycle. Узкий L2 fix реализован
-в `fix/r5-heading-targets`: 1/2/4/8 headings дают 4/8/16/32 ordered
-target-specific obligations; focused tools 620/620 и full 36 files / 1127 tests
-— PASS. Статус — `IMPLEMENTED / AWAITING INDEPENDENT REVIEW + EXACT R5 RUN 1
-LIVE`. Production-ready не объявляется.
+**CURRENT BLOCKER:** P1 Anthropic required-usage compatibility. Fresh exact A/B
+с Claude Code 2.1.241 доказал: valid non-stream `tool_use` Message без top-level
+`usage` отклоняется как `JSON but not a Message`, а usage-only вариант
+принимается. Узкий L1 fix реализован в `fix/anthropic-required-usage`: exact
+split сохраняется, unknown/partial получает deterministic internally-marked
+estimate, успешный non-stream Message всегда содержит standard usage. Focused
+D15b/bd620/D3/D4/f676 — 733/733, full — 36 files / 1128 tests, independent
+review — PASS. Статус — `IMPLEMENTED / REVIEW PASS / AWAITING WINDOWS LIVE`.
+
+R5 heading-target P1 implementation в master остаётся валидным и не менялся:
+1/2/4/8 headings дают 4/8/16/32 ordered target-specific obligations. Его exact
+Run 1 acceptance возобновится только после protocol compatibility live.
 
 **R1:** `PASS` — fourth independent review D18.
 
@@ -30,14 +34,14 @@ LIVE`. Production-ready не объявляется.
 **D20:** `CLOSED`.
 
 **R3:** `PASS`: A TEXT, B WRITE/READ, C WRITE/EDIT/READ и D BASH — `PASS`.
-**R4:** deterministic baseline остаётся green; **R5:** `BLOCKED` до independent
-review и exact live acceptance heading-target P1.
+**R4:** deterministic baseline остаётся green; **R5:** `BLOCKED` до required-
+usage live compatibility и последующего exact heading-target Run 1 acceptance.
 
 **D10:** `PASS`; **PB39:** `PASS 3/3`.
 
-**NEXT:** independent narrow review implementation diff → exact unchanged R5
-Run 1 live. D19/D20 не переоткрывать без нового regression evidence; D22/D23/D24
-не переносить в clean baseline.
+**NEXT:** isolated Claude Code 2.1.241 minimal tool cycle и короткий
+Write→Edit→Read control на required-usage branch; затем exact unchanged R5 Run 1.
+D19/D20 не переоткрывать; D22/D23/D24 не переносить в clean baseline.
 
 Release-mode policy из `AGENTS.md` сохраняет scope freeze: новые функции,
 provider/UI scope, unrelated fixes и архитектурные улучшения заморожены. После
@@ -83,8 +87,9 @@ D20 закрыт после узкого исправления command-payload 
 independent re-review и exact R3-D Windows live. Один recognized-payload boundary
 применяется ко всем стадиям file-verification inference: код внутри явного
 Bash/command payload не создаёт ложные natural-language file obligations, тогда
-как prose вне payload сохраняется. Открытых P0/P1 нет; G7 и G16 — PASS.
-Остальные приоритеты и gates — в
+как prose вне payload сохраняется. После этих closures P0/P1 были 0/0; текущие
+required-usage и R5 heading-target P1 снова делают G7/G16 FAIL. Остальные
+приоритеты и gates — в
 `PRODUCTION_READINESS.md`. D11 full schema transport закрыт после deterministic
 offline coverage, independent review и Windows Claude Code live WebFetch. D12
 nested-array parser ordering закрыт после deterministic coverage, independent
@@ -125,8 +130,9 @@ independent re-review — PASS. Exact R3-D Windows live на isolated Claude Cod
 2.1.241 вывел только `command_execution`, выполнил один успешный Bash с exit
 zero и exact stdout `R3-BASH-731`, затем final `R3-BASH-OK`, без guard retry,
 unexpected 5xx/502, hang/crash; auth integrity и shutdown — PASS. D20 —
-`CLOSED`; R3 A/B/C/D — `PASS`; R4 — `READY / NOT STARTED`; open P0/P1 = 0,
-G7/G16 — PASS. Один более ранний R3-D run с двумя Bash не воспроизвёлся в
+`CLOSED`; R3 A/B/C/D — `PASS`; R4 deterministic baseline green. Текущий
+open P0/P1 = 0/2, G7/G16 — FAIL до required-usage live и R5 exact Run 1. Один
+более ранний R3-D run с двумя Bash не воспроизвёлся в
 targeted D21 capture: successful matching Bash закрыл obligation, второй Bash
 не был admitted. D21 не подтверждён как production defect и остаётся только
 monitoring observation для последующего stress testing.
@@ -363,8 +369,11 @@ D1 остаётся неподтверждённой/deferred P3.
   точный upstream input/output split. Legacy `data.usage` продолжает давать
   exact prompt/completion counts, а V4 `response.accumulated_token_usage`
   сохраняется отдельно как cumulative parent-chain telemetry и никогда не
-  выдаётся за Anthropic usage. Non-streaming Anthropic output пропускает usage,
-  если полный exact split неизвестен; streaming `message_start` не содержит
+  выдаётся за exact Anthropic usage. Новый P1 Claude compatibility contract
+  дополняет только successful non-stream output: Message всегда содержит usage;
+  полный exact split сохраняется, absent/partial split заменяется deterministic
+  estimate обеих сторон с internal provenance `estimated`. Streaming
+  `message_start` не содержит
   fabricated zero, а final `message_delta` включает `output_tokens` только при
   точном `completionTokens`. Явный upstream zero остаётся zero. 13 focused
   regressions покрывают parser initial/BATCH/latest/terminal, text/tool,
@@ -380,7 +389,10 @@ D1 остаётся неподтверждённой/deferred P3.
   request потребовал один `missing_tool_evidence` retry, а после успешного final
   появилась отдельная new-lineage chain с дополнительной guard/tool activity.
   Это отдельный guard/client finding и не D15b failure; guard code не менялся.
-  Open P2 = 2, production-ready = NO.
+  Required-usage implementation добавляет один HTTP shape regression и
+  намеренно обновляет прежние unknown/partial non-stream expectations;
+  independent read-only review — PASS, Windows live pending. Open P2 = 2,
+  production-ready = NO.
 - D8 PASS B передаёт уже существующий request-scoped logger явно по всей цепочке
   route → handler → DeepSeek client → PoW. Один случайный process-local salt и
   domain separation создают необратимые `client_ref`, `upstream_ref`,

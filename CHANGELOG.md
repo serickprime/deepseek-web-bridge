@@ -3,6 +3,29 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-30 — Require truthful Anthropic non-stream usage
+
+- Подтверждённый Claude Code 2.1.241 A/B показал L1 compatibility blocker:
+  один и тот же valid non-stream Anthropic `tool_use` Message без top-level
+  `usage` отклонялся как `JSON but not a Message`, а usage-only вариант
+  принимался и expose-ил tool ровно один раз.
+- `src/server/outputAnthropic.ts` теперь всегда выдаёт standard Anthropic
+  `usage.input_tokens`/`usage.output_tokens` для успешного non-stream Message.
+  Полный upstream split сохраняется без изменений, включая genuine `0/0`;
+  при отсутствующем или partial split обе стороны получают deterministic
+  Bridge estimate из canonical request и принятого text/tool-use output.
+  Внутренний provenance — `exact | estimated`; custom поле клиенту не
+  передаётся, hardcoded unknown `0/0` не используется.
+- `src/server/routes.ts` передаёт normalized canonical request только в
+  non-stream Anthropic serializer. Streaming D15b, D3/D4 lifecycle,
+  `accumulated_token_usage`, DeepSeek client/retries и L2 не менялись.
+- Обновлены `tests/unit/sse.test.ts` и
+  `tests/unit/anthropicStreamErrorLifecycle.test.ts`: exact 123/45, genuine
+  zero, deterministic text/tool estimates, partial fallback и exact confirmed
+  Claude Message failure shape. Focused D15b/bd620/D3/D4/f676 — 733/733;
+  full — 36 files / 1128 tests. Independent read-only review — PASS.
+  Статус — `IMPLEMENTED / REVIEW PASS / AWAITING WINDOWS LIVE`.
+
 ## 2026-08-30 — Preserve R5 heading-scoped file actions
 
 - Узкий heading matcher распознаёт только `Файл <supported-path>:` blocks

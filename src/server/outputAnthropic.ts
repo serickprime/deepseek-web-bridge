@@ -1,5 +1,6 @@
-import type { CanonicalResult, CanonicalToolCall } from "../api/canonical.js";
+import type { CanonicalRequest, CanonicalResult, CanonicalToolCall } from "../api/canonical.js";
 import { BridgeError } from "../utils/errors.js";
+import { estimateTokenCount } from "../utils/tokenEstimate.js";
 
 export type AnthropicErrorType =
   | "authentication_error"
@@ -37,26 +38,77 @@ export interface AnthropicMessageResponse {
   content: AnthropicContentBlock[];
   stop_reason: string;
   stop_sequence: null;
-  usage?: {
+  usage: {
     input_tokens: number;
     output_tokens: number;
   };
+}
+
+export interface AnthropicUsageResolution {
+  source: "exact" | "estimated";
+  usage: AnthropicMessageResponse["usage"];
 }
 
 function toBlock(call: CanonicalToolCall): AnthropicContentBlock {
   return { type: "tool_use", id: call.id, name: call.name, input: call.arguments };
 }
 
-export function toAnthropicMessage(result: CanonicalResult, model: string): AnthropicMessageResponse {
+function hasExactUsage(result: CanonicalResult): boolean {
+  const promptTokens = result.usage?.promptTokens;
+  const completionTokens = result.usage?.completionTokens;
+  return Number.isSafeInteger(promptTokens)
+    && Number.isSafeInteger(completionTokens)
+    && (promptTokens ?? -1) >= 0
+    && (completionTokens ?? -1) >= 0;
+}
+
+function estimateInputTokens(request: CanonicalRequest): number {
+  return estimateTokenCount(JSON.stringify({
+    system: request.system,
+    messages: request.messages,
+    tools: request.tools,
+  }));
+}
+
+function estimateOutputTokens(content: AnthropicContentBlock[]): number {
+  const visibleOutput = content
+    .map(block => block.type === "text" ? (block.text ?? "") : JSON.stringify(block))
+    .join("\n");
+  return estimateTokenCount(visibleOutput);
+}
+
+export function resolveAnthropicUsage(
+  request: CanonicalRequest,
+  result: CanonicalResult,
+  content: AnthropicContentBlock[],
+): AnthropicUsageResolution {
+  if (hasExactUsage(result)) {
+    return {
+      source: "exact",
+      usage: {
+        input_tokens: result.usage!.promptTokens!,
+        output_tokens: result.usage!.completionTokens!,
+      },
+    };
+  }
+  return {
+    source: "estimated",
+    usage: {
+      input_tokens: estimateInputTokens(request),
+      output_tokens: estimateOutputTokens(content),
+    },
+  };
+}
+
+export function toAnthropicMessage(
+  result: CanonicalResult,
+  model: string,
+  request: CanonicalRequest,
+): AnthropicMessageResponse {
   const content: AnthropicContentBlock[] = [];
   if (result.content) content.push({ type: "text", text: result.content });
   for (const call of result.toolCalls) content.push(toBlock(call));
-  const exactUsage = result.usage?.promptTokens !== undefined && result.usage.completionTokens !== undefined
-    ? {
-        input_tokens: result.usage.promptTokens,
-        output_tokens: result.usage.completionTokens,
-      }
-    : undefined;
+  const resolvedUsage = resolveAnthropicUsage(request, result, content);
   return {
     id: `msg_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
     type: "message",
@@ -65,7 +117,7 @@ export function toAnthropicMessage(result: CanonicalResult, model: string): Anth
     content,
     stop_reason: result.toolCalls.length > 0 ? "tool_use" : (result.stopReason ?? "end_turn"),
     stop_sequence: null,
-    ...(exactUsage ? { usage: exactUsage } : {}),
+    usage: resolvedUsage.usage,
   };
 }
 

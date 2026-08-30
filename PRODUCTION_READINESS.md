@@ -63,12 +63,17 @@ R10 v1.0. Пройденный этап не повторяется без regre
 R1 — `PASS`. R2 — `PASS`. D18, D19 и D20 — `CLOSED`. D10 — `PASS`, PB39 —
 `PASS 3/3`. Narrow pronominal content-verification fix прошёл independent review
 и exact live A–E, затем fast-forward integrated как clean master baseline
-`b0c87da`. Текущий R5 P1 — heading target collapse: `Файл <path>:` blocks
+`b0c87da`. R5 heading-target P1 fix integrated как `f676664`, но live acceptance
+выявил отдельный L1 blocker: Claude Code 2.1.241 требует top-level `usage` в
+успешном non-stream Anthropic Message. Exact capture/replay A/B подтвердил
+usage как единственную semantic difference. Узкий exact-or-estimated output fix
+прошёл 1128/1128 и independent review; Windows live pending. Heading target
+contract остаётся валидным: `Файл <path>:` blocks
 теряли targets и 8 file cycles схлопывались до двух generic obligations. Узкий
 L2 implementation сохраняет 4 ordered target-specific actions на block;
 1/2/4/8 scale, failed-step и one-/two-file evidence transitions green, full
 1127/1127.
-R5 остаётся `BLOCKED` до independent review и exact unchanged Run 1 live.
+R5 остаётся `BLOCKED` до required-usage live и exact unchanged Run 1 live.
 D22/D23/D24 abandoned changes не входят в baseline. Targeted D21 capture не
 подтвердил production defect и остаётся monitoring item.
 
@@ -163,7 +168,7 @@ transport, policy и persistence defects не объединяются в оди
 | **D13** | P2 | L2 | `CLOSED` | Independent create/edit/read action-target groups получают stable per-kind instances для 1–5 targets; explicit grouped operation остаётся одной obligation, ambiguous fallback сохраняет все targets. | `TEST`: 34 D13 cases; create/edit/read 1–5, partial/failure, mixed, grouped, same-file three-step/twice, Unicode/NFC, historical/stale/informational и root client guard; 35 files / 851 tests. `LIVE`: independent review PASS; Windows получил 3 separate Write + 3 separate Read results, PowerShell подтвердил exact A/B/C markers. Verdict: PASS WITH COLLATERAL FINDING — D17 вмешался только в final path. | Existing one-to-one matcher; D9/D12 controls | `0293f4a5a128766a535d3bf285252abe65e56fd8` |
 | **D14** | P2 | L1 | `CLOSED` | Anthropic top-level `system` сохраняет string точно либо соединяет ordered text-block array одним `\n`; malformed/unsupported supplied shape fail closed как `INVALID_REQUEST`/400. | `TEST`: 17 regressions для exact string/1/3 blocks/order/whitespace/Unicode/empty/absent/metadata/malformed shapes, OpenAI control, HTTP Anthropic error envelope и captured DeepSeek prompt без raw system JSON; 35 files / 891 tests; independent review PASS. Live не требуется: deterministic normalization/serialization и exact downstream prompt boundary доказаны напрямую, а Claude Code 2.1.241 не подтверждён как sender array shape. | Нет; D15 отдельно | `1f2f17267272e97d5941741d5767cc2e6e3de760` |
 | **D15a** | P2 | L1 / L4 | `OPEN / CAPABILITY UNRESOLVED` | Anthropic `max_tokens` нормализуется, но для внутреннего DeepSeek Web completion protocol не подтверждено enforceable output-limit field; guessed field запрещён. | `LIVE DIAGNOSTIC`: Claude Code 2.1.241 отправляет `max_tokens=32000`; актуальный Web payload/frontend не показал `max_tokens`, `max_new_tokens`, `max_output_tokens` или иной доказанный limit field. Downstream truncation не доказана безопасной для SSE/tool/terminal contract. | Отдельная capability verification | — |
-| **D15b** | P2 | L1 / L4 | `CLOSED` | Anthropic usage имеет exact-or-unavailable semantics: exact legacy split передаётся, unknown usage omitted; V4 cumulative counter хранится отдельно и не masquerade-ит как per-request usage. | `TEST`: implementation `a4c43a222be14e4513923b3d9525398cb616980a`, independent review PASS; 13 focused regressions; V4 initial/BATCH/latest/FINISHED/INCOMPLETE, legacy split, non-stream exact/zero/unknown/partial, streaming text/tool и handler propagation; focused 85/85, full 35 files / 904 tests. `LIVE` Windows, Claude Code 2.1.246, `deepseek-v4-flash`: unknown-usage Anthropic stream принят real client; Bash + linked `tool_result` завершились `D15B-TOOL-PASS`, main continuation `completion_attempt=1` / `guard_attempt=0` / `completion_done`, без usage/SSE failure, hang или D15b 502. Verdict `PASS WITH COLLATERAL FINDING`: один initial `missing_tool_evidence` retry и отдельная post-final new-lineage guard/tool chain относятся к guard/client collateral, не D15b. | D3 terminal semantics; D4 downstream lifecycle | `a4c43a222be14e4513923b3d9525398cb616980a` |
+| **D15b** | P2 | L1 / L4 | `CLOSED; NON-STREAM COMPAT FOLLOW-UP IMPLEMENTED / REVIEW PASS / LIVE PENDING` | `CanonicalResult.usage` сохраняет exact-only provenance; V4 cumulative counter остаётся отдельно. Streaming сохраняет exact-or-unavailable semantics. Successful non-stream Anthropic Message теперь всегда имеет usage: exact split unchanged либо deterministic Bridge estimate обеих сторон при absent/partial split. | `TEST`: historical implementation `a4c43a222be14e4513923b3d9525398cb616980a`; required-usage follow-up focused D15b/bd620/D3/D4/f676 733/733, full 36 files / 1128 tests, independent review PASS. Exact capture/replay A/B с Claude Code 2.1.241 подтвердил omission как blocker; post-fix Windows live pending. Genuine exact zero сохраняется; unknown не кодируется hardcoded `0/0`; custom provenance наружу не выходит. | D3 terminal semantics; D4 downstream lifecycle; L2 unchanged | `a4c43a2` + current required-usage branch |
 | **D17** | P1 | L2 | `CLOSED` | Один shared narrow predicate требует explicit command wording, conservative recognizable CLI literal либо явный Bash/shell/PowerShell/terminal context; generic `Выполни ...` action/file wording не создаёт `command_execution`. | `TEST`: 23 D17 regressions; focused 436/436, full 35 files / 874 tests; independent review PASS. `LIVE`: Windows, Claude Code 2.1.241, `deepseek-v4-flash`, real 39-tool catalog; 3 Write + 3 Read results, каждый requested cycle `completion_attempt=1` / `guard_attempt=0`, immediate `D17-LIVE-PASS`, no Bash/missing command/502, external marker verification PASS. Отдельный new-lineage/empty-history/different-upstream post-final Bash не относится к D17 chain. | D13 CLOSED | `d3d57de901ba3b07afeb27aa634054b8c1092f2f` |
 | **D18** | P1 | L2 / L1 | `CLOSED` | Single unambiguous mutation target переносится в последующую affirmative executable pronominal file verification (`этот файл`, `этот же файл`, `that file`, `the same file`, `it`). Один D18-local classifier отклоняет negated/explanatory/conditional/optional/alternative/meta verification и mutation candidates. Conditional creation нового distinct target непосредственно перед Read даёт fail-safe ambiguity; более поздняя mandatory mutation может восстановить однозначный referent. Raw allowed `[调用 Tool] {...}` не может стать final и требует canonical repair. | `REVIEW`: fourth independent review PASS. `TEST`: D18 focused 126/126, historical guard selection 347/347, tools 563/563, full 36 files / 1070 tests; typecheck/test/build/test:platform/diff-check PASS. `LIVE`: isolated Windows Claude Code 2.1.241 выполнил real Write result → Read → Read result → `PREMERGE-WRITE-READ-OK`; filesystem `premerge-a.txt = PREMERGE-A-731`; correlation/auth/shutdown PASS, no unexpected 5xx/502, hang/crash или raw marker leak. Minor/pre-existing collateral остаётся backlog v1.1. | D13/D17 guards; closed, do not fuzz without release-blocking evidence | `2fe10373f093e319e5c0fa67a8009c46cd134d08` |
 | **D19** | P1 | L2 | `CLOSED` | Exact R3-C create→Edit→Read inference сохраняет две distinct mutations и final verification. Tool names в filename/meta wording не создают actions; semantic admission разрешает только genuinely missing/stale obligations, поэтому новый call ID не replay-ит fulfilled Write/Edit/Read; later mutation делает verification stale и требует fresh Read. | `TEST`: 17 D19 regressions; exact inference, root client flow, redundant Write/Edit/Read rejection, stale/fresh verification, explicit repeated actions и historical guard protections; focused tools 580/580, full 36 files / 1087 tests. `REVIEW`: independent review PASS. `LIVE`: isolated Windows Claude Code 2.1.241 выполнил ровно `Write` → `Edit` → `Read` → `R3-EDIT-OK` (counts 1/1/1); filesystem exact `BETA-731`, correlation/auth/shutdown PASS, без duplicate execution, unexpected 5xx/502, hang/crash или raw marker leak. | Closed; reopen only with regression evidence | `07103f58140c6d4a2f6e9a5d49d3eab846b2b33a` |
@@ -286,7 +291,7 @@ versioned addendum; новые regressions добавляются новыми I
 | G4 | `npm run test:platform` green | PASS on current Windows baseline |
 | G5 | CI Windows/Linux/macOS green for release commit | NEEDS RELEASE-COMMIT VERIFICATION |
 | G6 | Все P0 закрыты | PASS: D2/D3/D4/D6 CLOSED; open P0 = 0 |
-| G7 | Все P1 закрыты либо formally waived с owner/reason/expiry | FAIL: R5 heading-target P1 awaiting independent review + live; open P1 = 1 |
+| G7 | Все P1 закрыты либо formally waived с owner/reason/expiry | FAIL: required-usage P1 awaiting live и R5 heading-target P1 awaiting exact Run 1; open P1 = 2 |
 | G8 | 100% deterministic offline PB cases automated and green | FAIL: PB-v1 пока specification |
 | G9 | 3 последовательных clean live benchmark runs | FAIL |
 | G10 | 3 × 30–50 tool autonomous runs без fabrication/replay/duplicate/malformed leak/unexpected 502/hang | FAIL |
@@ -295,7 +300,7 @@ versioned addendum; новые regressions добавляются новыми I
 | G13 | Restart сохраняет консистентные persistent session/lineage | PASS: deterministic PB31/PB33 green; Windows Claude Code restart сохранил session и использовал persisted lineage |
 | G14 | `/compact` после long chain проходит PB35 | NEEDS FROZEN LIVE RUNS |
 | G15 | Shutdown не оставляет orphan/stale PID и не убивает чужие процессы | PASS: D10 final independent re-review и Windows desktop PB39 PASS 3/3; D18 не относится к lifecycle |
-| G16 | Нет известных открытых P0/P1 production defects | FAIL: open P0 = 0, open P1 = 1 pending R5 heading-target verification |
+| G16 | Нет известных открытых P0/P1 production defects | FAIL: open P0 = 0, open P1 = 2 pending required-usage live и R5 heading-target verification |
 
 ## 9. Mandatory development workflow
 
@@ -386,7 +391,7 @@ green, создавать новый mechanism при подходящем су�
 | `SESSION_LINK_TTL_MS=10m`, а `LineageStore` hardcodes 24h и не проверяет age при lookup. | D5 CLOSED: единый TTL применяется при lookup/init/mutations; PB31/PB32 и Windows persisted-lineage restart verification PASS. |
 | Документация отмечала sibling-safe только `lineage.clear()`, тогда как normal writers перезаписывали разные shapes. | D6 CLOSED: единый schema-v2 owner, deterministic tests и Windows Claude Code live restart/resume green. |
 | Tool allowlist мог содержать 39, а prompt silently описывал 32. | D7 CLOSED: count truncation удалён; deterministic catalog identity и Windows live с реальным available #33 `WebFetch` — PASS. D11 также CLOSED: полный schema transport, bounded catalog preflight, independent review и Windows WebFetch live — PASS. |
-| Anthropic system array, output limit и streaming usage не покрыты текущими normalize/lifecycle tests. | D14 CLOSED. D15 разделён: D15b exact-or-unavailable usage CLOSED после review/live; D15a output-limit capability остаётся unresolved без guessed Web field. |
+| Anthropic system array, output limit и usage не покрыты текущими normalize/lifecycle tests. | D14 CLOSED. D15a output-limit capability остаётся unresolved без guessed Web field. D15b streaming exact-or-unavailable CLOSED; подтверждённый non-stream Claude compatibility follow-up всегда выдаёт standard exact-or-estimated usage и ожидает post-fix live. |
 | D1 A/B/C evidence отсутствует в repo и доступен только как diagnostic handoff. | D1 остаётся unconfirmed/deferred. |
 
 ## 12. Current decision
@@ -394,8 +399,10 @@ green, создавать новый mechanism при подходящем су�
 Проект **не является Production Ready**. D6, D3, D4, D2, D5, D7, D8, D9, D11,
 D12, D13, D14, D15b, D17, D18, D19 и D20 закрыты после требуемой deterministic
 coverage, independent review и, где это требовалось, релевантной Windows live
-verification. Открытых P0 — 0, P1 — 0, P2 — 2; deferred P3 — 1. G6, G7, G15
-и G16 пройдены; остальные release gates остаются открытыми. D10 final
+verification. Открытых P0 — 0, P1 — 2, P2 — 2; deferred P3 — 1. G6 и G15
+пройдены; G7/G16 и остальные release gates остаются открытыми. Первый P1 —
+required non-stream Anthropic usage, implementation/review green и live pending;
+второй — R5 heading-target acceptance pending. D10 final
 independent re-review и Windows desktop PB39 PASS 3/3; D10 + D18 fast-forward
 integration завершена. D15b имеет статус `CLOSED`, D15a — `OPEN / CAPABILITY
 UNRESOLVED`. R1, R2 и R3 — `PASS`; R3 A TEXT, B WRITE/READ,

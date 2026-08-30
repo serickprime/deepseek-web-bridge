@@ -1,8 +1,17 @@
 import { describe, expect, it } from "vitest";
+import type { CanonicalRequest } from "../../src/api/canonical.js";
 import { DeepSeekPatchParser } from "../../src/deepseek/updateParser.js";
 import { SseAccumulator, parseSseBlock } from "../../src/deepseek/sseParser.js";
-import { anthropicSseMessageDone, toAnthropicMessage } from "../../src/server/outputAnthropic.js";
+import { anthropicSseMessageDone, resolveAnthropicUsage, toAnthropicMessage } from "../../src/server/outputAnthropic.js";
 import { ProtocolStream } from "../../src/server/protocolStream.js";
+
+const ANTHROPIC_REQUEST: CanonicalRequest = {
+  model: "test-model",
+  stream: false,
+  system: "System instructions",
+  messages: [{ role: "user", parts: [{ type: "text", text: "Please respond." }] }],
+  tools: [],
+};
 
 function parseEventData(chunk: string): Record<string, unknown> {
   const dataLine = chunk.split("\n").find(line => line.startsWith("data: "));
@@ -406,7 +415,7 @@ describe("FIX2: toAnthropicMessage does not include raw JSON text when tool_call
       content: "",
       toolCalls: [{ id: "call_1", type: "function" as const, name: "Bash", arguments: { command: "ls" } }],
     };
-    const msg = toAnthropicMessage(result, "test-model");
+    const msg = toAnthropicMessage(result, "test-model", ANTHROPIC_REQUEST);
     const textBlocks = msg.content.filter(b => b.type === "text");
     const toolBlocks = msg.content.filter(b => b.type === "tool_use");
     expect(textBlocks).toHaveLength(0);
@@ -417,7 +426,7 @@ describe("FIX2: toAnthropicMessage does not include raw JSON text when tool_call
 
   it("text-only result has text block and no tool_use block", () => {
     const result = { content: "hello world", toolCalls: [] };
-    const msg = toAnthropicMessage(result, "test-model");
+    const msg = toAnthropicMessage(result, "test-model", ANTHROPIC_REQUEST);
     const textBlocks = msg.content.filter(b => b.type === "text");
     const toolBlocks = msg.content.filter(b => b.type === "tool_use");
     expect(textBlocks).toHaveLength(1);
@@ -433,46 +442,90 @@ describe("D15b Anthropic non-streaming usage", () => {
       content: "ok",
       toolCalls: [],
       usage: { promptTokens: 12, completionTokens: 5, totalTokens: 17 },
-    }, "test-model");
+    }, "test-model", ANTHROPIC_REQUEST);
     const zero = toAnthropicMessage({
       content: "ok",
       toolCalls: [],
       usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
-    }, "test-model");
+    }, "test-model", ANTHROPIC_REQUEST);
+    const exactResolution = resolveAnthropicUsage(ANTHROPIC_REQUEST, {
+      content: "ok",
+      toolCalls: [],
+      usage: { promptTokens: 123, completionTokens: 45, totalTokens: 168 },
+    }, [{ type: "text", text: "ok" }]);
 
     expect(exact.usage).toEqual({ input_tokens: 12, output_tokens: 5 });
     expect(zero.usage).toEqual({ input_tokens: 0, output_tokens: 0 });
+    expect(exactResolution).toEqual({
+      source: "exact",
+      usage: { input_tokens: 123, output_tokens: 45 },
+    });
   });
 
-  it("omits usage when the exact prompt/completion split is absent or partial", () => {
-    const absent = toAnthropicMessage({ content: "ok", toolCalls: [] }, "test-model");
+  it("uses deterministic estimated usage when the exact split is absent or partial", () => {
+    const absent = toAnthropicMessage(
+      { content: "non-empty output", toolCalls: [] },
+      "test-model",
+      ANTHROPIC_REQUEST,
+    );
+    const repeated = toAnthropicMessage(
+      { content: "non-empty output", toolCalls: [] },
+      "test-model",
+      ANTHROPIC_REQUEST,
+    );
     const promptOnly = toAnthropicMessage({
-      content: "ok",
+      content: "non-empty output",
       toolCalls: [],
       usage: { promptTokens: 12, totalTokens: 17 },
-    }, "test-model");
+    }, "test-model", ANTHROPIC_REQUEST);
     const completionOnly = toAnthropicMessage({
-      content: "ok",
+      content: "non-empty output",
       toolCalls: [],
       usage: { completionTokens: 5, totalTokens: 17 },
-    }, "test-model");
+    }, "test-model", ANTHROPIC_REQUEST);
+    const partialResolution = resolveAnthropicUsage(ANTHROPIC_REQUEST, {
+      content: "non-empty output",
+      toolCalls: [],
+      usage: { promptTokens: 12, totalTokens: 17 },
+    }, [{ type: "text", text: "non-empty output" }]);
 
-    expect(absent).not.toHaveProperty("usage");
-    expect(promptOnly).not.toHaveProperty("usage");
-    expect(completionOnly).not.toHaveProperty("usage");
+    expect(absent.usage.input_tokens).toBeGreaterThan(0);
+    expect(absent.usage.output_tokens).toBeGreaterThan(0);
+    expect(repeated.usage).toEqual(absent.usage);
+    expect(promptOnly.usage).toEqual(absent.usage);
+    expect(completionOnly.usage).toEqual(absent.usage);
+    expect(partialResolution.source).toBe("estimated");
   });
 
-  it("uses the same truthful semantics for tool_use results", () => {
+  it("uses the same exact-or-estimated semantics for tool_use results", () => {
     const toolCall = { id: "call_1", type: "function" as const, name: "Bash", arguments: { command: "pwd" } };
     const exact = toAnthropicMessage({
       content: "",
       toolCalls: [toolCall],
       usage: { promptTokens: 9, completionTokens: 3, totalTokens: 12 },
-    }, "test-model");
-    const unknown = toAnthropicMessage({ content: "", toolCalls: [toolCall] }, "test-model");
+    }, "test-model", ANTHROPIC_REQUEST);
+    const unknown = toAnthropicMessage(
+      { content: "", toolCalls: [toolCall] },
+      "test-model",
+      ANTHROPIC_REQUEST,
+    );
+    const unknownResolution = resolveAnthropicUsage(
+      ANTHROPIC_REQUEST,
+      { content: "", toolCalls: [toolCall] },
+      unknown.content,
+    );
 
     expect(exact.usage).toEqual({ input_tokens: 9, output_tokens: 3 });
-    expect(unknown).not.toHaveProperty("usage");
+    expect(unknown.usage.input_tokens).toBeGreaterThan(0);
+    expect(unknown.usage.output_tokens).toBeGreaterThan(0);
+    expect(unknownResolution.source).toBe("estimated");
+    expect(unknown).toMatchObject({
+      type: "message",
+      role: "assistant",
+      content: [{ type: "tool_use", id: "call_1", name: "Bash", input: { command: "pwd" } }],
+      stop_reason: "tool_use",
+    });
+    expect(unknown).not.toHaveProperty("usage_source");
   });
 });
 

@@ -254,16 +254,19 @@ event возвращается как обычный non-200 `application/json` 
 message клиенту не передаётся. Error terminal не закрывает открытый content block
 искусственно и не сопровождается `message_delta`/`message_stop`.
 
-Anthropic usage следует contract `exact-or-unavailable`. Внутренний
-`CanonicalResult.usage` зарезервирован только для точного upstream split
-`promptTokens`/`completionTokens`: non-streaming response включает
-`input_tokens`/`output_tokens` лишь при наличии обоих значений. Streaming
-`message_start` отправляется немедленно без fabricated usage; успешный terminal
-`message_delta` включает `output_tokens` только при известном точном
-`completionTokens`, включая реальный zero. Если exact usage отсутствует, поле
-не передаётся. V4 `response.accumulated_token_usage` распознаётся отдельно как
-cumulative counter DeepSeek parent chain и не преобразуется в Anthropic usage;
-локальные estimates также не рекламируются как authoritative counts.
+Anthropic usage разделяет non-stream compatibility и streaming truthfulness.
+Внутренний `CanonicalResult.usage` по-прежнему зарезервирован только для точного
+upstream split `promptTokens`/`completionTokens`. Успешный non-stream Anthropic
+Message всегда содержит обязательные numeric `input_tokens`/`output_tokens`:
+полный exact split передаётся без изменений, включая реальный zero, а при
+отсутствующем или partial split обе стороны вычисляются детерминированно из
+Bridge-visible canonical request и принятого text/tool-use output. Internal
+resolution маркирует provenance как `exact | estimated`; custom поле наружу не
+выходит и hardcoded unknown `0/0` не используется. Streaming `message_start`
+остаётся без fabricated usage; terminal `message_delta` включает
+`output_tokens` только при известном точном `completionTokens`. V4
+`response.accumulated_token_usage` остаётся отдельным cumulative counter
+DeepSeek parent chain и не преобразуется в exact Anthropic split.
 
 `ProtocolStream` хранит минимальный terminal state `open | success | error`:
 `finish()` и `fail()` idempotent и взаимоисключаемы, `push()` после terminal —

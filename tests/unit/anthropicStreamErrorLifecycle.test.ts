@@ -309,6 +309,47 @@ describe("D4 Anthropic downstream error lifecycle", () => {
     expect(response.body).not.toContain("event: error");
   });
 
+  it("required usage: non-stream Anthropic tool_use without exact upstream usage remains a valid Message", async () => {
+    const toolCall = {
+      id: "call_required_usage",
+      type: "function" as const,
+      name: "Write",
+      arguments: { file_path: "compat.txt", content: "COMPAT" },
+    };
+    const response = await request(async () => result("", [toolCall]), {
+      body: {
+        model: "deepseek-v4-flash",
+        max_tokens: 32,
+        stream: false,
+        messages: [{ role: "user", content: "Create the compatibility file." }],
+        tools: [{ name: "Write", description: "write a file", input_schema: { type: "object" } }],
+      },
+    });
+    const message = JSON.parse(response.body) as Record<string, unknown>;
+    const usage = message.usage as Record<string, unknown>;
+
+    expect(response.status).toBe(200);
+    expect(message).toMatchObject({
+      type: "message",
+      role: "assistant",
+      content: [{
+        type: "tool_use",
+        id: "call_required_usage",
+        name: "Write",
+        input: { file_path: "compat.txt", content: "COMPAT" },
+      }],
+      stop_reason: "tool_use",
+      stop_sequence: null,
+    });
+    expect(usage.input_tokens).toEqual(expect.any(Number));
+    expect(usage.output_tokens).toEqual(expect.any(Number));
+    expect(Number.isInteger(usage.input_tokens)).toBe(true);
+    expect(Number.isInteger(usage.output_tokens)).toBe(true);
+    expect(usage.input_tokens).toBeGreaterThan(0);
+    expect(usage.output_tokens).toBeGreaterThan(0);
+    expect(message).not.toHaveProperty("usage_source");
+  });
+
   it("D15b: CompletionHandler propagates exact text usage only to the terminal Anthropic event", async () => {
     const handler = new CompletionHandler({
       deepseek: {

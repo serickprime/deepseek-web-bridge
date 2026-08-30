@@ -138,7 +138,7 @@ function handleCompletion(ctx: RouteContext, protocol: Protocol, modelFallback: 
       if (!normalized.stream) {
         let payload: unknown;
         if (protocol === "openai") payload = toOpenAIChat(runResult.result, normalized.model);
-        if (protocol === "anthropic") payload = toAnthropicMessage(runResult.result, normalized.model);
+        if (protocol === "anthropic") payload = toAnthropicMessage(runResult.result, normalized.model, normalized);
         if (protocol === "responses") payload = toResponses(runResult.result, normalized.model);
         sendJson(res, 200, payload);
       } else {
