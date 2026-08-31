@@ -391,6 +391,7 @@ export interface ToolObligation {
   resultLiterals: string[];
   requiredExactResultCount?: number;
   requiredToolName?: string;
+  expectedFileState?: "absent";
   orderedActionGroup?: string;
   orderedActionIndex?: number;
 }
@@ -499,7 +500,7 @@ function maskQuotedDataForLaunchInference(content: string): string {
 
 function maskNominalMutationTransitions(content: string): string {
   return content.replace(
-    /(после\s+)(создания|изменения)(?=\s|[.,:;!?]|$)/giu,
+    /(после\s+)(создания|изменения|удаления)(?=\s|[.,:;!?]|$)/giu,
     (_match, prefix: string, nominal: string) => `${prefix}${" ".repeat(nominal.length)}`,
   );
 }
@@ -836,7 +837,9 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
     kinds.add("file_verification");
   }
 
-  const testExecution = /(?:запуст\S*|выполн\S*|прогон\S*|снова\s+запуст\S*|run|execute|rerun)[\s\S]{0,60}(?:тест|tests?|jest|vitest|pytest)|\b(?:npm\s+(?:run\s+)?test|jest|vitest|pytest)\b/i.test(content);
+  const naturalLanguageTestExecution = /(?:запуст\S*|выполн\S*|прогон\S*|снова\s+запуст\S*|run|execute|rerun)[\s\S]{0,60}(?:тест|tests?|jest|vitest|pytest)/i.test(fileIntentText);
+  const explicitSoftwareTestCommand = /\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?test\b|\bnpx\s+(?:jest|vitest)\b|(?:^|[\s;&`])(?:jest|vitest|pytest)(?=[\s;&`]|$)/i.test(content);
+  const testExecution = naturalLanguageTestExecution || explicitSoftwareTestCommand;
   if (hasShell && testExecution) kinds.add("test_execution");
 
   const serverVerification = /(?:проверь|проверить|провер\S*|убед\S*|verify|check|ensure)[\s\S]{0,100}(?:сервер|приложен|server|app)[\s\S]{0,80}(?:отвеч|работ|доступ|respond|running|reachable|health)|(?:сервер|приложен|server|app)[\s\S]{0,80}(?:отвеч|respond|reachable|health)|остав\S*[\s\S]{0,80}(?:прилож|сервер)[\s\S]{0,40}(?:работ|запущ)|leave[\s\S]{0,60}(?:app|server)[\s\S]{0,40}(?:running|up)/i.test(content);
@@ -908,6 +911,7 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
     argumentLiterals: string[];
     resultLiterals: string[];
     requiredToolName?: string;
+    expectedFileState?: "absent";
   }
   type D18ActionRequirement =
     | { requirement: "mandatory" }
@@ -988,8 +992,19 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
       const normalizedVerb = match[0].replace(/[^\p{L}]/gu, "").toLowerCase();
       const prefix = fileIntentText.slice(Math.max(0, match.index - 32), match.index);
       if (context === "mutation"
-        && /^(?:создания|изменения)$/.test(normalizedVerb)
+        && /^(?:создания|изменения|удаления)$/.test(normalizedVerb)
         && /после\s+$/iu.test(prefix)) continue;
+      const previousAction = actionMatches.at(-1);
+      const previousVerb = previousAction?.verb.replace(/[^\p{L}]/gu, "") ?? "";
+      const betweenActions = previousAction
+        ? fileIntentText.slice(previousAction.verbEnd, match.index)
+        : "";
+      if (context === "mutation"
+        && normalizedVerb === "заменив"
+        && previousAction?.context === "mutation"
+        && /^(?:отредактир\S*|измен\S*)$/iu.test(previousVerb)
+        && /,\s*$/u.test(betweenActions)
+        && !/[.!?\r\n]/u.test(betweenActions)) continue;
       const compoundVerification = context === "verification"
         && /^(?:прочит\S*|прочти)$/iu.test(match[0])
         ? /^\s+и\s+(провер\S*)/iu.exec(fileIntentText.slice(pattern.lastIndex))
@@ -1129,6 +1144,10 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
       const localPaths = action.paths;
       const localUrls = localValues(action, ["url"]);
       const localResult = context === "verification" ? localContent : [];
+      const expectedFileState = context === "verification"
+        && /(?:отсутств\S*|не\s+существ\S*|no\s+longer\s+exists?|does\s+not\s+exist|doesn't\s+exist|absent)/iu.test(action.span)
+        ? "absent" as const
+        : undefined;
       const mutationContent = context === "mutation" && kinds.has("data_mutation")
         ? localContent.filter(value => !titleDescriptionLiterals.has(value.normalize("NFC")))
         : localContent;
@@ -1148,6 +1167,7 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
             argumentLiterals: context === "mutation" ? [...values, ...paths, ...localUrls] : paths,
             resultLiterals: localResult,
             requiredToolName: action.requiredToolName,
+            expectedFileState,
           });
         }
         previousSignature = signature;
@@ -1191,6 +1211,7 @@ export function inferToolObligations(content: string, allowedToolNames: string[]
         resultLiterals: group.resultLiterals,
         requiredExactResultCount,
         ...(group.requiredToolName ? { requiredToolName: group.requiredToolName } : {}),
+        ...(group.expectedFileState ? { expectedFileState: group.expectedFileState } : {}),
       };
     });
     if (index < 0) inferred.push(...obligations);
@@ -1469,9 +1490,34 @@ function toolCallMatchesObligationIntent(
 ): boolean {
   if (obligation.requiredToolName
     && obligation.requiredToolName.toLowerCase() !== toolCall.name.toLowerCase()) return false;
+  const absenceTarget = supportedAbsenceCheckTarget(toolCall);
+  if (obligation.expectedFileState === "absent") {
+    return absenceTarget !== undefined
+      && matchesAbsenceVerificationObligation(obligation, absenceTarget);
+  }
   if (!fulfilledKindsForTool(toolCall).includes(obligation.kind)) return false;
   const argumentStrings = collectStringValues(toolCall.arguments);
   return obligation.argumentLiterals.every(literal => containsExactUnicode(argumentStrings, literal));
+}
+
+function supportedAbsenceCheckTarget(toolCall: CanonicalToolCall): string | undefined {
+  if (!/bash|shell|powershell|terminal|command|exec/i.test(toolCall.name)) return undefined;
+  const command = typeof toolCall.arguments.command === "string"
+    ? toolCall.arguments.command.trim()
+    : "";
+  const match = /^test\s+!\s+-e\s+(?:"([^"\r\n]+)"|'([^'\r\n]+)'|([^\s;&|<>]+))\s*$/u.exec(command);
+  const target = match?.[1] ?? match?.[2] ?? match?.[3];
+  return target?.normalize("NFC");
+}
+
+function matchesAbsenceVerificationObligation(
+  obligation: ToolObligation,
+  absenceTarget: string,
+): boolean {
+  return obligation.kind === "file_verification"
+    && obligation.expectedFileState === "absent"
+    && obligation.argumentLiterals.length === 1
+    && obligation.argumentLiterals[0]!.normalize("NFC") === absenceTarget;
 }
 
 export function isToolCallSemanticallyAdmissible(
@@ -1530,6 +1576,7 @@ function fulfilledKindsForTool(toolCall: CanonicalToolCall): ExternalActionKind[
   if (/install|package/.test(name)) kinds.add("dependency_install");
   if (isShell) {
     kinds.add("command_execution");
+    if (supportedAbsenceCheckTarget(toolCall) !== undefined) kinds.add("file_verification");
     if (/(?:^|[\s;&|])>>?\s*|\b(?:tee|touch|mkdir|rm|mv|cp|del|copy|move|remove-item|new-item|set-content|add-content|out-file)\b/i.test(args)) {
       kinds.add("file_mutation");
     }
@@ -1588,6 +1635,11 @@ function fulfillsObligation(
 ): boolean {
   if (obligation.requiredToolName
     && obligation.requiredToolName.toLowerCase() !== toolCall.name.toLowerCase()) return false;
+  const absenceTarget = supportedAbsenceCheckTarget(toolCall);
+  if (obligation.expectedFileState === "absent") {
+    if (absenceTarget === undefined
+      || !matchesAbsenceVerificationObligation(obligation, absenceTarget)) return false;
+  }
   if (!fulfilledKindsForTool(toolCall).includes(obligation.kind)) return false;
   if (looksLikeStructuredToolError(resultContent)) return false;
   if (looksLikeFailedObligationOutput(obligation.kind, resultContent)) return false;

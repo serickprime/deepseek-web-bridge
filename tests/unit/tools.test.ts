@@ -5260,3 +5260,220 @@ describe("R7 launch literal false-positive regression", () => {
     expect(shouldRetry(true, null, "verified", "", tools, complete)).toBe(false);
   });
 });
+
+describe("PB06 target-aware absence verification evidence", () => {
+  const tools = ["Write", "Edit", "Read", "Bash"];
+  const livePrompt = "Используя инструменты, создай файл pb06-live.txt с точным содержимым PB06-LIVE-INITIAL. Затем отредактируй этот файл, заменив PB06-LIVE-INITIAL на PB06-LIVE-FINAL. Затем удали этот файл через Bash командой `rm pb06-live.txt`. После удаления через Bash выполни `test ! -e pb06-live.txt`, чтобы проверить, что файл pb06-live.txt отсутствует. Только после успешного выполнения всех четырёх действий ответь ровно PB06-LIVE-PASS.";
+  const prompt = [
+    "Создай файл pb06-current.txt с точным содержимым PB06-INITIAL.",
+    "Затем измени PB06-INITIAL на PB06-EDITED в этом файле.",
+    "Затем удали pb06-current.txt через Bash командой `rm pb06-current.txt`.",
+    "После удаления проверь через Bash `test ! -e pb06-current.txt`, что pb06-current.txt отсутствует.",
+    "Только после успешной проверки отсутствия ответь PB06-OK.",
+  ].join("\n");
+  const use = (id: string, name: string, arguments_: Record<string, unknown>): CanonicalMessage => ({
+    role: "assistant",
+    parts: [{ type: "tool_use", toolCall: { id, type: "function", name, arguments: arguments_ } }],
+  });
+  const result = (id: string, content: string, isError = false): CanonicalMessage => ({
+    role: "user",
+    parts: [{ type: "tool_result", toolResult: { toolUseId: id, content, isError } }],
+  });
+  const throughDelete = (): CanonicalMessage[] => [
+    { role: "user", parts: [{ type: "text", text: prompt }] },
+    use("write", "Write", { file_path: "pb06-current.txt", content: "PB06-INITIAL" }),
+    result("write", "created"),
+    use("edit", "Edit", { file_path: "pb06-current.txt", old_string: "PB06-INITIAL", new_string: "PB06-EDITED" }),
+    result("edit", "edited"),
+    use("delete", "Bash", { command: "rm pb06-current.txt" }),
+    result("delete", "deleted"),
+  ];
+
+  it("infers only the intended requirements from the exact PB06 live request", () => {
+    const obligations = inferToolObligations(livePrompt, tools);
+    expect(obligations.filter(obligation => obligation.kind === "file_mutation"))
+      .toHaveLength(3);
+    expect(obligations.filter(obligation => obligation.kind === "file_verification"))
+      .toEqual([expect.objectContaining({
+        argumentLiterals: ["pb06-live.txt"],
+        expectedFileState: "absent",
+      })]);
+    expect(obligations.filter(obligation => obligation.kind === "command_execution"))
+      .toHaveLength(1);
+    expect(obligations.some(obligation => obligation.kind === "test_execution")).toBe(false);
+  });
+
+  it("does not split a subordinate replacement from its containing edit", () => {
+    const obligations = inferToolObligations(
+      "Отредактируй файл a.txt, заменив A на B.",
+      tools,
+    );
+    expect(obligations.filter(obligation => obligation.kind === "file_mutation"))
+      .toHaveLength(1);
+  });
+
+  it("preserves explicitly sequential replacements as separate mutations", () => {
+    const obligations = inferToolObligations(
+      "Замени A на B в a.txt, затем замени B на C в a.txt.",
+      tools,
+    );
+    expect(obligations.filter(obligation => obligation.kind === "file_mutation"))
+      .toHaveLength(2);
+  });
+
+  it("does not treat nominal deletion as another executable delete", () => {
+    const obligations = inferToolObligations(
+      "Удали файл a.txt. После удаления файла проверь, что a.txt отсутствует.",
+      tools,
+    );
+    expect(obligations.filter(obligation => obligation.kind === "file_mutation"))
+      .toHaveLength(1);
+    expect(obligations.filter(obligation => obligation.kind === "file_verification"))
+      .toHaveLength(1);
+  });
+
+  it("preserves an imperative delete obligation", () => {
+    const obligations = inferToolObligations("Затем удали файл a.txt.", tools);
+    expect(obligations.filter(obligation => obligation.kind === "file_mutation"))
+      .toHaveLength(1);
+  });
+
+  it("does not classify a POSIX test predicate as software test execution", () => {
+    const obligations = inferToolObligations("Через Bash выполни `test ! -e a.txt`.", tools);
+    expect(obligations.some(obligation => obligation.kind === "test_execution")).toBe(false);
+  });
+
+  it.each([
+    "Выполни npm test.",
+    "Выполни pnpm test.",
+    "Запусти vitest.",
+    "run pytest",
+  ])("preserves software test execution for %s", request => {
+    const obligations = inferToolObligations(request, tools);
+    expect(obligations.some(obligation => obligation.kind === "test_execution")).toBe(true);
+  });
+
+  it("completes the exact PB06 live chain without false obligations", () => {
+    const messages: CanonicalMessage[] = [
+      { role: "user", parts: [{ type: "text", text: livePrompt }] },
+      use("live-write", "Write", {
+        file_path: "C:\\pb06-fixture\\pb06-live.txt",
+        content: "PB06-LIVE-INITIAL",
+      }),
+      result("live-write", "created"),
+      use("live-edit", "Edit", {
+        file_path: "C:\\pb06-fixture\\pb06-live.txt",
+        old_string: "PB06-LIVE-INITIAL",
+        new_string: "PB06-LIVE-FINAL",
+      }),
+      result("live-edit", "edited"),
+      use("live-delete", "Bash", {
+        command: "rm pb06-live.txt",
+        description: "Delete the requested file",
+      }),
+      result("live-delete", "deleted"),
+    ];
+    const afterDelete = inspectCurrentToolCycle(messages, tools);
+    expect(afterDelete.fulfilledObligationIds.filter(id => id.startsWith("file_mutation")))
+      .toHaveLength(3);
+    expect(afterDelete.missingObligations.map(obligation => obligation.kind))
+      .toEqual(["file_verification"]);
+    expect(shouldRetry(true, null, "PB06-LIVE-PASS", "", tools, afterDelete)).toBe(true);
+
+    messages.push(use("live-absence", "Bash", {
+      command: "test ! -e pb06-live.txt",
+      description: "Verify the requested file is absent",
+    }));
+    messages.push(result("live-absence", "pb06-live.txt absent"));
+    const complete = inspectCurrentToolCycle(messages, tools);
+    expect(complete.missingObligations).toEqual([]);
+    expect(complete.requiresActionToolResult).toBe(false);
+    expect(shouldRetry(true, null, "PB06-LIVE-PASS", "", tools, complete)).toBe(false);
+  });
+
+  it("marks only the final explicit absence verification with absent state", () => {
+    const obligations = inferToolObligations(prompt, tools);
+    expect(obligations.filter(obligation => obligation.kind === "file_mutation")).toHaveLength(3);
+    expect(obligations.filter(obligation => obligation.kind === "file_verification"))
+      .toEqual([expect.objectContaining({
+        argumentLiterals: ["pb06-current.txt"],
+        expectedFileState: "absent",
+      })]);
+  });
+
+  it("admits only the exact supported absence predicate for the pending target", () => {
+    const evidence = inspectCurrentToolCycle(throughDelete(), tools);
+    const candidate = (command: string) => ({
+      id: "candidate",
+      type: "function" as const,
+      name: "Bash",
+      arguments: { command },
+    });
+    expect(shouldRetry(true, candidate("test ! -e pb06-current.txt"), "", "", tools, evidence)).toBe(false);
+    expect(shouldRetry(true, candidate("test ! -e other-current.txt"), "", "", tools, evidence)).toBe(true);
+    expect(shouldRetry(true, candidate("test -e pb06-current.txt"), "", "", tools, evidence)).toBe(true);
+    expect(shouldRetry(true, candidate("echo pb06-current.txt"), "", "", tools, evidence)).toBe(true);
+  });
+
+  it("fulfills absence only with a fresh successful correlated exact-target result", () => {
+    const messages = throughDelete();
+    messages.push(use("absence", "Bash", { command: "test ! -e pb06-current.txt" }));
+    messages.push(result("absence", "absent"));
+    const evidence = inspectCurrentToolCycle(messages, tools);
+    expect(evidence.missingObligations).toEqual([]);
+    expect(shouldRetry(true, null, "PB06-OK", "", tools, evidence)).toBe(false);
+  });
+
+  it("preserves ordinary command admission and fulfillment for an explicit test ! -e command", () => {
+    const commandPrompt = "Command: `test ! -e pb06-current.txt`.";
+    const initial = inspectCurrentToolCycle([
+      { role: "user", parts: [{ type: "text", text: commandPrompt }] },
+    ], tools);
+    const commandUse = use("command-check", "Bash", { command: "test ! -e pb06-current.txt" });
+    expect(initial.requiredActionKinds).toEqual(["command_execution"]);
+    expect(shouldRetry(true, commandUse.parts[0]!.toolCall, "", "", tools, initial)).toBe(false);
+
+    const completed = inspectCurrentToolCycle([
+      { role: "user", parts: [{ type: "text", text: commandPrompt }] },
+      commandUse,
+      result("command-check", "success"),
+    ], tools);
+    expect(completed.missingObligations).toEqual([]);
+    expect(shouldRetry(true, null, "done", "", tools, completed)).toBe(false);
+  });
+
+  it.each([
+    ["failed result", "test ! -e pb06-current.txt", true],
+    ["wrong target", "test ! -e other-current.txt", false],
+    ["positive existence", "test -e pb06-current.txt", false],
+    ["arbitrary success", "true", false],
+    ["chained command", "test ! -e pb06-current.txt && echo absent", false],
+  ])("rejects %s", (_name, command, isError) => {
+    const messages = throughDelete();
+    messages.push(use("check", "Bash", { command }));
+    messages.push(result("check", "success", isError));
+    expect(inspectCurrentToolCycle(messages, tools).missingObligations)
+      .toEqual(expect.arrayContaining([expect.objectContaining({
+        kind: "file_verification",
+        expectedFileState: "absent",
+      })]));
+  });
+
+  it("does not let a pre-delete check or an uncorrelated result satisfy final absence", () => {
+    const messages: CanonicalMessage[] = [
+      { role: "user", parts: [{ type: "text", text: prompt }] },
+      use("write", "Write", { file_path: "pb06-current.txt", content: "PB06-INITIAL" }),
+      result("write", "created"),
+      use("edit", "Edit", { file_path: "pb06-current.txt", old_string: "PB06-INITIAL", new_string: "PB06-EDITED" }),
+      result("edit", "edited"),
+      use("early", "Bash", { command: "test ! -e pb06-current.txt" }),
+      result("early", "absent"),
+      use("delete", "Bash", { command: "rm pb06-current.txt" }),
+      result("delete", "deleted"),
+      result("unknown-call", "absent"),
+    ];
+    const evidence = inspectCurrentToolCycle(messages, tools);
+    expect(evidence.missingObligations.map(obligation => obligation.kind)).toContain("file_verification");
+    expect(shouldRetry(true, null, "PB06-OK", "", tools, evidence)).toBe(true);
+  });
+});
