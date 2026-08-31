@@ -3,6 +3,61 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-31 — Restore current-baseline PB-v1; await candidate CI
+
+- PB06 current-baseline implementation `0e296ee4389107bb6b245a274b914e4950a9969c`
+  добавляет target-aware final-absence evidence только для exact successful
+  `test ! -e <target>`, не считая generic Bash success verification. Exact live
+  wording больше не создаёт duplicate mutation из `отредактируй ..., заменив`,
+  nominal mutation из `после удаления` или software `test_execution` из POSIX
+  predicate; explicit sequential replacements, imperative delete и реальные
+  npm/pnpm/vitest/jest/pytest requests сохранены.
+- Exact deterministic PB06 progression `Write → Edit → rm → test ! -e` оставляет
+  final verification missing после delete и разрешает final только после fresh,
+  correlated, successful exact-target absence result. Failed, stale, historical,
+  wrong-target, positive-existence, chained и uncorrelated evidence отклоняются.
+- Добавлен executable current-baseline PB-v1 mapping: PB01–PB33 + PB39 = 34/34;
+  `npm run test:pbv1`, authoritative `npm test` и full suite прошли 38 files /
+  1228 tests. Typecheck, build, Windows platform smoke и diff-check — PASS.
+- Independent narrow review — PASS. Targeted Windows Claude Code 2.1.241 /
+  `deepseek-v4-flash` live выполнил ровно Write ×1 → Edit ×1 → Bash rm ×1 →
+  Bash `test ! -e` ×1 → `PB06-LIVE-PASS`; correlation 4/4, final file absent,
+  guard exhaustion/unexpected 502/429/schema failure/replay/hang отсутствовали.
+- Bounded R8 live повтор после production change прошёл text,
+  Write→Read→Edit→fresh Read, Bash с одним корректно surfaced failed quoting
+  attempt и successful bounded recovery, затем same-session continuation. Final
+  file exact `R8-FINAL-731`; auth integrity и graceful shutdown — PASS.
+- G8 = PASS 34/34; G1–G4 и G6–G16 = PASS. G5 остаётся pending до CI
+  Windows/Linux/macOS именно на интегрированном candidate: существующий run
+  `33378532409` подтверждает base `551325ac`, но не новый production commit.
+  Поэтому R8 имеет `TECHNICAL PASS / AWAITING CANDIDATE CI`, не CLOSED; R9 не
+  начат. R5/R6/R7 не переоткрывались. Open P0/P1 = 0/0; tracked non-blocking P2
+  = 2, deferred P3 = 1. D22/D23/D24 не восстанавливались.
+
+## 2026-08-31 — Stop R8 on deterministic-acceptance evidence mismatch
+
+- Узкий R7 launch-literal fix `551325ac21620835af399b6cf1edd25cfd17915c`
+  fast-forward integrated в master без merge commit; GitHub Actions run
+  `33378532409` прошёл на `windows-latest`, `ubuntu-latest` и `macos-latest`.
+- R8 release-critical L1–L4 regression set прошёл 12 files / 883 tests;
+  authoritative full suite — 36 files / 1159 tests. Typecheck, build,
+  Windows `test:platform`, diff-check и live health/models/OpenAI/Anthropic smoke
+  также PASS.
+- Final bounded Windows live на isolated Claude Code 2.1.241 и
+  `deepseek-v4-flash` прошёл в одной fresh continuous session: text,
+  Write→Read, Edit→fresh Read, один Bash и subsequent continuation. Все шесть
+  tool calls получили успешные correlated results; final file exact
+  `R8-FINAL-731`, без guard exhaustion, unexpected 502,
+  `JSON but not a Message`, fabrication, replay/duplicate или hang/crash.
+- R5, R6 и R7 остаются `PASS / CLOSED`; open P0/P1 = 0/0. Independent final
+  review остановил R8: G8/R4 historical PASS не подтверждён current master,
+  потому что executable PB-v1 mapping отсутствует, а frozen PB06 всё ещё входит
+  в readiness scope без equivalent current-baseline absence-verification tests.
+  D22/D23/D24 не переносились. R8 — `BLOCKED`, R9 — `NOT STARTED`.
+- Обновлены только `CHANGELOG.md`, `PROJECT_STATE.md`,
+  `PRODUCTION_READINESS.md` и `docs/threat-model.md`; production code/tests,
+  architecture и README не менялись. D22/D23/D24 не переносились.
+
 ## 2026-08-31 — Fix false launch inference from data literals
 
 - Исправлен подтверждённый R7 L2 blocker: `inferExternalActionKinds()` больше не

@@ -16,6 +16,7 @@
     "doctor": "tsx scripts/doctor.ts",
     "ui": "tsx scripts/launcher.ts",
     "test": "vitest run",
+    "test:pbv1": "vitest run tests/unit tests/acceptance",
     "test:watch": "vitest",
     "test:live": "tsx scripts/live/run.ts",
     "test:platform": "tsx scripts/platformSmoke.ts"

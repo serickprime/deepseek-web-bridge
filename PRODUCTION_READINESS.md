@@ -1,12 +1,12 @@
 # Production Readiness
 
-> **Статус:** `HARDENING IN PROGRESS`
+> **Статус:** `R8 TECHNICAL PASS / AWAITING CANDIDATE CI — R9 NOT STARTED`
 >
-> **Baseline:** `fix/launch-literal-false-positive` based on master `fb4f2fa0cfb133a9b3a374c5e4171264ed7a4775`
+> **Verified branch:** `fix/pb06-absence-verification`, PB06 implementation `0e296ee4389107bb6b245a274b914e4950a9969c`, based on master `551325ac21620835af399b6cf1edd25cfd17915c`
 >
-> **Offline baseline:** 36 test files, 1159 tests
+> **Offline baseline:** 38 test files, 1228 tests
 >
-> **Открыто:** P0 — 0, P1 — 1, P2 — 2; deferred P3 — 1
+> **Открыто:** P0 — 0, release-blocking P1 — 0; tracked P2 — 2; deferred P3 — 1
 > **Production scope:** Claude Code → Anthropic-compatible Bridge → DeepSeek Web → Bridge → Claude Code
 
 Этот файл — главный источник production-hardening backlog, frozen benchmark и
@@ -74,14 +74,27 @@ R5 и R6 впоследствии прошли release acceptance и имеют 
 D22/D23/D24 abandoned changes не входят в baseline. Targeted D21 capture не
 подтвердил production defect и остаётся monitoring item.
 
-Current release state supersedes the historical paragraph above: R5 and R6 are
-`PASS / CLOSED`. R7 persistence/lineage restart path reached a correct correlated
-`Read → Edit → Read`, but finalization was blocked by a false `launch` obligation
-inferred from `start` substrings inside backticked filename/value data. The narrow
-L2 fix masks quoted data only for launch inference, preserves genuine complete-token
-launch/restart actions, and passes 18 new regressions, focused 117/117, full
-1159/1159 and independent narrow review. R7 remains blocked pending minimal live
-and the single full restart/resume acceptance.
+Current release state supersedes the historical paragraphs above. R5, R6 and R7
+are `PASS / CLOSED`. R7 persistence/lineage restart acceptance completed after
+the narrow L2 launch-literal fix masked quoted filename/value data only for
+launch inference while preserving genuine complete-token launch/restart actions.
+The fix passed 18 new regressions, focused 117/117, full 1159/1159, independent
+narrow review and required Windows live acceptance, then was fast-forwarded as
+`551325ac21620835af399b6cf1edd25cfd17915c`.
+
+R8 and G8 evidence is now current-baseline and executable. PB01–PB33 + PB39 map
+to deterministic tests, 34/34 PASS; the authoritative suite and
+`npm run test:pbv1` pass 38 files / 1228 tests. PB06 target-aware absence
+verification accepts only a fresh successful correlated exact-target
+`test ! -e`, while failed/stale/historical/wrong-target/arbitrary Bash evidence
+remains rejected. Independent review and exact Windows Claude Code 2.1.241 live
+both PASS. The bounded post-change R8 live also passed text,
+Write→Read→Edit→fresh Read, Bash bounded recovery and same-session continuation
+without guard exhaustion, unexpected 502/429, schema error, replay/duplicate or
+hang/crash. D22/D23/D24 were not restored. G5 still requires Windows/Linux/macOS
+CI on the integrated candidate; the retained run covers base `551325ac` only.
+R8 therefore awaits candidate CI, R9 is not started, and no v1.0
+tag/version/release exists yet.
 
 ### v1.0 RC exit criteria
 
@@ -142,9 +155,9 @@ transport, policy и persistence defects не объединяются в оди
 | Claude Code — реальный executor tools; Bridge tools самостоятельно не выполняет. | Да | `REPO`: `CompletionHandler` отдаёт Anthropic `tool_use`; execution находится у клиента. |
 | DeepSeek только выбирает tool; Bridge переводит запрос, Claude Code выполняет и возвращает `tool_result`. | Да | `REPO`, normal flow tests в `tests/unit/sse.test.ts` и `tests/unit/tools.test.ts`. |
 | Каждый разрешённый Bridge tool описан DeepSeek в prompt после explicit unavailable filtering. | Да | D7 CLOSED подтверждает membership; D11 CLOSED после deterministic full-schema/preflight coverage, independent review и Windows Claude Code WebFetch live verification. |
-| Fabricated text никогда не считается `tool_result`. | Да для поддержанного scope | D9 CLOSED для environment listing; D18 PASS B дополнительно блокирует allowed `[调用 Tool] {...}` как malformed intent, pending independent review/live. |
+| Fabricated text никогда не считается `tool_result`. | Да для поддержанного scope | D9 CLOSED для environment listing; D18 CLOSED и блокирует allowed `[调用 Tool] {...}` как malformed intent. |
 | Historical `tool_result` не подтверждает новое действие. | Да | L2 current-cycle guard и D5 L3 correlated selection защищены deterministic tests; D5 CLOSED. |
-| Mutation нельзя считать успешной без подходящего evidence. | Да для D13 scope | D13 CLOSED: 1–5 target/same-kind deterministic coverage. D18 PASS B сохраняет отдельную fresh verification после unambiguous pronominal Write→Read; pending independent review/live. |
+| Mutation нельзя считать успешной без подходящего evidence. | Да для D13 scope | D13 CLOSED: 1–5 target/same-kind deterministic coverage. D18 CLOSED и сохраняет отдельную fresh verification после unambiguous pronominal Write→Read. |
 | Rejected generation не изменяет accepted session/parent state. | Да | D2 CLOSED: candidate parent живёт только внутри `complete()`; PB29/PB30 deterministic PASS, Windows Claude Code normal turn и real Bash/tool-result continuity PASS. Exact parent IDs в live logs не наблюдались. |
 | Transport error не превращается в fake successful completion. | Да | D3 CLOSED: body/transport failures нормализованы, empty/INCOMPLETE/non-terminal stream отклоняются; deterministic offline и Windows live verification PASS. |
 | HTTP 200 сам по себе не означает successful DeepSeek completion. | Да | D3 CLOSED: требуется authoritative FINISHED/old done terminal; PB22–PB27 deterministic и релевантная live verification green. |
@@ -291,22 +304,22 @@ versioned addendum; новые regressions добавляются новыми I
 
 | Gate | Pass condition | Baseline status |
 | --- | --- | --- |
-| G1 | `npm run typecheck` green | PASS (recheck each branch) |
-| G2 | `npm test` 100% green | PASS: 1141/1141 on current ordered-verification branch |
-| G3 | `npm run build` green | PASS (recheck each branch) |
-| G4 | `npm run test:platform` green | PASS on current Windows baseline |
-| G5 | CI Windows/Linux/macOS green for release commit | NEEDS RELEASE-COMMIT VERIFICATION |
+| G1 | `npm run typecheck` green | PASS: current verified candidate |
+| G2 | `npm test` 100% green | PASS: 38 files / 1228 tests, failures 0 |
+| G3 | `npm run build` green | PASS: current verified candidate |
+| G4 | `npm run test:platform` green | PASS: current Windows candidate |
+| G5 | CI Windows/Linux/macOS green for release commit | PENDING: run 33378532409 is green for base `551325ac`, but current PB06 candidate is not pushed/integrated and has no candidate CI evidence |
 | G6 | Все P0 закрыты | PASS: D2/D3/D4/D6 CLOSED; open P0 = 0 |
-| G7 | Все P1 закрыты либо formally waived с owner/reason/expiry | FAIL: R7 false-launch P1 implemented/reviewed, awaiting minimal live + full R7; open P1 = 1 |
-| G8 | 100% deterministic offline PB cases automated and green | PASS: R4 PB-v1 deterministic acceptance green |
+| G7 | Все P1 закрыты либо formally waived с owner/reason/expiry | PASS: R7 launch-literal blocker integrated/live-accepted; open release-blocking P1 = 0 |
+| G8 | 100% deterministic offline PB cases automated and green | PASS: executable PB01–PB33 + PB39 mapping 34/34; `npm run test:pbv1` 1228/1228 |
 | G9 | 3 последовательных clean live benchmark runs | PASS: R5 qualifying runs 3/3 |
 | G10 | 3 × 30–50 tool autonomous runs без fabrication/replay/duplicate/malformed leak/unexpected 502/hang | PASS: R5 CLOSED, qualifying runs 3/3 |
-| G11 | Rate limit → retryable `DEEPSEEK_RATE_LIMIT`/429 без guard storm | PASS offline; preserve in live |
+| G11 | Rate limit → retryable `DEEPSEEK_RATE_LIMIT`/429 без guard storm | PASS: bedcab29 deterministic/live evidence retained; R8 critical regression green |
 | G12 | Любой upstream failure bounded; нет hang/fake success | PASS: D3/D4 CLOSED; bounded upstream failure и downstream SSE error contract подтверждены deterministic tests и Windows live verification |
-| G13 | Restart сохраняет консистентные persistent session/lineage | PASS: deterministic PB31/PB33 green; Windows Claude Code restart сохранил session и использовал persisted lineage |
+| G13 | Restart сохраняет консистентные persistent session/lineage | PASS: deterministic PB31/PB33 green; R7 Windows restart/resume/persistence acceptance CLOSED |
 | G14 | `/compact` после long chain проходит PB35 | PASS: R6 real Claude Code `/compact` acceptance CLOSED |
 | G15 | Shutdown не оставляет orphan/stale PID и не убивает чужие процессы | PASS: D10 final independent re-review и Windows desktop PB39 PASS 3/3; D18 не относится к lifecycle |
-| G16 | Нет известных открытых P0/P1 production defects | FAIL: open P0 = 0, open P1 = 1 pending R7 false-launch live acceptance |
+| G16 | Нет известных открытых P0/P1 production defects | PASS: open P0 = 0, open release-blocking P1 = 0 within supported v1.0 scope |
 
 ## 9. Mandatory development workflow
 
@@ -397,28 +410,39 @@ green, создавать новый mechanism при подходящем су�
 | `SESSION_LINK_TTL_MS=10m`, а `LineageStore` hardcodes 24h и не проверяет age при lookup. | D5 CLOSED: единый TTL применяется при lookup/init/mutations; PB31/PB32 и Windows persisted-lineage restart verification PASS. |
 | Документация отмечала sibling-safe только `lineage.clear()`, тогда как normal writers перезаписывали разные shapes. | D6 CLOSED: единый schema-v2 owner, deterministic tests и Windows Claude Code live restart/resume green. |
 | Tool allowlist мог содержать 39, а prompt silently описывал 32. | D7 CLOSED: count truncation удалён; deterministic catalog identity и Windows live с реальным available #33 `WebFetch` — PASS. D11 также CLOSED: полный schema transport, bounded catalog preflight, independent review и Windows WebFetch live — PASS. |
-| Anthropic system array, output limit и usage не покрыты текущими normalize/lifecycle tests. | D14 CLOSED. D15a output-limit capability остаётся unresolved без guessed Web field. D15b streaming exact-or-unavailable CLOSED; подтверждённый non-stream Claude compatibility follow-up всегда выдаёт standard exact-or-estimated usage и ожидает post-fix live. |
+| Anthropic system array, output limit и usage не покрыты текущими normalize/lifecycle tests. | D14 CLOSED. D15a output-limit capability остаётся unresolved без guessed Web field. D15b streaming exact-or-unavailable и non-stream required-usage compatibility follow-up CLOSED после deterministic/review/live evidence. |
 | D1 A/B/C evidence отсутствует в repo и доступен только как diagnostic handoff. | D1 остаётся unconfirmed/deferred. |
 
 ## 12. Current decision
 
-Проект **не является Production Ready**. D6, D3, D4, D2, D5, D7, D8, D9, D11,
-D12, D13, D14, D15b, D17, D18, D19 и D20 закрыты после требуемой deterministic
-coverage, independent review и, где это требовалось, релевантной Windows live
-verification. Открытых P0 — 0, P1 — 1, P2 — 2; deferred P3 — 1. G6 и G15
-пройдены; G7/G16 и остальные release gates остаются открытыми. Текущий P1 —
-R7 false `launch` obligation: implementation/full regression/independent review
-green, minimal live и полный R7 pending. D10 final
-independent re-review и Windows desktop PB39 PASS 3/3; D10 + D18 fast-forward
-integration завершена. D15b имеет статус `CLOSED`, D15a — `OPEN / CAPABILITY
-UNRESOLVED`. R1–R6 — `PASS`; R3 A TEXT, B WRITE/READ,
-C WRITE/EDIT/READ и D BASH прошли. R7 ожидает false-launch live acceptance. D19 и D20 —
-`CLOSED`. D21 не подтверждён как production defect: один более ранний R3-D run
-с двумя Bash не воспроизвёлся в targeted capture; successful matching Bash
-закрыл `command_execution`, второй Bash не был admitted. Наблюдение остаётся
-monitoring item для R5, а не v1.0 blocker. D15b live
-verdict — `PASS WITH COLLATERAL FINDING`: отдельная guard/client activity не
-переоткрывает usage work.
+Verified feature candidate **готов к отдельной integration/push authorization**:
+G8 закрыт current-baseline evidence, executable PB-v1 mapping даёт 34/34, PB06
+deterministic/review/live evidence PASS. R8 technical gates green, но closure и
+R9 ждут G5 Windows/Linux/macOS CI на интегрированном candidate. D22/D23/D24 не переносились.
+D6, D3, D4, D2, D5, D7, D8, D9,
+D11, D12, D13, D14, D15b, D17, D18, D19 и D20 закрыты после требуемой
+deterministic coverage, independent review и, где требовалось, Windows live.
+R5/R6/R7 — `PASS / CLOSED`; D10 final independent re-review и Windows desktop
+PB39 PASS 3/3 сохранены. Launch-literal blocker интегрирован в master
+`551325ac21620835af399b6cf1edd25cfd17915c` и live-accepted в R7.
+
+Open P0 = 0 и open release-blocking P1 = 0; G1–G4 и G6–G16 — PASS, G5 — PENDING.
+Tracked P2 = 2:
+D10 остаётся `PASS / INTEGRATED` для v1.0 с residual real macOS/Linux GUI
+shutdown coverage, а D15a — `OPEN / CAPABILITY UNRESOLVED` без invented DeepSeek
+Web output-limit field. D1 — unconfirmed/deferred P3. D21 не подтверждён как
+production defect и после successful R5 не является v1.0 blocker. D15b live
+verdict `PASS WITH COLLATERAL FINDING` не переоткрывает usage contract.
+
+R8 evidence: authoritative full and PB-v1 suites 38 files / 1228 tests, all
+mandatory local gates, retained base-`551325ac` cross-platform CI, executable 34/34 PB mapping,
+PB06 independent review and exact targeted live PASS. Post-change bounded
+Windows live on isolated Claude Code 2.1.241 passed text,
+Write→Read→Edit→fresh Read, Bash bounded recovery and same-session continuation
+with exact final file `R8-FINAL-731`; correlation remained correct and guard
+exhaustion, unexpected 502/429, schema rejection, replay/duplicate and hang/crash
+were absent. R8 is `TECHNICAL PASS / AWAITING G5`; R9 is `NOT STARTED` pending
+explicit integration/push authorization and green candidate CI.
 
 D11 имеет статус `CLOSED`: implementation `cd0b335` прошла independent review,
 а Windows Claude Code 2.1.241 / `deepseek-v4-flash` live выполнил настоящий

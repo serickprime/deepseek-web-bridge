@@ -21,6 +21,7 @@
 | Огромное тело запроса | лимит размера тела (413). |
 | Долгие/зависшие запросы | таймауты upstream и сервера. |
 | Модель зовёт неизвестный/вредный инструмент | allowlist из `tools` запроса клиента; строгий парсер; опасные ключи `__proto__`/`prototype`/`constructor` запрещены; глубина и размер ограничены. |
+| Ложное подтверждение удаления файла | Final absence verification принимает только fresh successful correlated Bash predicate `test ! -e <exact target>` для obligation с `expectedFileState=absent`; generic Bash, wrong target, failed/stale/historical/uncorrelated result и missing-file Read с ошибкой не считаются доказательством. |
 | Токен подменён в логах при отладке | `request_ref` случайный на запрос; session refs непрозрачны (HMAC со случайной солью процесса). |
 | Подмена upstream | TLS-проверка не отключается; самоподписанный upstream сертификат не принимается. |
 | Смешивание сессий клиентов | нет общей fallback-сессии; explicit upstream identity и связь call-id; mutex на одну upstream-сессию. |
@@ -42,10 +43,12 @@ TLS. Эти механизмы пользователь проходит/соб�
 - Prompt-совместимый tool calling не гарантирует, что модель всегда вернёт
   строгий JSON-вызов.
 - Локальный `count_tokens` — приблизительная оценка, не официальный токенизатор.
-- Recap/compaction в текущем Claude Code воспроизводимо не подтверждены; поведение
-  помечается `UNKNOWN`, пока не подтверждено live-тестом.
+- `/compact` в supported Windows Claude Code flow подтверждён R6 live acceptance;
+  изменения Claude Code или upstream могут потребовать повторной проверки только
+  при concrete regression evidence.
 - Точечное Unix PID ownership не включает portable process-start identity;
   теоретический PID reuse остаётся residual risk. Новый cross-platform identity
   subsystem не вводится без отдельного доказательства необходимости.
-- D10 lifecycle покрыт deterministic tests, но Windows desktop PB39 и настоящие
-  macOS/Linux GUI terminal shutdown остаются pending до independent/live проверки.
+- D10 lifecycle покрыт deterministic tests, final independent re-review и Windows
+  desktop PB39 PASS 3/3. Настоящие macOS/Linux GUI terminal shutdown остаются
+  residual cross-platform P2 coverage и не подменяются platform-mocked CI.
