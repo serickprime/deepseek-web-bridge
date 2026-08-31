@@ -1,6 +1,8 @@
 # Production Readiness
 
-> **Статус:** `RC.2 LIVE/REVIEW PASS; AWAITING EXACT-SHA CI; R10 NOT STARTED`
+> **Статус:** `v1.0.0-rc.2 PUBLISHED; R10 NOT STARTED`
+>
+> **Published RC.2:** tag `v1.0.0-rc.2` → `af5c8ba5433d7135e7e91f35686bbdea2e94288c` (exact-SHA CI run `33405138859` PASS on Windows/Ubuntu/macOS)
 >
 > **Published RC.1:** tag `v1.0.0-rc.1` → `f3dd11733582effb02486a954b0e4022cc350d65` (immutable; GUI-launch tool discovery blocker confirmed)
 >

@@ -19,7 +19,11 @@
 - Clean Windows Bridge Console live acceptance is `PASS`: GUI-launched Claude
   Code 2.1.246 exposed real Bash, Write and Read calls with 3/3 correlation and
   no manual gateway environment; bounded 2.1.241 Read smoke also passed. Open
-  P0/P1 is now 0/0; exact-SHA cross-platform CI remains before RC.2 publication.
+  P0/P1 is now 0/0.
+- Exact-SHA cross-platform CI run `33405138859` passed Windows, Ubuntu and
+  macOS for candidate `af5c8ba5433d7135e7e91f35686bbdea2e94288c`.
+  Annotated tag and GitHub pre-release `v1.0.0-rc.2` are published at that SHA;
+  rc.1 was not moved. R10 remains `NOT STARTED`.
 
 ## 2026-08-31 — Close R9 and publish v1.0.0-rc.1
 

@@ -10,9 +10,9 @@
 
 **DEVELOPMENT MODE:** `RELEASE HARDENING / SCOPE FREEZE FOR v1.0`
 
-**CURRENT RELEASE STATUS:** published `v1.0.0-rc.1` has a confirmed GUI-launch
-tool-discovery blocker. Corrective candidate `v1.0.0-rc.2` is `LIVE/REVIEW PASS; AWAITING EXACT-SHA CI` on
-`fix/rc2-claude-gateway-discovery`. The rc.1 annotated tag remains fixed at
+**CURRENT RELEASE STATUS:** corrective pre-release `v1.0.0-rc.2` is `PUBLISHED`
+from exact-SHA tested candidate `af5c8ba5433d7135e7e91f35686bbdea2e94288c`.
+The superseded rc.1 annotated tag remains fixed at
 `f3dd11733582effb02486a954b0e4022cc350d65`. R10 final v1.0.0 remains
 `NOT STARTED` and is not authorized.
 
@@ -78,9 +78,8 @@ changes в clean baseline не переносились.
 
 **D10:** `PASS`; **PB39:** `PASS 3/3`.
 
-**NEXT:** complete exact-SHA cross-platform CI acceptance for corrective
-`v1.0.0-rc.2`, then publish it as a pre-release. R10
-final stable v1.0.0 remains `NOT STARTED` and requires separate authorization.
+**NEXT:** evaluate the published corrective `v1.0.0-rc.2`; R10 final stable
+v1.0.0 remains `NOT STARTED` and requires separate authorization.
 D19/D20, D3/D4, rate-limit и usage contracts не переоткрывать без regression
 evidence; D22/D23/D24 abandoned changes не переносить.
 
@@ -108,7 +107,8 @@ acceptance. The narrow rc.2 change is limited to Claude child environment
 propagation across Windows/macOS/Linux; OpenCode and tool/guard/session/
 transport behavior are unchanged. Offline 38 files / 1229 tests, independent
 review and Windows GUI live on Claude Code 2.1.246 plus bounded 2.1.241 smoke
-are PASS. Open P0/P1 = 0/0; exact-SHA cross-platform CI remains before publication.
+are PASS. Exact-SHA cross-platform CI run `33405138859` passed Windows, Ubuntu
+and macOS. Open P0/P1 = 0/0; `v1.0.0-rc.2` is published as a pre-release.
 This is not a claim that stable `v1.0.0`/R10 has been released.
 D6 persistence collision закрыт после independent review, deterministic offline
 coverage и реальной Windows Claude Code restart/resume проверки. D3 upstream
