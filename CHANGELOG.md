@@ -3,6 +3,21 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-31 — Close R9 and publish v1.0.0-rc.1
+
+- R9 is `PASS / CLOSED`. Clean source installation from a Unicode/space path,
+  clean AUTH and doctor, Claude Code 2.1.241 text/file/Bash/continuation
+  acceptance, restart sanity and independent RC review all passed.
+- Exact RC commit `f3dd11733582effb02486a954b0e4022cc350d65` passed workflow run
+  `33398844646` on Windows, Ubuntu and macOS and remains the target of annotated
+  tag `v1.0.0-rc.1`.
+- Published GitHub release `v1.0.0-rc.1` is a pre-release, not final stable
+  v1.0.0. Its source archive contains 120 files, reports version `1.0.0-rc.1`,
+  includes all required launch/package/docs files and contains no bundled
+  runtime auth, `node_modules`, `dist`, logs or private environment files.
+- This later docs-only closure commit does not move the RC tag. R10 remains
+  `NOT STARTED` and requires separate authorization; open P0/P1 remain 0/0.
+
 ## 2026-08-31 — Prepare v1.0.0-rc.1 release candidate
 
 - Started R9 on `release/v1.0.0-rc.1` from exact R8 master

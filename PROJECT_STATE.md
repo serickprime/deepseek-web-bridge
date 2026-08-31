@@ -10,13 +10,13 @@
 
 **DEVELOPMENT MODE:** `RELEASE HARDENING / SCOPE FREEZE FOR v1.0`
 
-**CURRENT RELEASE STATUS:** `R8 PASS / CLOSED`; `R9 IN PROGRESS` for
-`v1.0.0-rc.1`. R10 final v1.0.0 remains `NOT STARTED` and is not authorized.
-No RC tag or GitHub pre-release exists yet. Integrated R8 code/evidence SHA:
-`36ae0810acbb55dfa447621a7ebd39aca4054de0`; PB06 implementation commit is
-`0e296ee4389107bb6b245a274b914e4950a9969c`.
+**CURRENT RELEASE STATUS:** `R9 PASS / CLOSED`; release candidate
+`v1.0.0-rc.1` is published and available for release-candidate testing. The
+annotated RC tag remains fixed at tested commit
+`f3dd11733582effb02486a954b0e4022cc350d65`. R10 final v1.0.0 remains
+`NOT STARTED` and is not authorized.
 
-**RELEASE ACCEPTANCE:** R1–R8 — `PASS / CLOSED`. G5 candidate CI run
+**RELEASE ACCEPTANCE:** R1–R9 — `PASS / CLOSED`. R8 G5 candidate CI run
 `33394395478` passed on Windows, Ubuntu and macOS for exact integrated SHA
 `36ae0810acbb55dfa447621a7ebd39aca4054de0`. R5 завершён тремя qualifying
 30–50-tool runs, R6 — реальным Claude Code `/compact`, R7 — Windows
@@ -70,15 +70,14 @@ changes в clean baseline не переносились.
 **R3:** `PASS`: A TEXT, B WRITE/READ, C WRITE/EDIT/READ и D BASH — `PASS`.
 **R4/G8:** `PASS 34/34`; **R5:** `PASS / CLOSED`;
 **R6:** `PASS / CLOSED`; **R7:** `PASS / CLOSED`; **R8:**
-`PASS / CLOSED`.
+`PASS / CLOSED`; **R9:** `PASS / CLOSED`.
 
 **D10:** `PASS`; **PB39:** `PASS 3/3`.
 
-**NEXT:** complete R9 clean-source installation, clean AUTH/Claude acceptance,
-independent RC review, exact-SHA cross-platform CI, annotated
-`v1.0.0-rc.1` tag and GitHub pre-release. D19/D20, D3/D4, rate-limit и
-usage contracts не переоткрывать без regression evidence; D22/D23/D24 abandoned
-changes не переносить.
+**NEXT:** release-candidate testing of published `v1.0.0-rc.1`. R10 final
+stable v1.0.0 remains `NOT STARTED` and requires separate authorization.
+D19/D20, D3/D4, rate-limit и usage contracts не переоткрывать без regression
+evidence; D22/D23/D24 abandoned changes не переносить.
 
 Release-mode policy из `AGENTS.md` сохраняет scope freeze: новые функции,
 provider/UI scope, unrelated fixes и архитектурные улучшения заморожены. После
@@ -97,12 +96,14 @@ Anthropic-compatible Bridge → DeepSeek Web. Единый audit backlog, frozen
 benchmark и release gates находятся в [`PRODUCTION_READINESS.md`](PRODUCTION_READINESS.md).
 OpenCode, новые providers и новые UI-функции deferred до прохождения gates.
 
-**Текущий production status:** version metadata is `1.0.0-rc.1` on release
-branch `release/v1.0.0-rc.1`; R9 is `IN PROGRESS`. Integrated baseline прошёл
-local/offline/live R8 evidence и exact-SHA candidate CI run `33394395478` на
-Windows, Ubuntu и macOS. G1–G16 — PASS; open P0/P1 = 0/0; R8 — `PASS / CLOSED`.
-RC ещё не tagged/published. Это не
-заявление об отсутствии bugs и не означает, что v1.0 tag/release создан.
+**Текущий production status:** version metadata is `1.0.0-rc.1`; R9 is
+`PASS / CLOSED`. Clean source install, AUTH, Claude Code 2.1.241 tool acceptance,
+restart sanity, independent RC review and exact-SHA cross-platform CI run
+`33398844646` all passed for RC commit
+`f3dd11733582effb02486a954b0e4022cc350d65`. Annotated tag
+`v1.0.0-rc.1` and the GitHub pre-release are published. G1–G16 — PASS; open
+P0/P1 = 0/0. This is available for release-candidate testing, not a claim that
+stable `v1.0.0`/R10 has been released.
 D6 persistence collision закрыт после independent review, deterministic offline
 coverage и реальной Windows Claude Code restart/resume проверки. D3 upstream
 stream lifecycle закрыт после independent review и Windows live verification;
