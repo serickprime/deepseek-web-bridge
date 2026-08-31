@@ -1,8 +1,8 @@
 # Production Readiness
 
-> **Статус:** `R8 TECHNICAL PASS / AWAITING CANDIDATE CI — R9 NOT STARTED`
+> **Статус:** `R8 PASS / CLOSED — READY FOR R9; R9 NOT STARTED`
 >
-> **Verified branch:** `fix/pb06-absence-verification`, PB06 implementation `0e296ee4389107bb6b245a274b914e4950a9969c`, based on master `551325ac21620835af399b6cf1edd25cfd17915c`
+> **Validated candidate:** `36ae0810acbb55dfa447621a7ebd39aca4054de0`; PB06 implementation `0e296ee4389107bb6b245a274b914e4950a9969c`; cross-platform CI run `33394395478`
 >
 > **Offline baseline:** 38 test files, 1228 tests
 >
@@ -91,9 +91,10 @@ remains rejected. Independent review and exact Windows Claude Code 2.1.241 live
 both PASS. The bounded post-change R8 live also passed text,
 Write→Read→Edit→fresh Read, Bash bounded recovery and same-session continuation
 without guard exhaustion, unexpected 502/429, schema error, replay/duplicate or
-hang/crash. D22/D23/D24 were not restored. G5 still requires Windows/Linux/macOS
-CI on the integrated candidate; the retained run covers base `551325ac` only.
-R8 therefore awaits candidate CI, R9 is not started, and no v1.0
+hang/crash. D22/D23/D24 were not restored. G5 candidate CI run `33394395478`
+passed Windows, Ubuntu and macOS on exact integrated SHA
+`36ae0810acbb55dfa447621a7ebd39aca4054de0`. R8 is closed, R9 is not started,
+and no v1.0
 tag/version/release exists yet.
 
 ### v1.0 RC exit criteria
@@ -308,7 +309,7 @@ versioned addendum; новые regressions добавляются новыми I
 | G2 | `npm test` 100% green | PASS: 38 files / 1228 tests, failures 0 |
 | G3 | `npm run build` green | PASS: current verified candidate |
 | G4 | `npm run test:platform` green | PASS: current Windows candidate |
-| G5 | CI Windows/Linux/macOS green for release commit | PENDING: run 33378532409 is green for base `551325ac`, but current PB06 candidate is not pushed/integrated and has no candidate CI evidence |
+| G5 | CI Windows/Linux/macOS green for release commit | PASS: run `33394395478` passed `windows-latest`, `ubuntu-latest` and `macos-latest` on exact candidate `36ae0810acbb55dfa447621a7ebd39aca4054de0` |
 | G6 | Все P0 закрыты | PASS: D2/D3/D4/D6 CLOSED; open P0 = 0 |
 | G7 | Все P1 закрыты либо formally waived с owner/reason/expiry | PASS: R7 launch-literal blocker integrated/live-accepted; open release-blocking P1 = 0 |
 | G8 | 100% deterministic offline PB cases automated and green | PASS: executable PB01–PB33 + PB39 mapping 34/34; `npm run test:pbv1` 1228/1228 |
@@ -415,10 +416,11 @@ green, создавать новый mechanism при подходящем су�
 
 ## 12. Current decision
 
-Verified feature candidate **готов к отдельной integration/push authorization**:
-G8 закрыт current-baseline evidence, executable PB-v1 mapping даёт 34/34, PB06
-deterministic/review/live evidence PASS. R8 technical gates green, но closure и
-R9 ждут G5 Windows/Linux/macOS CI на интегрированном candidate. D22/D23/D24 не переносились.
+Integrated candidate `36ae0810acbb55dfa447621a7ebd39aca4054de0`
+прошёл все R8 gates: G8 current-baseline evidence, executable PB-v1 mapping
+34/34, PB06 deterministic/review/live evidence и G5 Windows/Linux/macOS CI run
+`33394395478` — PASS. R8 закрыт; project готов к отдельно авторизуемому R9.
+D22/D23/D24 не переносились.
 D6, D3, D4, D2, D5, D7, D8, D9,
 D11, D12, D13, D14, D15b, D17, D18, D19 и D20 закрыты после требуемой
 deterministic coverage, independent review и, где требовалось, Windows live.
@@ -426,7 +428,7 @@ R5/R6/R7 — `PASS / CLOSED`; D10 final independent re-review и Windows desktop
 PB39 PASS 3/3 сохранены. Launch-literal blocker интегрирован в master
 `551325ac21620835af399b6cf1edd25cfd17915c` и live-accepted в R7.
 
-Open P0 = 0 и open release-blocking P1 = 0; G1–G4 и G6–G16 — PASS, G5 — PENDING.
+Open P0 = 0 и open release-blocking P1 = 0; G1–G16 — PASS.
 Tracked P2 = 2:
 D10 остаётся `PASS / INTEGRATED` для v1.0 с residual real macOS/Linux GUI
 shutdown coverage, а D15a — `OPEN / CAPABILITY UNRESOLVED` без invented DeepSeek
@@ -435,14 +437,15 @@ production defect и после successful R5 не является v1.0 blocker
 verdict `PASS WITH COLLATERAL FINDING` не переоткрывает usage contract.
 
 R8 evidence: authoritative full and PB-v1 suites 38 files / 1228 tests, all
-mandatory local gates, retained base-`551325ac` cross-platform CI, executable 34/34 PB mapping,
+mandatory local gates, exact-candidate cross-platform CI run `33394395478`,
+executable 34/34 PB mapping,
 PB06 independent review and exact targeted live PASS. Post-change bounded
 Windows live on isolated Claude Code 2.1.241 passed text,
 Write→Read→Edit→fresh Read, Bash bounded recovery and same-session continuation
 with exact final file `R8-FINAL-731`; correlation remained correct and guard
 exhaustion, unexpected 502/429, schema rejection, replay/duplicate and hang/crash
-were absent. R8 is `TECHNICAL PASS / AWAITING G5`; R9 is `NOT STARTED` pending
-explicit integration/push authorization and green candidate CI.
+were absent. R8 is `PASS / CLOSED`; project is `READY FOR R9 — v1.0 RELEASE
+CANDIDATE`. R9 remains `NOT STARTED` pending separate explicit authorization.
 
 D11 имеет статус `CLOSED`: implementation `cd0b335` прошла independent review,
 а Windows Claude Code 2.1.241 / `deepseek-v4-flash` live выполнил настоящий

@@ -10,15 +10,15 @@
 
 **DEVELOPMENT MODE:** `RELEASE HARDENING / SCOPE FREEZE FOR v1.0`
 
-**CURRENT RELEASE STATUS:** `R8 TECHNICAL PASS / AWAITING CANDIDATE CI`; R9
-`NOT STARTED`,
-tag/release/version bump не выполнялись. Current verified feature branch:
-`fix/pb06-absence-verification`, based on production master
-`551325ac21620835af399b6cf1edd25cfd17915c`; PB06 implementation commit is
-`0e296ee4389107bb6b245a274b914e4950a9969c`. Merge/push не выполнялись.
+**CURRENT RELEASE STATUS:** `R8 PASS / CLOSED`; project is `READY FOR R9 — v1.0
+RELEASE CANDIDATE`. R9 remains `NOT STARTED`; tag/release/version bump не
+выполнялись. Integrated candidate code/evidence SHA:
+`36ae0810acbb55dfa447621a7ebd39aca4054de0`; PB06 implementation commit is
+`0e296ee4389107bb6b245a274b914e4950a9969c`.
 
-**RELEASE ACCEPTANCE:** R1–R7 — `PASS / CLOSED`; R8 technical/local/live gates
-PASS, но closure ожидает G5 CI на интегрированном candidate. R5 завершён тремя qualifying
+**RELEASE ACCEPTANCE:** R1–R8 — `PASS / CLOSED`. G5 candidate CI run
+`33394395478` passed on Windows, Ubuntu and macOS for exact integrated SHA
+`36ae0810acbb55dfa447621a7ebd39aca4054de0`. R5 завершён тремя qualifying
 30–50-tool runs, R6 — реальным Claude Code `/compact`, R7 — Windows
 restart/resume/persistence acceptance. Узкий R7 launch-literal fix интегрирован:
 quoted/backticked filename/value data больше не создают false `launch`, а
@@ -34,6 +34,8 @@ isolated Claude Code 2.1.241 / `deepseek-v4-flash` выполнил ровно
 Write→Read→Edit→fresh Read, Bash bounded recovery и same-session continuation;
 final file exact `R8-FINAL-731`. Guard exhaustion, unexpected 502/429,
 `JSON but not a Message`, replay/duplicate и hang/crash отсутствовали.
+Candidate cross-platform CI run `33394395478` passed Windows, Ubuntu and macOS
+on exact SHA `36ae0810acbb55dfa447621a7ebd39aca4054de0`; G5 is PASS.
 
 **ACTIVE RELEASE BLOCKERS:** open P0 = 0, open release-blocking P1 = 0. Два
 tracked P2 остаются non-blocking для v1.0: D10 real macOS/Linux GUI shutdown
@@ -68,13 +70,12 @@ changes в clean baseline не переносились.
 **R3:** `PASS`: A TEXT, B WRITE/READ, C WRITE/EDIT/READ и D BASH — `PASS`.
 **R4/G8:** `PASS 34/34`; **R5:** `PASS / CLOSED`;
 **R6:** `PASS / CLOSED`; **R7:** `PASS / CLOSED`; **R8:**
-`TECHNICAL PASS / AWAITING G5`.
+`PASS / CLOSED`.
 
 **D10:** `PASS`; **PB39:** `PASS 3/3`.
 
-**NEXT:** explicit integration/push authorization for the verified PB06/G8/R8
-feature candidate, then Windows/Linux/macOS CI (G5). Только после green candidate
-CI закрываются R8 и переход к R9. D19/D20, D3/D4, rate-limit и
+**NEXT:** R9 — v1.0 release candidate, only after separate explicit
+authorization. D19/D20, D3/D4, rate-limit и
 usage contracts не переоткрывать без regression evidence; D22/D23/D24 abandoned
 changes не переносить.
 
@@ -95,9 +96,9 @@ Anthropic-compatible Bridge → DeepSeek Web. Единый audit backlog, frozen
 benchmark и release gates находятся в [`PRODUCTION_READINESS.md`](PRODUCTION_READINESS.md).
 OpenCode, новые providers и новые UI-функции deferred до прохождения gates.
 
-**Текущий production status:** verified feature candidate прошёл local/offline/
-live R8 evidence и ready for integration authorization, но G5 candidate CI ещё
-не запускался. G1–G4 и G6–G16 — PASS, G5 — PENDING; open P0/P1 = 0/0. Это не
+**Текущий production status:** integrated candidate прошёл local/offline/live R8
+evidence и exact-SHA candidate CI run `33394395478` на Windows, Ubuntu и macOS.
+G1–G16 — PASS; open P0/P1 = 0/0; R8 — `PASS / CLOSED`. Это не
 заявление об отсутствии bugs и не означает, что v1.0 tag/release создан.
 D6 persistence collision закрыт после independent review, deterministic offline
 coverage и реальной Windows Claude Code restart/resume проверки. D3 upstream
@@ -150,7 +151,7 @@ distinct target остаётся ambiguous, а raw allowed marker не прох�
 R2 подтвердил точный Write→Read supported flow без unexpected 5xx/502,
 hang/crash или raw marker leak; correlation, auth integrity и shutdown sanity —
 PASS. D18 — `CLOSED`; позднейшие R5/R6/R7 release gates также прошли, а R8
-local/deterministic/live evidence — PASS при pending G5 candidate CI.
+local/deterministic/live evidence и exact-candidate G5 CI — PASS.
 D19 исправил подтверждённый pre-existing R3-C duplicate-execution defect:
 exact prompt выводит две `file_mutation` obligations (create + required `Edit`)
 и одну final `file_verification`; completed actions не допускаются повторно

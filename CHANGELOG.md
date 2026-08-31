@@ -3,6 +3,20 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-31 — Close R8 on candidate CI
+
+- Fast-forward integrated PB06/G8 commits `0e296ee4389107bb6b245a274b914e4950a9969c`
+  and `36ae0810acbb55dfa447621a7ebd39aca4054de0` into `master` without a merge
+  commit; all post-merge local gates remained green at 38 files / 1228 tests.
+- Candidate CI run `33394395478` executed against exact SHA
+  `36ae0810acbb55dfa447621a7ebd39aca4054de0`: `windows-latest`,
+  `ubuntu-latest` and `macos-latest` all PASS.
+- G5 is PASS, all G1–G16 are PASS, R8 is `PASS / CLOSED`, and the project is
+  `READY FOR R9 — v1.0 RELEASE CANDIDATE`. R9 remains `NOT STARTED`; no version
+  bump, tag or GitHub release was created.
+- Open P0/P1 remain 0/0. D22/D23/D24 were not restored; R5/R6/R7 and the
+  D3/D4, rate-limit and usage contracts were not reopened.
+
 ## 2026-08-31 — Restore current-baseline PB-v1; await candidate CI
 
 - PB06 current-baseline implementation `0e296ee4389107bb6b245a274b914e4950a9969c`
