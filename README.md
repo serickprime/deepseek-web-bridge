@@ -1,5 +1,9 @@
 # DeepSeek Web Bridge
 
+> **Version 1.0.0-rc.1 — Release Candidate.** Это предварительный кандидат,
+> а не финальный стабильный v1.0.0. Frozen live baseline для RC: Claude Code
+> 2.1.241 и `deepseek-v4-flash`.
+
 Локальный мост, который превращает вашу собственную авторизованную веб-сессию
 `chat.deepseek.com` в локальный API для Claude Code, OpenCode и других
 OpenAI-совместимых клиентов.
@@ -59,6 +63,20 @@ Claude Code или OpenCode нужны только для запуска соо
 и откроет [официальную страницу загрузки Node.js](https://nodejs.org/en/download).
 Никакая программа при этом не устанавливается скрытно. Chrome можно скачать с
 [официальной страницы](https://www.google.com/chrome/download-chrome).
+
+### Коротко о неполадках
+
+- **Нет Node.js или версия ниже 20:** установите Node.js 20+ и снова запустите
+  START.
+- **Chrome не найден:** установите Google Chrome и повторите AUTH.
+- **DeepSeek auth истёк:** снова нажмите **AUTH** (или выполните
+  `npm run auth`) и завершите вход вручную.
+- **429 / rate limit:** подождите и повторите запрос позже; Bridge не обходит
+  лимиты DeepSeek.
+- **Порт 9655 занят:** проверьте, не запущен ли Bridge уже. Используйте открытый
+  Bridge Console либо штатно завершите прежний экземпляр.
+- **Claude Code не установлен:** установите Claude Code, убедитесь, что
+  `claude --version` работает, затем снова нажмите **Launch Claude Code**.
 
 ## Ручной запуск / Для разработчиков
 

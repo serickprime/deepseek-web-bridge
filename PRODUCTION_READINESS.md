@@ -1,6 +1,6 @@
 # Production Readiness
 
-> **Статус:** `R8 PASS / CLOSED — READY FOR R9; R9 NOT STARTED`
+> **Статус:** `R8 PASS / CLOSED — R9 IN PROGRESS for v1.0.0-rc.1; R10 NOT STARTED`
 >
 > **Validated candidate:** `36ae0810acbb55dfa447621a7ebd39aca4054de0`; PB06 implementation `0e296ee4389107bb6b245a274b914e4950a9969c`; cross-platform CI run `33394395478`
 >
@@ -93,9 +93,9 @@ Write→Read→Edit→fresh Read, Bash bounded recovery and same-session continu
 without guard exhaustion, unexpected 502/429, schema error, replay/duplicate or
 hang/crash. D22/D23/D24 were not restored. G5 candidate CI run `33394395478`
 passed Windows, Ubuntu and macOS on exact integrated SHA
-`36ae0810acbb55dfa447621a7ebd39aca4054de0`. R8 is closed, R9 is not started,
-and no v1.0
-tag/version/release exists yet.
+`36ae0810acbb55dfa447621a7ebd39aca4054de0`. R8 is closed. R9 is in progress
+on `release/v1.0.0-rc.1`; the RC is not tagged or published yet, and final
+stable v1.0.0/R10 is not authorized.
 
 ### v1.0 RC exit criteria
 
@@ -419,7 +419,8 @@ green, создавать новый mechanism при подходящем су�
 Integrated candidate `36ae0810acbb55dfa447621a7ebd39aca4054de0`
 прошёл все R8 gates: G8 current-baseline evidence, executable PB-v1 mapping
 34/34, PB06 deterministic/review/live evidence и G5 Windows/Linux/macOS CI run
-`33394395478` — PASS. R8 закрыт; project готов к отдельно авторизуемому R9.
+`33394395478` — PASS. R8 закрыт; R9 `v1.0.0-rc.1` is in progress on the
+dedicated release branch. R10 final stable v1.0.0 is not started or authorized.
 D22/D23/D24 не переносились.
 D6, D3, D4, D2, D5, D7, D8, D9,
 D11, D12, D13, D14, D15b, D17, D18, D19 и D20 закрыты после требуемой
@@ -444,8 +445,8 @@ Windows live on isolated Claude Code 2.1.241 passed text,
 Write→Read→Edit→fresh Read, Bash bounded recovery and same-session continuation
 with exact final file `R8-FINAL-731`; correlation remained correct and guard
 exhaustion, unexpected 502/429, schema rejection, replay/duplicate and hang/crash
-were absent. R8 is `PASS / CLOSED`; project is `READY FOR R9 — v1.0 RELEASE
-CANDIDATE`. R9 remains `NOT STARTED` pending separate explicit authorization.
+were absent. R8 is `PASS / CLOSED`; R9 is `IN PROGRESS` for release candidate
+`v1.0.0-rc.1`. R10 final stable v1.0.0 remains `NOT STARTED`.
 
 D11 имеет статус `CLOSED`: implementation `cd0b335` прошла independent review,
 а Windows Claude Code 2.1.241 / `deepseek-v4-flash` live выполнил настоящий

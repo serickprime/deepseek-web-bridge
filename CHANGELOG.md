@@ -3,6 +3,20 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-31 — Prepare v1.0.0-rc.1 release candidate
+
+- Started R9 on `release/v1.0.0-rc.1` from exact R8 master
+  `198da80782cfa755711b185cb8b06c8af7d7c049`; package/root lock metadata now
+  identify version `1.0.0-rc.1` without creating a tag.
+- Release-facing documentation identifies this build as an RC rather than final
+  stable v1.0.0, retains Node.js 20+, own authenticated DeepSeek Web session and
+  unofficial-Web-API limitations, and records Claude Code 2.1.241 with
+  `deepseek-v4-flash` as the frozen validated live baseline.
+- Added concise student troubleshooting and RC release notes. R9 remains
+  `IN PROGRESS` until clean install, clean AUTH/Claude acceptance, independent
+  review, exact-SHA cross-platform CI, tag and pre-release publication pass.
+- R10 remains `NOT STARTED`; open P0/P1 remain 0/0.
+
 ## 2026-08-31 — Close R8 on candidate CI
 
 - Fast-forward integrated PB06/G8 commits `0e296ee4389107bb6b245a274b914e4950a9969c`
@@ -2384,7 +2398,7 @@ Cross-check: файлы не смешиваются, lineage изолирова�
 
 ### Наблюдение (не баг)
 
-DeepSeek однажды придумал абсолютный путь `C:\Users\Mi\session-B.txt`
+DeepSeek однажды придумал абсолютный путь `C:\Users\Example\session-B.txt`
 вместо использования cwd `D:\test 2`. Изолированный случай.
 
 ### Live-тест: длинная цепочка 5+ tool-вызовов — подтверждено

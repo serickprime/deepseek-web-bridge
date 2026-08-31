@@ -10,9 +10,9 @@
 
 **DEVELOPMENT MODE:** `RELEASE HARDENING / SCOPE FREEZE FOR v1.0`
 
-**CURRENT RELEASE STATUS:** `R8 PASS / CLOSED`; project is `READY FOR R9 — v1.0
-RELEASE CANDIDATE`. R9 remains `NOT STARTED`; tag/release/version bump не
-выполнялись. Integrated candidate code/evidence SHA:
+**CURRENT RELEASE STATUS:** `R8 PASS / CLOSED`; `R9 IN PROGRESS` for
+`v1.0.0-rc.1`. R10 final v1.0.0 remains `NOT STARTED` and is not authorized.
+No RC tag or GitHub pre-release exists yet. Integrated R8 code/evidence SHA:
 `36ae0810acbb55dfa447621a7ebd39aca4054de0`; PB06 implementation commit is
 `0e296ee4389107bb6b245a274b914e4950a9969c`.
 
@@ -74,8 +74,9 @@ changes в clean baseline не переносились.
 
 **D10:** `PASS`; **PB39:** `PASS 3/3`.
 
-**NEXT:** R9 — v1.0 release candidate, only after separate explicit
-authorization. D19/D20, D3/D4, rate-limit и
+**NEXT:** complete R9 clean-source installation, clean AUTH/Claude acceptance,
+independent RC review, exact-SHA cross-platform CI, annotated
+`v1.0.0-rc.1` tag and GitHub pre-release. D19/D20, D3/D4, rate-limit и
 usage contracts не переоткрывать без regression evidence; D22/D23/D24 abandoned
 changes не переносить.
 
@@ -96,9 +97,11 @@ Anthropic-compatible Bridge → DeepSeek Web. Единый audit backlog, frozen
 benchmark и release gates находятся в [`PRODUCTION_READINESS.md`](PRODUCTION_READINESS.md).
 OpenCode, новые providers и новые UI-функции deferred до прохождения gates.
 
-**Текущий production status:** integrated candidate прошёл local/offline/live R8
-evidence и exact-SHA candidate CI run `33394395478` на Windows, Ubuntu и macOS.
-G1–G16 — PASS; open P0/P1 = 0/0; R8 — `PASS / CLOSED`. Это не
+**Текущий production status:** version metadata is `1.0.0-rc.1` on release
+branch `release/v1.0.0-rc.1`; R9 is `IN PROGRESS`. Integrated baseline прошёл
+local/offline/live R8 evidence и exact-SHA candidate CI run `33394395478` на
+Windows, Ubuntu и macOS. G1–G16 — PASS; open P0/P1 = 0/0; R8 — `PASS / CLOSED`.
+RC ещё не tagged/published. Это не
 заявление об отсутствии bugs и не означает, что v1.0 tag/release создан.
 D6 persistence collision закрыт после independent review, deterministic offline
 coverage и реальной Windows Claude Code restart/resume проверки. D3 upstream
@@ -1268,7 +1271,7 @@ OpenCode config не изменялся.
       `lineage.removeByUpstreamKey()` + лог `auth_expired_session_reset`.
       14 offline-тестов (`authExpired401.test.ts`).
 - [x] DeepSeek иногда придумывает абсолютный путь (например
-      `C:\Users\Mi\session-B.txt`) вместо использования cwd/относительного
+      `C:\Users\Example\session-B.txt`) вместо использования cwd/относительного
       пути. **Prompt fix implemented**: добавлены PATH RULES в tool prompt
       (rule 8a-f: cwd = source of truth, запрет на изобретение путей,
       разрешение от cwd, проверка cwd через Bash, исключение явных путей
