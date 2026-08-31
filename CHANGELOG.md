@@ -3,6 +3,24 @@
 Все заметные изменения — здесь. Формат: `YYYY-MM-DD`, краткое описание, ссылка
 на файлы. Статусы фаз и пробелы всегда актуализируются в `PROJECT_STATE.md`.
 
+## 2026-08-31 — Prepare v1.0.0-rc.2 Claude gateway-discovery fix
+
+- Confirmed an rc.1 release blocker isolated to Bridge Console integration:
+  GUI-launched Claude Code 2.1.246 received the Bridge endpoints but not
+  `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1`, so text worked while built-in
+  tools were unavailable. The documented manual launch with the flag passed.
+- Added the flag only to Claude Code child environments on Windows, macOS and
+  Linux, including the native Unix runner. OpenCode environment and all tool,
+  guard, session, lineage, retry, usage and transport contracts are unchanged.
+- Version metadata now targets `1.0.0-rc.2`. Published tag `v1.0.0-rc.1` remains
+  untouched; R10 final stable v1.0.0 remains `NOT STARTED`.
+- Offline gates pass with 38 files / 1229 tests, including direct Windows and
+  shared Unix runner environment regressions. Independent review is `PASS`.
+- Clean Windows Bridge Console live acceptance is `PASS`: GUI-launched Claude
+  Code 2.1.246 exposed real Bash, Write and Read calls with 3/3 correlation and
+  no manual gateway environment; bounded 2.1.241 Read smoke also passed. Open
+  P0/P1 is now 0/0; exact-SHA cross-platform CI remains before RC.2 publication.
+
 ## 2026-08-31 — Close R9 and publish v1.0.0-rc.1
 
 - R9 is `PASS / CLOSED`. Clean source installation from a Unicode/space path,

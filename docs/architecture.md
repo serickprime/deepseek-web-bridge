@@ -357,7 +357,10 @@ browser user-agent не участвует. Read-only endpoint публичен 
 - macOS/Linux используют временный mode-0700 `sh` runner с фиксированным кодом.
   Он принимает cwd, Bridge env и CLI как argv, экспортирует
   `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `OPENAI_API_BASE`,
-  `OPENAI_API_KEY`, записывает свой PID в private temp file и делает `exec` CLI.
+  `OPENAI_API_KEY` и, только для Claude Code,
+  `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1`, записывает свой PID в private
+  temp file и делает `exec` CLI. Windows Claude child получает тот же
+  Claude-specific discovery flag непосредственно через `spawn` env.
 - OpenCode получает только в дочернем процессе `OPENCODE_CONFIG_CONTENT` с
   custom provider `deepseek-bridge` и явный `--model
   deepseek-bridge/deepseek-v4-*`. Глобальные файлы конфигурации OpenCode не

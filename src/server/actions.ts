@@ -526,6 +526,13 @@ function getBridgeEnv(): Record<string, string> {
   };
 }
 
+function getClaudeBridgeEnv(): Record<string, string> {
+  return {
+    ...getBridgeEnv(),
+    CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY: "1",
+  };
+}
+
 export function buildOpenCodeBridgeConfig(): string {
   return JSON.stringify({
     $schema: "https://opencode.ai/config.json",
@@ -610,11 +617,12 @@ export function launchClaudeCode(
   }
   const args: string[] = [];
   if (selectedModel) args.push("--model", selectedModel);
+  const bridgeEnv = getClaudeBridgeEnv();
   const platform = options.platform ?? process.platform;
   if (platform !== "win32") {
-    return launchNativeTerminal("claude", args, workDir, getBridgeEnv(), send, options);
+    return launchNativeTerminal("claude", args, workDir, bridgeEnv, send, options);
   }
-  const child = launchProcess("claude", args, workDir, send, getBridgeEnv());
+  const child = launchProcess("claude", args, workDir, send, bridgeEnv);
   trackProcess(child);
   return child;
 }

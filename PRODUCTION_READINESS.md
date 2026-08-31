@@ -1,12 +1,12 @@
 # Production Readiness
 
-> **Статус:** `R9 PASS / CLOSED — v1.0.0-rc.1 AVAILABLE FOR RELEASE-CANDIDATE TESTING; R10 NOT STARTED`
+> **Статус:** `RC.2 LIVE/REVIEW PASS; AWAITING EXACT-SHA CI; R10 NOT STARTED`
 >
-> **Validated RC:** tag `v1.0.0-rc.1` → `f3dd11733582effb02486a954b0e4022cc350d65`; cross-platform CI run `33398844646`
+> **Published RC.1:** tag `v1.0.0-rc.1` → `f3dd11733582effb02486a954b0e4022cc350d65` (immutable; GUI-launch tool discovery blocker confirmed)
 >
-> **Offline baseline:** 38 test files, 1228 tests
+> **Offline baseline:** 38 test files, 1229 tests
 >
-> **Открыто:** P0 — 0, release-blocking P1 — 0; tracked P2 — 2; deferred P3 — 1
+> **Открыто:** P0 — 0, release-blocking P1 — 0 after RC.2 independent review and Windows GUI acceptance; tracked P2 — 2; deferred P3 — 1
 > **Production scope:** Claude Code → Anthropic-compatible Bridge → DeepSeek Web → Bridge → Claude Code
 
 Этот файл — главный источник production-hardening backlog, frozen benchmark и

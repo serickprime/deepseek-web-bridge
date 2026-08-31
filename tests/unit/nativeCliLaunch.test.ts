@@ -14,6 +14,7 @@ import * as childProcess from "node:child_process";
 import { launchClaudeCode, launchOpenCode } from "../../src/server/actions.js";
 import {
   buildLinuxTerminalCommand,
+  createUnixCliRunner,
   quotePosixShellArg,
   resolveUnixWorkDir,
   stopNativeTerminalLaunches,
@@ -81,6 +82,32 @@ async function seedMissingNativePidFiles(): Promise<void> {
   }
 }
 
+describe("POSIX CLI runner environment", () => {
+  it("exports gateway discovery for Claude without adding it to OpenCode", async () => {
+    const cwd = await unicodeWorkDir();
+    const baseEnv = {
+      ANTHROPIC_BASE_URL: "http://127.0.0.1:9655",
+      ANTHROPIC_AUTH_TOKEN: "local-key",
+      OPENAI_API_BASE: "http://127.0.0.1:9655/v1",
+      OPENAI_API_KEY: "local-key",
+    };
+    const claudeRunner = createUnixCliRunner(cwd, {
+      ...baseEnv,
+      CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY: "1",
+    }, "claude", ["--model", "deepseek-v4-flash"]);
+    const openCodeRunner = createUnixCliRunner(cwd, {
+      ...baseEnv,
+      OPENCODE_CONFIG_CONTENT: "bridge-config",
+    }, "opencode", ["--model", "deepseek-bridge/deepseek-v4-flash"]);
+    tempDirs.push(claudeRunner.tempDir, openCodeRunner.tempDir);
+
+    expect(claudeRunner.runnerArgs.slice(7, 10)).toEqual(["1", "", "claude"]);
+    expect(openCodeRunner.runnerArgs.slice(7, 10)).toEqual(["", "bridge-config", "opencode"]);
+    const runnerSource = fs.readFileSync(claudeRunner.runnerArgs[0]!, "utf8");
+    expect(runnerSource).toContain('export CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY="$claude_gateway_model_discovery"');
+  });
+});
+
 afterEach(async () => {
   await seedMissingNativePidFiles();
   await stopNativeTerminalLaunches();
@@ -108,6 +135,11 @@ describe("macOS native Terminal.app launch", () => {
     expect(args![2]).toContain(quotePosixShellArg("--model"));
     expect(args![2]).toContain(quotePosixShellArg("deepseek-v4-pro"));
     expect(options).toMatchObject({ cwd, shell: false, detached: true });
+    expect(options?.env).toEqual(expect.objectContaining({
+      ANTHROPIC_BASE_URL: "http://127.0.0.1:9655",
+      ANTHROPIC_AUTH_TOKEN: "local-key",
+      CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY: "1",
+    }));
   });
 
   it("launches OpenCode and propagates all Bridge environment variables", async () => {
@@ -140,6 +172,7 @@ describe("macOS native Terminal.app launch", () => {
         OPENCODE_CONFIG_CONTENT: expect.stringContaining('"deepseek-bridge"'),
       }),
     });
+    expect(options?.env).not.toHaveProperty("CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY");
   });
 
   it("keeps Unicode and shell metacharacters out of the static AppleScript source", async () => {
@@ -203,6 +236,7 @@ describe("Linux native terminal launch", () => {
         ANTHROPIC_AUTH_TOKEN: "local-key",
         OPENAI_API_BASE: "http://127.0.0.1:9655/v1",
         OPENAI_API_KEY: "local-key",
+        CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY: "1",
       }),
     });
   });

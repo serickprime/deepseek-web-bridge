@@ -1,8 +1,9 @@
 # DeepSeek Web Bridge
 
-> **Version 1.0.0-rc.1 — Release Candidate.** Это предварительный кандидат,
-> а не финальный стабильный v1.0.0. Frozen live baseline для RC: Claude Code
-> 2.1.241 и `deepseek-v4-flash`.
+> **Version 1.0.0-rc.2 — Release Candidate.** Это предварительный кандидат,
+> а не финальный стабильный v1.0.0. RC.2 сохраняет Claude Code 2.1.241 как
+> frozen baseline и добавляет GUI-launch compatibility для Claude Code 2.1.246;
+> primary validated model — `deepseek-v4-flash`.
 
 Локальный мост, который превращает вашу собственную авторизованную веб-сессию
 `chat.deepseek.com` в локальный API для Claude Code, OpenCode и других

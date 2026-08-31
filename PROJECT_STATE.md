@@ -10,9 +10,9 @@
 
 **DEVELOPMENT MODE:** `RELEASE HARDENING / SCOPE FREEZE FOR v1.0`
 
-**CURRENT RELEASE STATUS:** `R9 PASS / CLOSED`; release candidate
-`v1.0.0-rc.1` is published and available for release-candidate testing. The
-annotated RC tag remains fixed at tested commit
+**CURRENT RELEASE STATUS:** published `v1.0.0-rc.1` has a confirmed GUI-launch
+tool-discovery blocker. Corrective candidate `v1.0.0-rc.2` is `LIVE/REVIEW PASS; AWAITING EXACT-SHA CI` on
+`fix/rc2-claude-gateway-discovery`. The rc.1 annotated tag remains fixed at
 `f3dd11733582effb02486a954b0e4022cc350d65`. R10 final v1.0.0 remains
 `NOT STARTED` and is not authorized.
 
@@ -37,7 +37,11 @@ final file exact `R8-FINAL-731`. Guard exhaustion, unexpected 502/429,
 Candidate cross-platform CI run `33394395478` passed Windows, Ubuntu and macOS
 on exact SHA `36ae0810acbb55dfa447621a7ebd39aca4054de0`; G5 is PASS.
 
-**ACTIVE RELEASE BLOCKERS:** open P0 = 0, open release-blocking P1 = 0. Два
+**ACTIVE RELEASE BLOCKERS:** open P0 = 0, open release-blocking P1 = 0 after
+RC.2 launcher offline, independent-review and Windows GUI acceptance passed. Bridge Console previously omitted
+`CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1` when launching Claude Code, so
+2.1.246 text worked but built-in tools were unavailable; the documented manual
+PowerShell path passed with that exact flag. Два
 tracked P2 остаются non-blocking для v1.0: D10 real macOS/Linux GUI shutdown
 coverage residual (Windows PB39 3/3 PASS) и D15a output-limit capability
 unresolved. D1 остаётся unconfirmed/deferred P3. Это не означает «zero bugs»;
@@ -74,8 +78,9 @@ changes в clean baseline не переносились.
 
 **D10:** `PASS`; **PB39:** `PASS 3/3`.
 
-**NEXT:** release-candidate testing of published `v1.0.0-rc.1`. R10 final
-stable v1.0.0 remains `NOT STARTED` and requires separate authorization.
+**NEXT:** complete exact-SHA cross-platform CI acceptance for corrective
+`v1.0.0-rc.2`, then publish it as a pre-release. R10
+final stable v1.0.0 remains `NOT STARTED` and requires separate authorization.
 D19/D20, D3/D4, rate-limit и usage contracts не переоткрывать без regression
 evidence; D22/D23/D24 abandoned changes не переносить.
 
@@ -96,14 +101,15 @@ Anthropic-compatible Bridge → DeepSeek Web. Единый audit backlog, frozen
 benchmark и release gates находятся в [`PRODUCTION_READINESS.md`](PRODUCTION_READINESS.md).
 OpenCode, новые providers и новые UI-функции deferred до прохождения gates.
 
-**Текущий production status:** version metadata is `1.0.0-rc.1`; R9 is
-`PASS / CLOSED`. Clean source install, AUTH, Claude Code 2.1.241 tool acceptance,
-restart sanity, independent RC review and exact-SHA cross-platform CI run
-`33398844646` all passed for RC commit
-`f3dd11733582effb02486a954b0e4022cc350d65`. Annotated tag
-`v1.0.0-rc.1` and the GitHub pre-release are published. G1–G16 — PASS; open
-P0/P1 = 0/0. This is available for release-candidate testing, not a claim that
-stable `v1.0.0`/R10 has been released.
+**Текущий production status:** version metadata is `1.0.0-rc.2` on the
+corrective fix branch. Published rc.1 remains immutable, but its Bridge Console
+Claude launch omitted gateway discovery and is superseded once rc.2 completes
+acceptance. The narrow rc.2 change is limited to Claude child environment
+propagation across Windows/macOS/Linux; OpenCode and tool/guard/session/
+transport behavior are unchanged. Offline 38 files / 1229 tests, independent
+review and Windows GUI live on Claude Code 2.1.246 plus bounded 2.1.241 smoke
+are PASS. Open P0/P1 = 0/0; exact-SHA cross-platform CI remains before publication.
+This is not a claim that stable `v1.0.0`/R10 has been released.
 D6 persistence collision закрыт после independent review, deterministic offline
 coverage и реальной Windows Claude Code restart/resume проверки. D3 upstream
 stream lifecycle закрыт после independent review и Windows live verification;

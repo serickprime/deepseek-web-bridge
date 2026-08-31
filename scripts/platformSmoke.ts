@@ -26,6 +26,7 @@ const ENV_KEYS = [
   "ANTHROPIC_AUTH_TOKEN",
   "OPENAI_API_BASE",
   "OPENAI_API_KEY",
+  "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY",
 ] as const;
 
 const BRIDGE_ENV: Record<(typeof ENV_KEYS)[number], string> = {
@@ -33,6 +34,7 @@ const BRIDGE_ENV: Record<(typeof ENV_KEYS)[number], string> = {
   ANTHROPIC_AUTH_TOKEN: "platform-smoke-anthropic-placeholder",
   OPENAI_API_BASE: "http://127.0.0.1:19655/v1",
   OPENAI_API_KEY: "platform-smoke-openai-placeholder",
+  CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY: "1",
 };
 
 interface ChildResult {
@@ -111,7 +113,7 @@ async function runChildProbes(root: string, unicodeDir: string): Promise<void> {
   const probeFile = path.join(root, "child-probe.cjs");
   const directResult = path.join(root, "direct-child-result.json");
   await writeFile(probeFile, `const fs = require("node:fs");
-const keys = ["ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "OPENAI_API_BASE", "OPENAI_API_KEY"];
+const keys = ["ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "OPENAI_API_BASE", "OPENAI_API_KEY", "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY"];
 const env = Object.fromEntries(keys.map(key => [key, process.env[key]]));
 fs.writeFileSync(process.argv[2], JSON.stringify({ cwd: process.cwd(), env }), "utf8");
 `, { encoding: "utf8", mode: 0o600 });

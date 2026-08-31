@@ -131,7 +131,13 @@ describe("launcher Unicode cwd", () => {
     vi.mocked(childProcess.spawn).mockReturnValue(child as never);
 
     expect(launchClaudeCode(cwd, "deepseek-v4-pro", vi.fn(), { platform: "win32" })).toBe(child);
-    expect(vi.mocked(childProcess.spawn).mock.calls[0]?.[1]).toEqual(["--model", "deepseek-v4-pro"]);
+    const call = vi.mocked(childProcess.spawn).mock.calls[0]!;
+    expect(call[1]).toEqual(["--model", "deepseek-v4-pro"]);
+    expect(call[2]?.env).toEqual(expect.objectContaining({
+      ANTHROPIC_BASE_URL: "http://127.0.0.1:9655",
+      ANTHROPIC_AUTH_TOKEN: "local-key",
+      CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY: "1",
+    }));
     child.emit("close", 0);
   });
 
@@ -145,6 +151,7 @@ describe("launcher Unicode cwd", () => {
     const call = vi.mocked(childProcess.spawn).mock.calls[0]!;
     expect(call[1]).toEqual(["--model", "deepseek-bridge/deepseek-v4-flash"]);
     expect(call[2]?.env?.OPENCODE_CONFIG_CONTENT).toContain('"name":"DeepSeek Bridge"');
+    expect(call[2]?.env).not.toHaveProperty("CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY");
     child.emit("close", 0);
   });
 });

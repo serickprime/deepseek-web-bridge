@@ -101,8 +101,9 @@ anthropic_base_url=$3
 anthropic_auth_token=$4
 openai_api_base=$5
 openai_api_key=$6
-opencode_config_content=$7
-shift 7
+claude_gateway_model_discovery=$7
+opencode_config_content=$8
+shift 8
 umask 077
 if ! printf '%s\n' "$$" > "$pid_file"; then
   printf 'DeepSeek Bridge: failed to record CLI ownership\n' >&2
@@ -116,6 +117,9 @@ export ANTHROPIC_BASE_URL="$anthropic_base_url"
 export ANTHROPIC_AUTH_TOKEN="$anthropic_auth_token"
 export OPENAI_API_BASE="$openai_api_base"
 export OPENAI_API_KEY="$openai_api_key"
+if [ -n "$claude_gateway_model_discovery" ]; then
+  export CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY="$claude_gateway_model_discovery"
+fi
 if [ -n "$opencode_config_content" ]; then
   export OPENCODE_CONFIG_CONTENT="$opencode_config_content"
 fi
@@ -191,6 +195,7 @@ export function createUnixCliRunner(
       bridgeEnv.ANTHROPIC_AUTH_TOKEN ?? "",
       bridgeEnv.OPENAI_API_BASE ?? "",
       bridgeEnv.OPENAI_API_KEY ?? "",
+      bridgeEnv.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY ?? "",
       bridgeEnv.OPENCODE_CONFIG_CONTENT ?? "",
       command,
       ...args,

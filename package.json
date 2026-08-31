@@ -1,6 +1,6 @@
 {
   "name": "deepseek-web-bridge",
-  "version": "1.0.0-rc.1",
+  "version": "1.0.0-rc.2",
   "private": true,
   "description": "Local OpenAI/Anthropic-compatible bridge for your own authenticated DeepSeek Web session",
   "type": "module",
